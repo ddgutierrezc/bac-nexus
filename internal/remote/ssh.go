@@ -62,6 +62,21 @@ type contextDialer interface {
 
 type clientHandshake func(net.Conn, string, *ssh.ClientConfig) (ssh.Conn, <-chan ssh.NewChannel, <-chan *ssh.Request, error)
 
+func secureClientConfig(user string, auth []ssh.AuthMethod, hostKeyCallback ssh.HostKeyCallback) *ssh.ClientConfig {
+	algorithms := ssh.SupportedAlgorithms()
+	return &ssh.ClientConfig{
+		Config: ssh.Config{
+			KeyExchanges: algorithms.KeyExchanges,
+			Ciphers:      algorithms.Ciphers,
+			MACs:         algorithms.MACs,
+		},
+		User:              user,
+		Auth:              auth,
+		HostKeyCallback:   hostKeyCallback,
+		HostKeyAlgorithms: algorithms.HostKeys,
+	}
+}
+
 func InspectHostKey(ctx context.Context, host string, port int) (HostKeyObservation, error) {
 	return inspectHostKey(ctx, host, port, &net.Dialer{}, ssh.NewClientConn)
 }
@@ -94,24 +109,14 @@ func inspectHostKey(ctx context.Context, host string, port int, dialer contextDi
 		}
 	}()
 
-	algorithms := ssh.SupportedAlgorithms()
 	observation := HostKeyObservation{}
-	config := &ssh.ClientConfig{
-		Config: ssh.Config{
-			KeyExchanges: algorithms.KeyExchanges,
-			Ciphers:      algorithms.Ciphers,
-			MACs:         algorithms.MACs,
-		},
-		User: "nexus-host-key-probe",
-		HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
-			observation = HostKeyObservation{
-				Algorithm: key.Type(), Fingerprint: ssh.FingerprintSHA256(key),
-				Verified: false, TrustCandidate: profile.HostKeyTrustTOFU,
-			}
-			return ErrHostKeyCaptured
-		},
-		HostKeyAlgorithms: algorithms.HostKeys,
-	}
+	config := secureClientConfig("nexus-host-key-probe", nil, func(_ string, _ net.Addr, key ssh.PublicKey) error {
+		observation = HostKeyObservation{
+			Algorithm: key.Type(), Fingerprint: ssh.FingerprintSHA256(key),
+			Verified: false, TrustCandidate: profile.HostKeyTrustTOFU,
+		}
+		return ErrHostKeyCaptured
+	})
 	sshConn, _, _, err := handshake(conn, address, config)
 	if sshConn != nil {
 		_ = sshConn.Close()
@@ -248,11 +253,11 @@ func Dial(ctx context.Context, p profile.Profile, password []byte) (*Client, err
 		case <-handshakeDone:
 		}
 	}()
-	config := &ssh.ClientConfig{
-		User:            p.Username,
-		Auth:            []ssh.AuthMethod{ssh.Password(string(password))},
-		HostKeyCallback: FingerprintCallback(p.HostKeyFingerprint),
-	}
+	config := secureClientConfig(
+		p.Username,
+		[]ssh.AuthMethod{ssh.Password(string(password))},
+		FingerprintCallback(p.HostKeyFingerprint),
+	)
 	sshConn, channels, requests, err := ssh.NewClientConn(conn, address, config)
 	close(handshakeDone)
 	if err != nil {

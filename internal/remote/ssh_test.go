@@ -170,6 +170,33 @@ func TestHostKeyProbeUsesOnlySupportedSecureAlgorithmsAndNoAuth(t *testing.T) {
 	assertNoAlgorithmsOverlap(t, captured.HostKeyAlgorithms, insecure.HostKeys)
 }
 
+func TestInspectAndLiveConfigsShareSupportedSecureAlgorithmPolicy(t *testing.T) {
+	inspect := secureClientConfig("nexus-host-key-probe", nil, FingerprintCallback("inspect"))
+	live := secureClientConfig("USER", []ssh.AuthMethod{ssh.Password("secret")}, FingerprintCallback("live"))
+	supported, insecure := ssh.SupportedAlgorithms(), ssh.InsecureAlgorithms()
+
+	policies := []struct {
+		name      string
+		inspect   []string
+		live      []string
+		supported []string
+		insecure  []string
+	}{
+		{"host keys", inspect.HostKeyAlgorithms, live.HostKeyAlgorithms, supported.HostKeys, insecure.HostKeys},
+		{"key exchanges", inspect.KeyExchanges, live.KeyExchanges, supported.KeyExchanges, insecure.KeyExchanges},
+		{"ciphers", inspect.Ciphers, live.Ciphers, supported.Ciphers, insecure.Ciphers},
+		{"MACs", inspect.MACs, live.MACs, supported.MACs, insecure.MACs},
+	}
+	for _, policy := range policies {
+		t.Run(policy.name, func(t *testing.T) {
+			assertAlgorithmsEqual(t, "inspect and live ordering", policy.inspect, policy.live)
+			assertAlgorithmsEqual(t, "supported ordering", policy.live, policy.supported)
+			assertNoAlgorithmsOverlap(t, policy.inspect, policy.insecure)
+			assertNoAlgorithmsOverlap(t, policy.live, policy.insecure)
+		})
+	}
+}
+
 func TestHostKeyProbeTimeoutClosesConnection(t *testing.T) {
 	client, server := net.Pipe()
 	closed := make(chan struct{})
