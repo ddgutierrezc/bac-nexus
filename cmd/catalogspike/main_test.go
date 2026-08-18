@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -13,7 +14,11 @@ import (
 
 	"bac-nexus/internal/catalog"
 	"bac-nexus/internal/credential"
+	"bac-nexus/internal/mapepire"
 	"bac-nexus/internal/profile"
+	"bac-nexus/internal/remote"
+
+	"golang.org/x/crypto/ssh"
 )
 
 func TestCommandExitBehavior(t *testing.T) {
@@ -103,9 +108,13 @@ type fakeProfiles struct {
 	saved   profile.Profile
 	saveErr error
 	deleted string
+	events  *[]string
 }
 
 func (f *fakeProfiles) Save(p profile.Profile) (string, error) {
+	if f.events != nil {
+		*f.events = append(*f.events, "profile-save")
+	}
 	if f.saveErr != nil {
 		return "", f.saveErr
 	}
@@ -119,16 +128,34 @@ type fakeVaults struct {
 	password   []byte
 	master     []byte
 	setErr     error
+	deleteErr  error
 	deleted    string
+	events     *[]string
+	store      *credential.Store
 }
 
 func (f *fakeVaults) Set(name string, password, master []byte, replace bool) (credential.SetResult, error) {
+	if f.events != nil {
+		*f.events = append(*f.events, "vault-set")
+	}
 	f.setProfile = name
 	f.password = append([]byte(nil), password...)
 	f.master = append([]byte(nil), master...)
+	if f.store != nil && f.setErr == nil {
+		return f.store.Set(name, password, master, replace)
+	}
 	return credential.SetResult{Path: "vault", Committed: f.setErr == nil}, f.setErr
 }
-func (f *fakeVaults) Delete(name string) (bool, error) { f.deleted = name; return true, nil }
+func (f *fakeVaults) Delete(name string) (bool, error) {
+	if f.events != nil {
+		*f.events = append(*f.events, "vault-delete")
+	}
+	f.deleted = name
+	if f.deleteErr == nil && f.store != nil {
+		return f.store.Delete(name)
+	}
+	return f.deleteErr == nil, f.deleteErr
+}
 
 func setupReaders(lines []string, secrets [][]byte) (func(string) (string, error), secretReader) {
 	lineIndex, secretIndex := 0, 0
@@ -149,21 +176,33 @@ func setupReaders(lines []string, secrets [][]byte) (func(string) (string, error
 		}
 }
 
+func fakeHostKeyInspection(context.Context, string, int) (remote.HostKeyObservation, error) {
+	return remote.HostKeyObservation{Algorithm: ssh.KeyAlgoED25519, Fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", TrustCandidate: profile.HostKeyTrustTOFU}, nil
+}
+
+func noJARDiscovery() mapepire.DiscoveryResult {
+	return mapepire.DiscoveryResult{Status: mapepire.DiscoveryNotFound}
+}
+
 func TestExecuteSetupHappyPathDoesNotExposeSecrets(t *testing.T) {
-	profiles := &fakeProfiles{}
-	vaults := &fakeVaults{}
+	var events []string
+	profiles := &fakeProfiles{events: &events}
+	vaults := &fakeVaults{events: &events}
 	readLine, readSecret := setupReaders(
-		[]string{"dev", "ibmi.example.test", "", "NEXUSUSER", "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "", filepath.Join(t.TempDir(), "mapepire.jar"), "yes"},
+		[]string{"dev", "ibmi.example.test", "", "manual", "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "NEXUSUSER", "", filepath.Join(t.TempDir(), "mapepire.jar"), "yes"},
 		[][]byte{[]byte("ibmi-password"), []byte("master-passphrase"), []byte("master-passphrase")},
 	)
 	var output bytes.Buffer
 	var notices bytes.Buffer
-	err := executeSetup(setupDependencies{Profiles: profiles, Vaults: vaults, ReadLine: readLine, ReadSecret: readSecret, VerifyJAR: func(string) error { return nil }, Output: &output, Notices: &notices})
+	err := executeSetup(setupDependencies{Profiles: profiles, Vaults: vaults, ReadLine: readLine, ReadSecret: readSecret, DiscoverJAR: noJARDiscovery, VerifyJAR: func(string) error { return nil }, InspectKey: fakeHostKeyInspection, Output: &output, Notices: &notices})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if profiles.saved.Port != 22 || profiles.saved.MapepireJAR == "" || profiles.saved.CredentialMode != profile.CredentialModeVault || vaults.setProfile != "dev" {
+	if profiles.saved.Port != 22 || profiles.saved.MapepireJAR == "" || profiles.saved.CredentialMode != profile.CredentialModeVault || profiles.saved.HostKeyTrust != profile.HostKeyTrustVerified || vaults.setProfile != "dev" {
 		t.Fatalf("setup state = %#v, %#v", profiles.saved, vaults)
+	}
+	if strings.Join(events, ",") != "vault-set,profile-save" {
+		t.Fatalf("publication order = %v, want vault before profile commit marker", events)
 	}
 	var document map[string]any
 	decoder := json.NewDecoder(strings.NewReader(output.String()))
@@ -173,13 +212,194 @@ func TestExecuteSetupHappyPathDoesNotExposeSecrets(t *testing.T) {
 	if err := decoder.Decode(&document); !errors.Is(err, io.EOF) {
 		t.Fatalf("stdout contains more than one JSON document: %q", output.String())
 	}
-	if strings.Contains(output.String(), "Host-key fingerprint discovery") || !strings.Contains(notices.String(), "Host-key fingerprint discovery") {
+	if strings.Contains(output.String(), "Host-key inspection") || !strings.Contains(notices.String(), "Host-key inspection") {
 		t.Fatalf("stdout/notices = %q/%q", output.String(), notices.String())
 	}
 	for _, secret := range []string{"ibmi-password", "master-passphrase"} {
 		if strings.Contains(output.String(), secret) {
 			t.Fatalf("output contains secret %q", secret)
 		}
+	}
+}
+
+func TestExecuteSetupStoresAutomaticallyDiscoveredJARWithoutManualPrompt(t *testing.T) {
+	jar := filepath.Join(t.TempDir(), "mapepire-server-2.3.5.jar")
+	lines := []string{"dev", "ibmi.example.test", "22", "manual", "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "USER", "", "yes"}
+	lineIndex := 0
+	var labels []string
+	readLine := func(label string) (string, error) {
+		labels = append(labels, label)
+		if lineIndex >= len(lines) {
+			return "", io.EOF
+		}
+		value := lines[lineIndex]
+		lineIndex++
+		return value, nil
+	}
+	_, readSecret := setupReaders(nil, [][]byte{[]byte("password"), []byte("master"), []byte("master")})
+	profiles, vaults := &fakeProfiles{}, &fakeVaults{}
+	var notices bytes.Buffer
+	verifiedPath := ""
+	err := executeSetup(setupDependencies{
+		Profiles: profiles, Vaults: vaults, ReadLine: readLine, ReadSecret: readSecret,
+		DiscoverJAR: func() mapepire.DiscoveryResult {
+			return mapepire.DiscoveryResult{Status: mapepire.DiscoveryFound, Path: jar, VerifiedCandidateCount: 1}
+		},
+		VerifyJAR: func(path string) error { verifiedPath = path; return nil }, InspectKey: fakeHostKeyInspection,
+		Output: io.Discard, Notices: &notices,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profiles.saved.MapepireJAR != jar || verifiedPath != jar || vaults.setProfile != "dev" {
+		t.Fatalf("stored/verified/vault = %q/%q/%q", profiles.saved.MapepireJAR, verifiedPath, vaults.setProfile)
+	}
+	if strings.Contains(strings.Join(labels, "|"), "JAR path") {
+		t.Fatalf("manual JAR prompt was used: %v", labels)
+	}
+	if !strings.Contains(notices.String(), "automatically found and verified") || strings.Contains(notices.String(), jar) {
+		t.Fatalf("automatic discovery notice is missing or exposes a path: %q", notices.String())
+	}
+}
+
+func TestExecuteSetupDiscoveryFallbackIsSanitizedAndVerifiesBeforeSecrets(t *testing.T) {
+	tests := []struct {
+		name       string
+		discovery  mapepire.DiscoveryResult
+		wantNotice string
+	}{
+		{
+			name:       "invalid exact-location candidate",
+			discovery:  mapepire.DiscoveryResult{Status: mapepire.DiscoveryNotFound, RejectedCandidateCount: 1},
+			wantNotice: "1 exact-location candidate(s) failed verification",
+		},
+		{
+			name:       "multiple verified candidates",
+			discovery:  mapepire.DiscoveryResult{Status: mapepire.DiscoveryAmbiguous, VerifiedCandidateCount: 2},
+			wantNotice: "2 verified candidates",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manualPath := filepath.Join(t.TempDir(), "manual-mapepire.jar")
+			labels := []string{}
+			lines := []string{"dev", "ibmi.example.test", "22", "manual", "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "USER", "", manualPath}
+			index := 0
+			readLine := func(label string) (string, error) {
+				labels = append(labels, label)
+				value := lines[index]
+				index++
+				return value, nil
+			}
+			secretPrompts := 0
+			var notices bytes.Buffer
+			err := executeSetup(setupDependencies{
+				Profiles: &fakeProfiles{}, Vaults: &fakeVaults{}, ReadLine: readLine,
+				ReadSecret:  func(string) ([]byte, error) { secretPrompts++; return []byte("secret"), nil },
+				DiscoverJAR: func() mapepire.DiscoveryResult { return tt.discovery },
+				VerifyJAR:   func(string) error { return errors.New("sensitive verifier detail: C:\\private\\candidate.jar") },
+				InspectKey:  fakeHostKeyInspection, Output: io.Discard, Notices: &notices,
+			})
+			if err == nil || err.Error() != "Mapepire Server JAR verification failed" {
+				t.Fatalf("error = %v", err)
+			}
+			if secretPrompts != 0 {
+				t.Fatalf("secret prompts = %d", secretPrompts)
+			}
+			if !strings.Contains(strings.Join(labels, "|"), "Local Mapepire Server 2.3.5 JAR path") {
+				t.Fatalf("manual fallback was not prompted: %v", labels)
+			}
+			if !strings.Contains(notices.String(), tt.wantNotice) || strings.Contains(notices.String(), manualPath) || strings.Contains(err.Error(), "private") {
+				t.Fatalf("fallback output is missing or unsafe: notice=%q error=%q", notices.String(), err)
+			}
+		})
+	}
+}
+
+func TestExecuteSetupProductionReaderRequiresByteExactYesBeforeCredentials(t *testing.T) {
+	jar := filepath.Join(t.TempDir(), "mapepire.jar")
+	tests := []struct {
+		name         string
+		confirmation string
+		wantSuccess  bool
+	}{
+		{name: "exact yes enrolls TOFU", confirmation: "yes", wantSuccess: true},
+		{name: "leading space rejects", confirmation: " yes"},
+		{name: "trailing space rejects", confirmation: "yes "},
+		{name: "leading tab rejects", confirmation: "\tyes"},
+		{name: "trailing tab rejects", confirmation: "yes\t"},
+		{name: "uppercase rejects", confirmation: "YES"},
+		{name: "empty rejects", confirmation: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			profiles, vaults := &fakeProfiles{}, &fakeVaults{}
+			input := strings.Join([]string{" dev ", " ibmi.example.test ", "22", " inspect ", tt.confirmation, "USER", "", jar, "yes"}, "\n") + "\n"
+			readLine, readExact := setupLineReaders(strings.NewReader(input), io.Discard)
+			_, baseSecretReader := setupReaders(nil, [][]byte{[]byte("ibmi-password"), []byte("master-passphrase"), []byte("master-passphrase")})
+			secretPrompts := 0
+			readSecret := func(label string) ([]byte, error) {
+				secretPrompts++
+				return baseSecretReader(label)
+			}
+			var notices bytes.Buffer
+			err := executeSetup(setupDependencies{
+				Profiles: profiles, Vaults: vaults, ReadLine: readLine, ReadExact: readExact, ReadSecret: readSecret,
+				DiscoverJAR: noJARDiscovery,
+				VerifyJAR:   func(string) error { return nil },
+				InspectKey: func(ctx context.Context, host string, port int) (remote.HostKeyObservation, error) {
+					if _, ok := ctx.Deadline(); !ok || host != "ibmi.example.test" || port != 22 {
+						t.Fatalf("invalid probe request: deadline=%v host=%q port=%d", ok, host, port)
+					}
+					return fakeHostKeyInspection(ctx, host, port)
+				},
+				Output: io.Discard, Notices: &notices,
+			})
+			if tt.wantSuccess {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if secretPrompts != 3 || profiles.saved.HostKeyTrust != profile.HostKeyTrustTOFU || profiles.saved.HostKeyFingerprint == "" || vaults.setProfile != "dev" {
+					t.Fatalf("prompts/profile/vault = %d/%#v/%q", secretPrompts, profiles.saved, vaults.setProfile)
+				}
+				if !strings.Contains(notices.String(), "not independently verified") || !strings.Contains(notices.String(), ssh.KeyAlgoED25519) {
+					t.Fatalf("notices = %q", notices.String())
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("expected inspection enrollment rejection")
+			}
+			if secretPrompts != 0 || profiles.saved.Name != "" || vaults.setProfile != "" {
+				t.Fatalf("rejected setup prompted or persisted: %d/%#v/%#v", secretPrompts, profiles, vaults)
+			}
+		})
+	}
+}
+
+func TestExecuteSetupRejectsManualFingerprintBeforeCredentials(t *testing.T) {
+	profiles, vaults := &fakeProfiles{}, &fakeVaults{}
+	readLine, _ := setupReaders([]string{"dev", "ibmi.example.test", "22", "manual", "not-a-fingerprint"}, nil)
+	secretPrompts := 0
+	err := executeSetup(setupDependencies{
+		Profiles: profiles, Vaults: vaults, ReadLine: readLine,
+		ReadSecret:  func(string) ([]byte, error) { secretPrompts++; return []byte("should-not-be-read"), nil },
+		DiscoverJAR: noJARDiscovery, VerifyJAR: func(string) error { return nil }, InspectKey: fakeHostKeyInspection,
+		Output: io.Discard, Notices: io.Discard,
+	})
+	if err == nil || secretPrompts != 0 || profiles.saved.Name != "" || vaults.setProfile != "" {
+		t.Fatalf("error/prompts/profile/vault = %v/%d/%#v/%#v", err, secretPrompts, profiles, vaults)
+	}
+}
+
+func TestConfigureRequiresExplicitHostKeyTrust(t *testing.T) {
+	err := runConfigure([]string{
+		"-name", "dev", "-host", "ibmi.example.test", "-port", "22", "-username", "USER",
+		"-host-key-sha256", "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		"-credential-mode", "prompt", "-config-root", t.TempDir(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "host-key trust") {
+		t.Fatalf("error = %v, want explicit host-key trust rejection", err)
 	}
 }
 
@@ -191,16 +411,16 @@ func TestExecuteSetupRejectsConfirmationAndInvalidInputs(t *testing.T) {
 		secrets   [][]byte
 		verifyErr error
 	}{
-		{"master mismatch", []string{"dev", "ibmi.example.test", "22", "USER", "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "", jar}, [][]byte{[]byte("password"), []byte("master-a"), []byte("master-b")}, nil},
-		{"invalid profile", []string{"../dev", "ibmi.example.test", "22", "USER", "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "", jar}, [][]byte{[]byte("password"), []byte("master"), []byte("master")}, nil},
-		{"invalid fingerprint", []string{"dev", "ibmi.example.test", "22", "USER", "untrusted", "", jar}, [][]byte{[]byte("password"), []byte("master"), []byte("master")}, nil},
-		{"invalid jar", []string{"dev", "ibmi.example.test", "22", "USER", "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "", jar}, [][]byte{[]byte("password"), []byte("master"), []byte("master")}, errors.New("checksum mismatch")},
+		{"master mismatch", []string{"dev", "ibmi.example.test", "22", "manual", "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "USER", "", jar}, [][]byte{[]byte("password"), []byte("master-a"), []byte("master-b")}, nil},
+		{"invalid profile", []string{"../dev", "ibmi.example.test", "22", "manual", "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "USER", "", jar}, [][]byte{[]byte("password"), []byte("master"), []byte("master")}, nil},
+		{"invalid fingerprint", []string{"dev", "ibmi.example.test", "22", "manual", "untrusted", "USER", "", jar}, [][]byte{[]byte("password"), []byte("master"), []byte("master")}, nil},
+		{"invalid jar", []string{"dev", "ibmi.example.test", "22", "manual", "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "USER", "", jar}, [][]byte{[]byte("password"), []byte("master"), []byte("master")}, errors.New("checksum mismatch")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			profiles, vaults := &fakeProfiles{}, &fakeVaults{}
 			readLine, readSecret := setupReaders(tt.lines, tt.secrets)
-			err := executeSetup(setupDependencies{Profiles: profiles, Vaults: vaults, ReadLine: readLine, ReadSecret: readSecret, VerifyJAR: func(string) error { return tt.verifyErr }, Output: io.Discard, Notices: io.Discard})
+			err := executeSetup(setupDependencies{Profiles: profiles, Vaults: vaults, ReadLine: readLine, ReadSecret: readSecret, DiscoverJAR: noJARDiscovery, VerifyJAR: func(string) error { return tt.verifyErr }, InspectKey: fakeHostKeyInspection, Output: io.Discard, Notices: io.Discard})
 			if err == nil {
 				t.Fatal("expected setup rejection")
 			}
@@ -211,23 +431,62 @@ func TestExecuteSetupRejectsConfirmationAndInvalidInputs(t *testing.T) {
 	}
 }
 
-func TestExecuteSetupRollsBackNewProfileWhenVaultFails(t *testing.T) {
+func TestExecuteSetupVaultFailureLeavesNoProfile(t *testing.T) {
 	profiles := &fakeProfiles{}
 	vaults := &fakeVaults{setErr: errors.New("vault failed")}
-	readLine, readSecret := setupReaders([]string{"dev", "ibmi.example.test", "22", "USER", "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "", filepath.Join(t.TempDir(), "mapepire.jar"), "yes"}, [][]byte{[]byte("password"), []byte("master"), []byte("master")})
-	err := executeSetup(setupDependencies{Profiles: profiles, Vaults: vaults, ReadLine: readLine, ReadSecret: readSecret, VerifyJAR: func(string) error { return nil }, Output: io.Discard, Notices: io.Discard})
-	if err == nil || profiles.deleted != "dev" {
-		t.Fatalf("error/deleted = %v/%q", err, profiles.deleted)
+	readLine, readSecret := setupReaders([]string{"dev", "ibmi.example.test", "22", "manual", "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "USER", "", filepath.Join(t.TempDir(), "mapepire.jar"), "yes"}, [][]byte{[]byte("password"), []byte("master"), []byte("master")})
+	err := executeSetup(setupDependencies{Profiles: profiles, Vaults: vaults, ReadLine: readLine, ReadSecret: readSecret, DiscoverJAR: noJARDiscovery, VerifyJAR: func(string) error { return nil }, InspectKey: fakeHostKeyInspection, Output: io.Discard, Notices: io.Discard})
+	if err == nil || profiles.saved.Name != "" {
+		t.Fatalf("error/profile = %v/%#v", err, profiles.saved)
 	}
 }
 
-func TestExecuteSetupDoesNotCreateVaultWhenProfilePublicationFails(t *testing.T) {
+func TestExecuteSetupProfileFailureDeletesVault(t *testing.T) {
 	profiles := &fakeProfiles{saveErr: errors.New("profile failed")}
 	vaults := &fakeVaults{}
-	readLine, readSecret := setupReaders([]string{"dev", "ibmi.example.test", "22", "USER", "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "", filepath.Join(t.TempDir(), "mapepire.jar"), "yes"}, [][]byte{[]byte("password"), []byte("master"), []byte("master")})
-	err := executeSetup(setupDependencies{Profiles: profiles, Vaults: vaults, ReadLine: readLine, ReadSecret: readSecret, VerifyJAR: func(string) error { return nil }, Output: io.Discard, Notices: io.Discard})
-	if err == nil || vaults.setProfile != "" {
-		t.Fatalf("error/vault = %v/%q", err, vaults.setProfile)
+	readLine, readSecret := setupReaders([]string{"dev", "ibmi.example.test", "22", "manual", "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "USER", "", filepath.Join(t.TempDir(), "mapepire.jar"), "yes"}, [][]byte{[]byte("password"), []byte("master"), []byte("master")})
+	err := executeSetup(setupDependencies{Profiles: profiles, Vaults: vaults, ReadLine: readLine, ReadSecret: readSecret, DiscoverJAR: noJARDiscovery, VerifyJAR: func(string) error { return nil }, InspectKey: fakeHostKeyInspection, Output: io.Discard, Notices: io.Discard})
+	if err == nil || profiles.saved.Name != "" || vaults.setProfile != "dev" || vaults.deleted != "dev" {
+		t.Fatalf("error/profile/vault = %v/%#v/%#v", err, profiles.saved, vaults)
+	}
+}
+
+func TestExecuteSetupProfileFailureAndVaultCleanupFailureIsRecoverable(t *testing.T) {
+	profileErr := errors.New("profile publication failed")
+	cleanupErr := errors.New("vault deletion failed")
+	profiles := &fakeProfiles{saveErr: profileErr}
+	store := credential.Store{Root: t.TempDir()}
+	vaults := &fakeVaults{deleteErr: cleanupErr, store: &store}
+	readLine, readSecret := setupReaders([]string{"dev", "ibmi.example.test", "22", "manual", "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "USER", "", filepath.Join(t.TempDir(), "mapepire.jar"), "yes"}, [][]byte{[]byte("password"), []byte("master"), []byte("master")})
+	err := executeSetup(setupDependencies{Profiles: profiles, Vaults: vaults, ReadLine: readLine, ReadSecret: readSecret, DiscoverJAR: noJARDiscovery, VerifyJAR: func(string) error { return nil }, InspectKey: fakeHostKeyInspection, Output: io.Discard, Notices: io.Discard})
+
+	var orphan *OrphanVaultError
+	if !errors.As(err, &orphan) || !orphan.Recoverable() || orphan.Profile != "dev" || !errors.Is(err, profileErr) || !errors.Is(err, cleanupErr) {
+		t.Fatalf("error = %#v, want joined recoverable orphan evidence", err)
+	}
+	if profiles.saved.Name != "" || vaults.setProfile != "dev" || vaults.deleted != "dev" {
+		t.Fatalf("profile/vault = %#v/%#v", profiles.saved, vaults)
+	}
+	if strings.Contains(err.Error(), "password") || !strings.Contains(err.Error(), "credentials status/delete -profile \"dev\"") {
+		t.Fatalf("orphan evidence is unsafe or not actionable: %v", err)
+	}
+	var status bytes.Buffer
+	if err := writeCredentialStatus(&status, store, "dev"); err != nil {
+		t.Fatal(err)
+	}
+	if status.String() != "{\"exists\":true}\n" {
+		t.Fatalf("status = %q", status.String())
+	}
+	var deletion bytes.Buffer
+	if err := writeCredentialDelete(&deletion, store, "dev"); err != nil {
+		t.Fatal(err)
+	}
+	if deletion.String() != "{\"deleted\":true}\n" {
+		t.Fatalf("delete = %q", deletion.String())
+	}
+	exists, err := store.Status("dev")
+	if err != nil || exists {
+		t.Fatalf("post-delete status = %v, %v", exists, err)
 	}
 }
 
@@ -302,13 +561,13 @@ func TestExecuteSetupOutputFailureReportsCommittedState(t *testing.T) {
 	profiles := &fakeProfiles{}
 	vaults := &fakeVaults{}
 	readLine, readSecret := setupReaders(
-		[]string{"dev", "ibmi.example.test", "22", "USER", "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "", filepath.Join(t.TempDir(), "mapepire.jar"), "yes"},
+		[]string{"dev", "ibmi.example.test", "22", "manual", "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "USER", "", filepath.Join(t.TempDir(), "mapepire.jar"), "yes"},
 		[][]byte{[]byte("password"), []byte("master"), []byte("master")},
 	)
 	writeErr := errors.New("injected write failure")
 	err := executeSetup(setupDependencies{
 		Profiles: profiles, Vaults: vaults, ReadLine: readLine, ReadSecret: readSecret,
-		VerifyJAR: func(string) error { return nil }, Output: failingWriter{writeErr}, Notices: io.Discard,
+		DiscoverJAR: noJARDiscovery, VerifyJAR: func(string) error { return nil }, InspectKey: fakeHostKeyInspection, Output: failingWriter{writeErr}, Notices: io.Discard,
 	})
 	var committed *CommittedOutputError
 	if !errors.As(err, &committed) || !committed.Committed() || !errors.Is(err, writeErr) {

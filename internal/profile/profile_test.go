@@ -5,12 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 )
 
 func validProfile() Profile {
-	return Profile{Name: "dev", Host: "ibmi.example.test", Port: 22, Username: "NEXUS$USER", HostKeyFingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", JavaHome: "/QOpenSys/QIBM/ProdData/JavaVM/jdk80/64bit", CredentialMode: CredentialModeVault}
+	return Profile{Name: "dev", Host: "ibmi.example.test", Port: 22, Username: "NEXUS$USER", HostKeyFingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", HostKeyTrust: HostKeyTrustVerified, JavaHome: "/QOpenSys/QIBM/ProdData/JavaVM/jdk80/64bit", CredentialMode: CredentialModeVault}
 }
 
 func TestProfileValidation(t *testing.T) {
@@ -24,6 +25,10 @@ func TestProfileValidation(t *testing.T) {
 		{"unknown fingerprint", func(p *Profile) { p.HostKeyFingerprint = "" }, false},
 		{"invalid fingerprint", func(p *Profile) { p.HostKeyFingerprint = "SHA256:not-base64" }, false},
 		{"non-canonical fingerprint base64", func(p *Profile) { p.HostKeyFingerprint = "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB" }, false},
+		{"tofu host-key trust", func(p *Profile) { p.HostKeyTrust = HostKeyTrustTOFU }, true},
+		{"missing host-key trust", func(p *Profile) { p.HostKeyTrust = "" }, false},
+		{"unknown host-key trust", func(p *Profile) { p.HostKeyTrust = "legacy" }, false},
+		{"case-variant host-key trust", func(p *Profile) { p.HostKeyTrust = "TOFU" }, false},
 		{"unsafe Java path", func(p *Profile) { p.JavaHome = "/tmp/java;id" }, false},
 		{"default Java discovery", func(p *Profile) { p.JavaHome = "" }, true},
 		{"relative Mapepire JAR", func(p *Profile) { p.MapepireJAR = "mapepire.jar" }, false},
@@ -60,6 +65,13 @@ func TestStoreRoundTripUsesTemporaryRoot(t *testing.T) {
 	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
 		t.Fatalf("profile permissions = %o, want no group/other access", info.Mode().Perm())
 	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"hostKeyTrust": "verified"`) {
+		t.Fatalf("profile JSON lacks explicit host-key trust provenance: %s", data)
+	}
 	got, err := store.Load(p.Name)
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +93,7 @@ func TestLoadRejectsTraversal(t *testing.T) {
 func TestLoadRejectsTrailingJSON(t *testing.T) {
 	root := t.TempDir()
 	p := validProfile()
-	data := `{"name":"dev","host":"ibmi.example.test","port":22,"username":"NEXUS$USER","hostKeyFingerprint":"SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","credentialMode":"vault"} {}`
+	data := `{"name":"dev","host":"ibmi.example.test","port":22,"username":"NEXUS$USER","hostKeyFingerprint":"SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","hostKeyTrust":"verified","credentialMode":"vault"} {}`
 	if err := os.WriteFile(filepath.Join(root, p.Name+".json"), []byte(data), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -95,9 +107,12 @@ func TestLoadRejectsDuplicateCaseVariantAndLegacyMode(t *testing.T) {
 		name string
 		data string
 	}{
-		{"duplicate", `{"name":"dev","name":"other","host":"ibmi.example.test","port":22,"username":"USER","hostKeyFingerprint":"SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","credentialMode":"vault"}`},
-		{"case variant", `{"name":"dev","Name":"dev","host":"ibmi.example.test","port":22,"username":"USER","hostKeyFingerprint":"SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","credentialMode":"vault"}`},
-		{"legacy missing mode", `{"name":"dev","host":"ibmi.example.test","port":22,"username":"USER","hostKeyFingerprint":"SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}`},
+		{"duplicate", `{"name":"dev","name":"other","host":"ibmi.example.test","port":22,"username":"USER","hostKeyFingerprint":"SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","hostKeyTrust":"verified","credentialMode":"vault"}`},
+		{"case variant", `{"name":"dev","Name":"dev","host":"ibmi.example.test","port":22,"username":"USER","hostKeyFingerprint":"SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","hostKeyTrust":"verified","credentialMode":"vault"}`},
+		{"legacy missing credential mode", `{"name":"dev","host":"ibmi.example.test","port":22,"username":"USER","hostKeyFingerprint":"SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","hostKeyTrust":"verified"}`},
+		{"legacy missing host-key trust", `{"name":"dev","host":"ibmi.example.test","port":22,"username":"USER","hostKeyFingerprint":"SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","credentialMode":"vault"}`},
+		{"unknown host-key trust", `{"name":"dev","host":"ibmi.example.test","port":22,"username":"USER","hostKeyFingerprint":"SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","hostKeyTrust":"legacy","credentialMode":"vault"}`},
+		{"case-variant host-key trust", `{"name":"dev","host":"ibmi.example.test","port":22,"username":"USER","hostKeyFingerprint":"SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","hostKeyTrust":"TOFU","credentialMode":"vault"}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -19,6 +19,138 @@ import (
 )
 
 var ErrUnknownHostKey = errors.New("SSH host key fingerprint is not configured")
+var ErrHostKeyCaptured = errors.New("SSH host key captured; stop before authentication")
+var ErrProbeDeadlineRequired = errors.New("SSH host-key inspection requires a context deadline")
+
+type HostKeyObservation struct {
+	Algorithm      string               `json:"algorithm"`
+	Fingerprint    string               `json:"fingerprint"`
+	Verified       bool                 `json:"verified"`
+	TrustCandidate profile.HostKeyTrust `json:"trustCandidate"`
+}
+
+type HostKeyProbeFailure string
+
+const (
+	HostKeyProbeTimeout     HostKeyProbeFailure = "timeout"
+	HostKeyProbeNegotiation HostKeyProbeFailure = "algorithm_negotiation"
+	HostKeyProbeNoKey       HostKeyProbeFailure = "no_host_key_observed"
+)
+
+type HostKeyProbeError struct {
+	Kind           HostKeyProbeFailure
+	AlgorithmClass string
+}
+
+func (e *HostKeyProbeError) Error() string {
+	switch e.Kind {
+	case HostKeyProbeTimeout:
+		return "SSH host-key inspection timed out"
+	case HostKeyProbeNegotiation:
+		if e.AlgorithmClass != "" {
+			return "SSH host-key inspection found no mutually supported " + e.AlgorithmClass + " algorithm; weak algorithms will not be enabled"
+		}
+		return "SSH host-key inspection found no mutually supported secure algorithm; weak algorithms will not be enabled"
+	default:
+		return "SSH host-key inspection ended before a host key was observed"
+	}
+}
+
+type contextDialer interface {
+	DialContext(context.Context, string, string) (net.Conn, error)
+}
+
+type clientHandshake func(net.Conn, string, *ssh.ClientConfig) (ssh.Conn, <-chan ssh.NewChannel, <-chan *ssh.Request, error)
+
+func InspectHostKey(ctx context.Context, host string, port int) (HostKeyObservation, error) {
+	return inspectHostKey(ctx, host, port, &net.Dialer{}, ssh.NewClientConn)
+}
+
+func inspectHostKey(ctx context.Context, host string, port int, dialer contextDialer, handshake clientHandshake) (HostKeyObservation, error) {
+	if err := profile.ValidateEndpoint(host, port); err != nil {
+		return HostKeyObservation{}, err
+	}
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return HostKeyObservation{}, ErrProbeDeadlineRequired
+	}
+	address := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+	conn, err := dialer.DialContext(ctx, "tcp", address)
+	if err != nil {
+		return HostKeyObservation{}, classifyHostKeyProbeError(ctx, err)
+	}
+	defer conn.Close()
+	if err := conn.SetDeadline(deadline); err != nil {
+		return HostKeyObservation{}, &HostKeyProbeError{Kind: HostKeyProbeNoKey}
+	}
+
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-done:
+		}
+	}()
+
+	algorithms := ssh.SupportedAlgorithms()
+	observation := HostKeyObservation{}
+	config := &ssh.ClientConfig{
+		Config: ssh.Config{
+			KeyExchanges: algorithms.KeyExchanges,
+			Ciphers:      algorithms.Ciphers,
+			MACs:         algorithms.MACs,
+		},
+		User: "nexus-host-key-probe",
+		HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error {
+			observation = HostKeyObservation{
+				Algorithm: key.Type(), Fingerprint: ssh.FingerprintSHA256(key),
+				Verified: false, TrustCandidate: profile.HostKeyTrustTOFU,
+			}
+			return ErrHostKeyCaptured
+		},
+		HostKeyAlgorithms: algorithms.HostKeys,
+	}
+	sshConn, _, _, err := handshake(conn, address, config)
+	if sshConn != nil {
+		_ = sshConn.Close()
+	}
+	if err != nil && errors.Is(err, ErrHostKeyCaptured) && observation.Fingerprint != "" {
+		return observation, nil
+	}
+	return HostKeyObservation{}, classifyHostKeyProbeError(ctx, err)
+}
+
+func classifyHostKeyProbeError(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return &HostKeyProbeError{Kind: HostKeyProbeTimeout}
+	}
+	var networkError net.Error
+	if errors.As(err, &networkError) && networkError.Timeout() {
+		return &HostKeyProbeError{Kind: HostKeyProbeTimeout}
+	}
+	var negotiation *ssh.AlgorithmNegotiationError
+	if errors.As(err, &negotiation) {
+		return &HostKeyProbeError{Kind: HostKeyProbeNegotiation, AlgorithmClass: sanitizeAlgorithmClass(negotiation.What)}
+	}
+	return &HostKeyProbeError{Kind: HostKeyProbeNoKey}
+}
+
+func sanitizeAlgorithmClass(value string) string {
+	switch value {
+	case "key exchange", "host key", "cipher", "MAC":
+		return value
+	case "client to server cipher", "server to client cipher":
+		return "cipher"
+	case "client to server MAC", "server to client MAC":
+		return "MAC"
+	case "client to server compression", "server to client compression":
+		return "compression"
+	default:
+		return ""
+	}
+}
 
 type HostKeyMismatchError struct {
 	Expected string

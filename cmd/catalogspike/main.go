@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -155,6 +156,7 @@ func runConfigure(args []string) error {
 	port := flags.Int("port", 22, "SSH port")
 	username := flags.String("username", "", "SSH username")
 	fingerprint := flags.String("host-key-sha256", "", "expected OpenSSH SHA256 host-key fingerprint")
+	hostKeyTrust := flags.String("host-key-trust", "", "required host-key trust provenance: tofu or verified")
 	javaHome := flags.String("java-home", "", "optional approved IBM i Java home")
 	jar := flags.String("mapepire-jar", "", "optional verified local Mapepire Server 2.3.5 JAR")
 	credentialMode := flags.String("credential-mode", "", "required credential mode: vault or prompt")
@@ -176,7 +178,7 @@ func runConfigure(args []string) error {
 	}
 	path, err := (profile.Store{Root: root}).Save(profile.Profile{
 		Name: *name, Host: *host, Port: *port, Username: *username,
-		HostKeyFingerprint: *fingerprint, JavaHome: *javaHome, MapepireJAR: *jar, CredentialMode: profile.CredentialMode(*credentialMode),
+		HostKeyFingerprint: *fingerprint, HostKeyTrust: profile.HostKeyTrust(*hostKeyTrust), JavaHome: *javaHome, MapepireJAR: *jar, CredentialMode: profile.CredentialMode(*credentialMode),
 	})
 	if err != nil {
 		return err
@@ -371,23 +373,31 @@ func runCredentials(args []string) error {
 		}
 		return writeCredentialSetResult(os.Stdout, os.Stderr, *profileName, result)
 	case "status":
-		exists, err := store.Status(*profileName)
-		if err != nil {
-			return err
-		}
-		return json.NewEncoder(os.Stdout).Encode(struct {
-			Exists bool `json:"exists"`
-		}{exists})
+		return writeCredentialStatus(os.Stdout, store, *profileName)
 	case "delete":
-		deleted, err := store.Delete(*profileName)
-		if err != nil {
-			return err
-		}
-		return json.NewEncoder(os.Stdout).Encode(struct {
-			Deleted bool `json:"deleted"`
-		}{deleted})
+		return writeCredentialDelete(os.Stdout, store, *profileName)
 	}
 	return errors.New("unreachable credentials action")
+}
+
+func writeCredentialStatus(output io.Writer, store credential.Store, profileName string) error {
+	exists, err := store.Status(profileName)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(output).Encode(struct {
+		Exists bool `json:"exists"`
+	}{exists})
+}
+
+func writeCredentialDelete(output io.Writer, store credential.Store, profileName string) error {
+	deleted, err := store.Delete(profileName)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(output).Encode(struct {
+		Deleted bool `json:"deleted"`
+	}{deleted})
 }
 
 func writeCredentialSetResult(stdout, stderr io.Writer, profileName string, result credential.SetResult) error {
@@ -425,7 +435,6 @@ func writeCredentialSetResult(stdout, stderr io.Writer, profileName string, resu
 
 type profileStore interface {
 	Save(profile.Profile) (string, error)
-	Delete(string) (bool, error)
 }
 
 type vaultStore interface {
@@ -434,13 +443,16 @@ type vaultStore interface {
 }
 
 type setupDependencies struct {
-	Profiles   profileStore
-	Vaults     vaultStore
-	ReadLine   func(string) (string, error)
-	ReadSecret secretReader
-	VerifyJAR  func(string) error
-	Output     io.Writer
-	Notices    io.Writer
+	Profiles    profileStore
+	Vaults      vaultStore
+	ReadLine    func(string) (string, error)
+	ReadExact   func(string) (string, error)
+	ReadSecret  secretReader
+	DiscoverJAR func() mapepire.DiscoveryResult
+	VerifyJAR   func(string) error
+	InspectKey  func(context.Context, string, int) (remote.HostKeyObservation, error)
+	Output      io.Writer
+	Notices     io.Writer
 }
 
 func runSetup(args []string) error {
@@ -461,29 +473,45 @@ func runSetup(args []string) error {
 	if err != nil {
 		return err
 	}
-	reader := bufio.NewReader(os.Stdin)
-	readLine := func(label string) (string, error) {
-		if _, err := fmt.Fprint(os.Stderr, label+": "); err != nil {
+	readLine, readExact := setupLineReaders(os.Stdin, os.Stderr)
+	return executeSetup(setupDependencies{
+		Profiles: profile.Store{Root: profileRoot}, Vaults: credential.Store{Root: vaultRoot},
+		ReadLine: readLine, ReadExact: readExact, ReadSecret: remote.TerminalSecretPrompt().Prompt,
+		DiscoverJAR: mapepire.DiscoverInstalledServerJAR, VerifyJAR: mapepire.VerifyServerJAR,
+		InspectKey: remote.InspectHostKey, Output: os.Stdout, Notices: os.Stderr,
+	})
+}
+
+func setupLineReaders(input io.Reader, prompts io.Writer) (func(string) (string, error), func(string) (string, error)) {
+	reader := bufio.NewReader(input)
+	read := func(label string) (string, error) {
+		if _, err := fmt.Fprint(prompts, label+": "); err != nil {
 			return "", err
 		}
 		value, err := reader.ReadString('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
 			return "", err
 		}
-		return strings.TrimSpace(value), nil
+		if strings.HasSuffix(value, "\n") {
+			value = strings.TrimSuffix(value, "\n")
+			value = strings.TrimSuffix(value, "\r")
+		}
+		return value, nil
 	}
-	return executeSetup(setupDependencies{
-		Profiles: profile.Store{Root: profileRoot}, Vaults: credential.Store{Root: vaultRoot},
-		ReadLine: readLine, ReadSecret: remote.TerminalSecretPrompt().Prompt,
-		VerifyJAR: mapepire.VerifyServerJAR, Output: os.Stdout, Notices: os.Stderr,
-	})
+	return func(label string) (string, error) {
+		value, err := read(label)
+		return strings.TrimSpace(value), err
+	}, read
 }
 
 func executeSetup(deps setupDependencies) error {
-	if deps.Profiles == nil || deps.Vaults == nil || deps.ReadLine == nil || deps.ReadSecret == nil || deps.VerifyJAR == nil || deps.Output == nil || deps.Notices == nil {
+	if deps.Profiles == nil || deps.Vaults == nil || deps.ReadLine == nil || deps.ReadSecret == nil || deps.DiscoverJAR == nil || deps.VerifyJAR == nil || deps.InspectKey == nil || deps.Output == nil || deps.Notices == nil {
 		return errors.New("setup dependencies are incomplete")
 	}
-	if _, err := fmt.Fprintln(deps.Notices, "Host-key fingerprint discovery and trust are separate. Setup never discovers or auto-trusts a host key."); err != nil {
+	if deps.ReadExact == nil {
+		deps.ReadExact = deps.ReadLine
+	}
+	if _, err := fmt.Fprintln(deps.Notices, "Host-key inspection is optional first-contact discovery, not independent server identity verification."); err != nil {
 		return err
 	}
 	name, err := deps.ReadLine("Connection name")
@@ -505,11 +533,54 @@ func executeSetup(deps setupDependencies) error {
 			return errors.New("port must be a number")
 		}
 	}
-	username, err := deps.ReadLine("Username")
+	if err := profile.ValidateEndpoint(host, port); err != nil {
+		return err
+	}
+	hostKeyPath, err := deps.ReadLine("Host-key enrollment [manual/inspect] (manual recommended; inspect is spike-only TOFU fallback)")
 	if err != nil {
 		return err
 	}
-	fingerprint, err := deps.ReadLine("Independently verified SHA256 host-key fingerprint")
+	var fingerprint string
+	var hostKeyTrust profile.HostKeyTrust
+	switch hostKeyPath {
+	case "inspect":
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		observation, inspectErr := deps.InspectKey(ctx, host, port)
+		cancel()
+		if inspectErr != nil {
+			return inspectErr
+		}
+		if observation.Verified || observation.TrustCandidate != profile.HostKeyTrustTOFU {
+			return errors.New("host-key inspection returned an invalid trust observation")
+		}
+		if _, err := fmt.Fprintf(deps.Notices, "Observed SSH host key algorithm %s with fingerprint %s\n", observation.Algorithm, observation.Fingerprint); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(deps.Notices, "WARNING: this key came from the current connection and is not independently verified. Production enrollment requires an approved independent channel."); err != nil {
+			return err
+		}
+		confirm, err := deps.ReadExact("Trust this observed key for this spike? Type exact yes")
+		if err != nil {
+			return err
+		}
+		if confirm != "yes" {
+			return errors.New("host-key trust was not confirmed; exact yes is required")
+		}
+		fingerprint = observation.Fingerprint
+		hostKeyTrust = profile.HostKeyTrustTOFU
+	case "manual":
+		fingerprint, err = deps.ReadLine("Independently verified SHA256 host-key fingerprint")
+		if err != nil {
+			return err
+		}
+		hostKeyTrust = profile.HostKeyTrustVerified
+	default:
+		return errors.New("host-key enrollment must be inspect or manual")
+	}
+	if err := profile.ValidateHostKey(fingerprint, hostKeyTrust); err != nil {
+		return err
+	}
+	username, err := deps.ReadLine("Username")
 	if err != nil {
 		return err
 	}
@@ -517,9 +588,48 @@ func executeSetup(deps setupDependencies) error {
 	if err != nil {
 		return err
 	}
-	jar, err := deps.ReadLine("Local Mapepire Server 2.3.5 JAR path")
-	if err != nil {
+	discovery := deps.DiscoverJAR()
+	jar := ""
+	automaticallyDiscovered := false
+	if discovery.Status == mapepire.DiscoveryFound && discovery.VerifiedCandidateCount == 1 && discovery.Path != "" {
+		jar = discovery.Path
+		automaticallyDiscovered = true
+	} else {
+		switch {
+		case discovery.Status == mapepire.DiscoveryAmbiguous:
+			_, err = fmt.Fprintf(deps.Notices, "Mapepire Server 2.3.5 auto-discovery found %d verified candidates; a unique candidate is required. Enter the absolute path manually.\n", discovery.VerifiedCandidateCount)
+		case discovery.RejectedCandidateCount > 0:
+			_, err = fmt.Fprintf(deps.Notices, "Mapepire Server 2.3.5 auto-discovery found no verified candidate; %d exact-location candidate(s) failed verification. Enter the absolute path manually.\n", discovery.RejectedCandidateCount)
+		case discovery.InspectionFailed:
+			_, err = fmt.Fprintln(deps.Notices, "Mapepire Server 2.3.5 auto-discovery could not inspect the VS Code extensions directory. Enter the absolute path manually.")
+		default:
+			_, err = fmt.Fprintln(deps.Notices, "Mapepire Server 2.3.5 auto-discovery did not find a unique verified candidate. Enter the absolute path manually.")
+		}
+		if err != nil {
+			return err
+		}
+		jar, err = deps.ReadLine("Local Mapepire Server 2.3.5 JAR path")
+		if err != nil {
+			return err
+		}
+		if !filepath.IsAbs(jar) {
+			return errors.New("Mapepire JAR path must be absolute")
+		}
+	}
+	if err := deps.VerifyJAR(jar); err != nil {
+		return errors.New("Mapepire Server JAR verification failed")
+	}
+	if automaticallyDiscovered {
+		if _, err := fmt.Fprintln(deps.Notices, "Mapepire Server 2.3.5 was automatically found and verified."); err != nil {
+			return err
+		}
+	}
+	p := profile.Profile{Name: name, Host: host, Port: port, Username: username, HostKeyFingerprint: fingerprint, HostKeyTrust: hostKeyTrust, JavaHome: javaHome, MapepireJAR: jar, CredentialMode: profile.CredentialModeVault}
+	if err := p.Validate(); err != nil {
 		return err
+	}
+	if jar == "" {
+		return errors.New("Mapepire JAR path is required")
 	}
 	password, err := deps.ReadSecret("IBM i password for " + name)
 	if err != nil {
@@ -539,16 +649,6 @@ func executeSetup(deps setupDependencies) error {
 	if subtle.ConstantTimeCompare(master, confirmation) != 1 {
 		return errors.New("vault master passphrase confirmation does not match")
 	}
-	p := profile.Profile{Name: name, Host: host, Port: port, Username: username, HostKeyFingerprint: fingerprint, JavaHome: javaHome, MapepireJAR: jar, CredentialMode: profile.CredentialModeVault}
-	if err := p.Validate(); err != nil {
-		return err
-	}
-	if jar == "" {
-		return errors.New("Mapepire JAR path is required")
-	}
-	if err := deps.VerifyJAR(jar); err != nil {
-		return err
-	}
 	confirm, err := deps.ReadLine("Create this profile and encrypted vault? [yes/no]")
 	if err != nil {
 		return err
@@ -564,18 +664,33 @@ func executeSetup(deps setupDependencies) error {
 		return errors.New("render setup result")
 	}
 	output = append(output, '\n')
-	if _, err := deps.Profiles.Save(p); err != nil {
+	if _, err := deps.Vaults.Set(name, password, master, false); err != nil {
 		return err
 	}
-	if _, err := deps.Vaults.Set(name, password, master, false); err != nil {
-		_, rollbackErr := deps.Profiles.Delete(name)
-		return errors.Join(err, rollbackErr)
+	if _, err := deps.Profiles.Save(p); err != nil {
+		if _, cleanupErr := deps.Vaults.Delete(name); cleanupErr != nil {
+			return errors.Join(fmt.Errorf("publish setup profile: %w", err), &OrphanVaultError{Profile: name, Err: cleanupErr})
+		}
+		return err
 	}
 	if _, err := deps.Output.Write(output); err != nil {
 		return &CommittedOutputError{Operation: "setup", Output: "stdout result", Err: err}
 	}
 	return nil
 }
+
+type OrphanVaultError struct {
+	Profile string
+	Err     error
+}
+
+func (e *OrphanVaultError) Error() string {
+	return fmt.Sprintf("setup profile %q was not published and encrypted vault cleanup failed; recover with credentials status/delete -profile %q", e.Profile, e.Profile)
+}
+
+func (e *OrphanVaultError) Unwrap() error { return e.Err }
+
+func (e *OrphanVaultError) Recoverable() bool { return true }
 
 type CommittedOutputError struct {
 	Operation string

@@ -21,10 +21,13 @@ const appDirectory = "BAC Nexus"
 const maxProfileBytes = 16 * 1024
 
 type CredentialMode string
+type HostKeyTrust string
 
 const (
 	CredentialModeVault  CredentialMode = "vault"
 	CredentialModePrompt CredentialMode = "prompt"
+	HostKeyTrustTOFU     HostKeyTrust   = "tofu"
+	HostKeyTrustVerified HostKeyTrust   = "verified"
 )
 
 var (
@@ -40,6 +43,7 @@ type Profile struct {
 	Port               int            `json:"port"`
 	Username           string         `json:"username"`
 	HostKeyFingerprint string         `json:"hostKeyFingerprint"`
+	HostKeyTrust       HostKeyTrust   `json:"hostKeyTrust"`
 	JavaHome           string         `json:"javaHome,omitempty"`
 	MapepireJAR        string         `json:"mapepireJar,omitempty"`
 	CredentialMode     CredentialMode `json:"credentialMode"`
@@ -49,22 +53,14 @@ func (p Profile) Validate() error {
 	if !namePattern.MatchString(p.Name) {
 		return errors.New("profile name must use 1-64 letters, digits, dot, underscore, or hyphen")
 	}
-	if err := validateHost(p.Host); err != nil {
+	if err := ValidateEndpoint(p.Host, p.Port); err != nil {
 		return err
-	}
-	if p.Port < 1 || p.Port > 65535 {
-		return errors.New("port must be between 1 and 65535")
 	}
 	if !userPattern.MatchString(p.Username) {
 		return errors.New("username contains unsupported characters")
 	}
-	if !fingerprintPattern.MatchString(p.HostKeyFingerprint) {
-		return errors.New("host-key fingerprint must be an OpenSSH SHA256 fingerprint")
-	}
-	fingerprint := strings.TrimPrefix(p.HostKeyFingerprint, "SHA256:")
-	decodedFingerprint, err := base64.RawStdEncoding.Strict().DecodeString(fingerprint)
-	if err != nil || len(decodedFingerprint) != sha256.Size || base64.RawStdEncoding.EncodeToString(decodedFingerprint) != fingerprint {
-		return errors.New("host-key fingerprint must use canonical unpadded base64")
+	if err := ValidateHostKey(p.HostKeyFingerprint, p.HostKeyTrust); err != nil {
+		return err
 	}
 	if p.JavaHome != "" && (!javaHomePattern.MatchString(p.JavaHome) || strings.Contains(p.JavaHome, "..")) {
 		return errors.New("Java home must be an absolute IBM i JavaVM path")
@@ -74,6 +70,31 @@ func (p Profile) Validate() error {
 	}
 	if p.CredentialMode != CredentialModeVault && p.CredentialMode != CredentialModePrompt {
 		return errors.New("credential mode must be vault or prompt")
+	}
+	return nil
+}
+
+func ValidateHostKey(fingerprintValue string, trust HostKeyTrust) error {
+	if !fingerprintPattern.MatchString(fingerprintValue) {
+		return errors.New("host-key fingerprint must be an OpenSSH SHA256 fingerprint")
+	}
+	fingerprint := strings.TrimPrefix(fingerprintValue, "SHA256:")
+	decodedFingerprint, err := base64.RawStdEncoding.Strict().DecodeString(fingerprint)
+	if err != nil || len(decodedFingerprint) != sha256.Size || base64.RawStdEncoding.EncodeToString(decodedFingerprint) != fingerprint {
+		return errors.New("host-key fingerprint must use canonical unpadded base64")
+	}
+	if trust != HostKeyTrustTOFU && trust != HostKeyTrustVerified {
+		return errors.New("host-key trust must be tofu or verified")
+	}
+	return nil
+}
+
+func ValidateEndpoint(host string, port int) error {
+	if err := validateHost(host); err != nil {
+		return err
+	}
+	if port < 1 || port > 65535 {
+		return errors.New("port must be between 1 and 65535")
 	}
 	return nil
 }
@@ -173,7 +194,7 @@ func (s Store) Load(name string) (Profile, error) {
 	if len(data) > maxProfileBytes {
 		return Profile{}, errors.New("profile exceeds byte limit")
 	}
-	if err := strictjson.ValidateObjectKeys(data, "name", "host", "port", "username", "hostKeyFingerprint", "javaHome", "mapepireJar", "credentialMode"); err != nil {
+	if err := strictjson.ValidateObjectKeys(data, "name", "host", "port", "username", "hostKeyFingerprint", "hostKeyTrust", "javaHome", "mapepireJar", "credentialMode"); err != nil {
 		return Profile{}, fmt.Errorf("decode profile: %w", err)
 	}
 	var p Profile
