@@ -225,6 +225,60 @@ type Client struct {
 	sftp *sftp.Client
 }
 
+// SourceAcquisitionRemote adapts a dialed Client to the bounded source acquisition contract.
+type SourceAcquisitionRemote struct{ client *Client }
+
+var _ source.AcquisitionRemote = (*SourceAcquisitionRemote)(nil)
+
+func NewSourceAcquisitionRemote(client *Client) *SourceAcquisitionRemote {
+	return &SourceAcquisitionRemote{client: client}
+}
+func (r *SourceAcquisitionRemote) CopyToUTF8(ctx context.Context, qsysPath, temporary string) error {
+	if err := r.ready(ctx); err != nil {
+		return err
+	}
+	return r.client.CopyToUTF8(ctx, qsysPath, temporary)
+}
+func (r *SourceAcquisitionRemote) Stat(ctx context.Context, path string) (os.FileInfo, error) {
+	if err := r.ready(ctx); err != nil {
+		return nil, err
+	}
+	info, err := r.client.Stat(path)
+	return info, normalizeSourceNotFound(err)
+}
+
+func (r *SourceAcquisitionRemote) Download(ctx context.Context, path string) (io.ReadCloser, error) {
+	if err := r.ready(ctx); err != nil {
+		return nil, err
+	}
+	file, err := r.client.OpenRead(path)
+	return file, normalizeSourceNotFound(err)
+}
+
+func (r *SourceAcquisitionRemote) Remove(ctx context.Context, path string) error {
+	if err := r.ready(ctx); err != nil {
+		return err
+	}
+	return normalizeSourceNotFound(r.client.Remove(path))
+}
+
+func (r *SourceAcquisitionRemote) ready(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if r == nil || r.client == nil {
+		return errors.New("source acquisition client is required")
+	}
+	return nil
+}
+
+func normalizeSourceNotFound(err error) error {
+	if errors.Is(err, os.ErrNotExist) {
+		return source.ErrRemoteNotFound
+	}
+	return err
+}
+
 func Dial(ctx context.Context, p profile.Profile, password []byte) (*Client, error) {
 	if err := p.Validate(); err != nil {
 		return nil, err

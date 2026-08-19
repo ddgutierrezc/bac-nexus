@@ -42,9 +42,9 @@ Target: `main`; merge in order; under 400 lines each.
 
 ## Phase 2: Remote Snapshot Safety
 
-- [ ] 2.1 **RED (PR 3A)**: In `internal/source/acquire_test.go`, prove one fixed copy, regular-file Stat, 4 MiB cap, exact download/Stat length, complete UTF-8, post-copy ownership, and no snapshot on cancel/deadline/download/read/close/cleanup/joined errors.
-- [ ] 2.2 **GREEN (PR 3A)**: Create `internal/source/acquire.go`; update `retrieve.go` and `remote/ssh.go` for one download, remove/not-found confirmation before publication, and a cleanup-owned independent connection/lifecycle.
-- [ ] 2.3 **REFACTOR (PR 3A)**: Share fake/loopback acquisition helpers; keep cleanup scoped to the Nexus temporary and rerun the focused source suite.
+- [x] 2.1 **RED (PR 3A)**: In `internal/source/acquire_test.go`, prove one fixed copy, regular-file Stat, 4 MiB cap, exact download/Stat length, complete UTF-8, post-copy ownership, and no snapshot on cancel/deadline/download/read/close/cleanup/joined errors.
+- [x] 2.2 **GREEN (PR 3A)**: Create `internal/source/acquire.go`; update `retrieve.go` and `remote/ssh.go` for one download, remove/not-found confirmation before publication, and a cleanup-owned independent connection/lifecycle.
+- [x] 2.3 **REFACTOR (PR 3A)**: Share fake/loopback acquisition helpers; keep cleanup scoped to the Nexus temporary and rerun the focused source suite.
 - [ ] 2.4 **RED (PR 3B)**: Add recovery tests for exact `/tmp/bac-nexus-catalog-<32 lowercase hex>.utf8`, 256-entry/32-delete/one-hour bounds, preserved generic/recent/malformed/nonregular entries, and fail-closed listing, confirmation, truncation, ambiguity, or >32 stale files.
 - [ ] 2.5 **GREEN (PR 3B)**: Add bounded recovery behind the cleanup-owned connection in `acquire.go`, `retrieve.go`, and `remote/ssh.go`; expose no generic listing/deletion outside the connector.
 - [ ] 2.6 **REFACTOR (PR 3B)**: Isolate recovery listing fakes and rerun `go test -count=1 ./internal/source`.

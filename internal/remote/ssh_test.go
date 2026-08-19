@@ -66,6 +66,14 @@ func TestFingerprintCallbackFailsClosed(t *testing.T) {
 		})
 	}
 }
+func TestSourceAcquisitionRemoteRejectsCancelledContextBeforeSFTP(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := NewSourceAcquisitionRemote(&Client{}).Stat(ctx, "/tmp/nexus")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Stat() error = %v, want context cancellation", err)
+	}
+}
 
 func TestInspectHostKeyCapturesDuringKEXBeforeAuthentication(t *testing.T) {
 	_, private, err := ed25519.GenerateKey(rand.Reader)
