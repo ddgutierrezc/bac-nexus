@@ -32,9 +32,9 @@ All PRs target `main`, merge in dependency order PR 1 → PR 7, and remain under
 
 ## Phase 1: Source Foundation
 
-- [ ] 1.1 **RED**: Add `internal/source/snapshot_test.go` cases for complete UTF-8 lines, LF/final record, trailing spaces, ranges, 200-line/128-KiB packing, and no partial content.
-- [ ] 1.2 **GREEN**: Create `internal/source/snapshot.go` with immutable offsets and deterministic page/error contracts.
-- [ ] 1.3 **REFACTOR**: Simplify snapshot test fixtures and run `go test -count=1 ./internal/source`.
+- [x] 1.1 **RED**: Add `internal/source/snapshot_test.go` cases for complete UTF-8 lines, LF/final record, trailing spaces, ranges, 200-line/128-KiB packing, and no partial content.
+- [x] 1.2 **GREEN**: Create `internal/source/snapshot.go` with immutable offsets and deterministic page/error contracts.
+- [x] 1.3 **REFACTOR**: Simplify snapshot test fixtures and run `go test -count=1 ./internal/source`.
 - [ ] 1.4 **RED**: Add `internal/source/store_test.go` cases for cursor bindings, replay/order/concurrent reads, TTL, quota, reader retirement, eviction, and restart expiry.
 - [ ] 1.5 **GREEN**: Create `internal/source/store.go` with opaque epoch capabilities, bounded leases, monotonic expiry, and deferred zeroization.
 - [ ] 1.6 **REFACTOR**: Isolate clock/random seams and rerun the focused source suite.
