@@ -1,0 +1,55 @@
+schema: spec-driven
+
+context: |
+  Tech stack: Go 1.23 module with SSH/SFTP and Mapepire dependencies.
+  Architecture: catalogspike CLI composes internal catalog, profile, credential, remote, mapepire, and source packages.
+  Product scope: secure, bounded, read-oriented IBM i Catalogados source discovery spike.
+  Testing: Go standard testing with package-local tests and in-process fakes or loopback SSH.
+  Security: explicit subcommands, pinned SSH host keys, bounded results, and no arbitrary remote execution.
+
+artifact_store:
+  mode: hybrid
+execution:
+  mode: interactive
+delivery:
+  strategy: ask-on-risk
+  review_budget_lines: 400
+
+strict_tdd: true
+testing:
+  test_command: go test -count=1 ./...
+  coverage_command: go test -cover ./...
+  vet_command: go vet ./...
+  format_command: gofmt -w
+  typecheck_command: go test ./...
+  layers:
+    unit: true
+    integration: true
+    e2e: false
+  integration_scope: in-process loopback SSH, temporary directories, and consumer-owned fakes
+  e2e_scope: manual approved IBM i live validation only; no automated live harness
+
+rules:
+  proposal:
+    - Keep scope bounded to an approved product capability and include rollback for risky changes.
+    - Ask before crossing a security, live IBM i, dependency, or architecture decision boundary.
+  specs:
+    - Use Given/When/Then scenarios and RFC 2119 keywords.
+    - Specify bounded inputs, deterministic errors, and sensitive-output behavior.
+  design:
+    - Keep MCP transport adapters separate from connector and domain behavior.
+    - Document security and audit implications for remote-access changes.
+  tasks:
+    - Group tasks by phase and keep each task reviewable within the 400-line budget.
+  apply:
+    guidelines:
+      - Follow existing package-local Go tests and narrow internal interfaces.
+      - Preserve fail-closed security controls and avoid arbitrary SSH, SQL, or CL execution.
+    tdd: true
+    test_command: go test -count=1 ./...
+  verify:
+    test_command: go test -count=1 ./...
+    build_command: go build ./cmd/catalogspike
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas.
