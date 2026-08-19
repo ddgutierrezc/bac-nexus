@@ -4,11 +4,11 @@
 
 | Field | Value |
 |---|---|
-| Estimated changed lines | 1,700–2,300 |
+| Estimated changed lines | 2,100–2,800 authored; ≤400/unit |
 | 400-line budget risk | High |
 | Chained PRs recommended | Yes |
-| Suggested split | PR 1 → 2 → 3A → 3B → 5 → 6 → 7 → 8; each targets `main` |
-| Delivery strategy | ask-on-risk (resolved) |
+| Suggested split | 1→2→3A→3B.1→3B.2→3B.3→5→6→7→8 to `main` |
+| Delivery strategy | ask-on-risk (resolved: approved split) |
 | Chain strategy | stacked-to-main |
 
 Decision needed before apply: No
@@ -16,51 +16,59 @@ Chained PRs recommended: Yes
 Chain strategy: stacked-to-main
 400-line budget risk: High
 
-Target: `main`; merge in order; under 400 lines each.
-
 ### Suggested Work Units
 
-| Unit | Goal / depends | PR | Focused test command | Runtime harness | Rollback boundary |
-|---|---|---|---|---|---|
-| 1 | Lines; none | 1 | `go test -count=1 ./internal/source` | memory model | `snapshot*` |
-| 2 | Leases; 1 | 2 | `go test -count=1 ./internal/source` | fake clock/store | `store*` |
-| 3A | Acquire/cleanup; 1–2 | 3A | `go test -count=1 ./internal/source` | fake/loopback copy | acquisition/remote seam |
-| 3B | Recovery; 3A | 3B | `go test -count=1 ./internal/source` | fake/loopback listing | recovery/listing seam |
-| 5 | Credentials/security/audit; none | 5 | `go test -count=1 ./internal/credential ./internal/security ./internal/audit` | Win32 fakes | package files |
-| 6 | Freshness; 2, 3A, 5 | 6 | `go test -count=1 ./internal/app` | resolver/acquirer fakes | `service*` |
-| 7 | MCP/lifecycle/docs; 5–6 | 7 | `go test -count=1 ./internal/mcp ./cmd/nexus` | stdio loopback | MCP, `cmd/nexus`, docs |
-| 8 | Approved acceptance; 1–7 | 8 | `go test -count=1 ./...` | read-only IBM i | acceptance evidence |
+| Unit | Goal / dependency | Focused test command | Runtime harness | Rollback boundary |
+|---|---|---|---|---|
+| 1 | Lines;— | `go test -count=1 ./internal/source` | memory | snapshot |
+| 2 | Leases;1 | `go test -count=1 ./internal/source` | fake clock | store |
+| 3A | Acquire;1–2 | `go test -count=1 ./internal/source` | loopback | acquire |
+| 3B.1 | Ledger;3A | `go test -count=1 ./internal/source` | FS/Win32 fakes | ownership |
+| 3B.2 | Private acquire;3B.1 | `go test -count=1 ./internal/source` | loopback | acquire |
+| 3B.3 | Recovery;3B.2 | `go test -count=1 ./internal/source` | recovery fake | recovery/docs |
+| 5 | Security;— | `go test -count=1 ./internal/credential ./internal/security ./internal/audit` | Win32 fakes | packages |
+| 6 | Freshness;2,3B.3,5 | `go test -count=1 ./internal/app` | app fakes | service |
+| 7 | MCP;5–6 | `go test -count=1 ./internal/mcp ./cmd/nexus` | stdio | MCP/command/docs |
+| 8 | Accept;1–7 | `go test -count=1 ./...` | approved IBM i | evidence |
+
+Rollback: revert 3B.3 first; stop acquisition before retaining/reverting ledger semantics; retain records unless remote absence was confirmed, then revert 3B.2 and 3B.1.
 
 ## Phase 1: Source Foundation
 
-- [x] 1.1 **RED**: Add `internal/source/snapshot_test.go` line-contract coverage.
-- [x] 1.2 **GREEN**: Create `internal/source/snapshot.go` immutable page contracts.
-- [x] 1.3 **REFACTOR**: Simplify snapshot fixtures; rerun the source suite.
-- [x] 1.4 **RED**: Add `internal/source/store_test.go` lease-lifecycle coverage.
-- [x] 1.5 **GREEN**: Create `internal/source/store.go` bounded opaque leases.
-- [x] 1.6 **REFACTOR**: Isolate seams; rerun the source suite.
+- [x] 1.1 **RED (PR 1)**: Test `internal/source/snapshot.go` lines.
+- [x] 1.2 **GREEN (PR 1)**: Implement `internal/source/snapshot.go` pages.
+- [x] 1.3 **REFACTOR (PR 1)**: Simplify `snapshot_test.go` fixtures.
+- [x] 1.4 **RED (PR 2)**: Test `internal/source/store.go` leases.
+- [x] 1.5 **GREEN (PR 2)**: Implement `internal/source/store.go` bounds.
+- [x] 1.6 **REFACTOR (PR 2)**: Isolate `store_test.go` seams.
 
 ## Phase 2: Remote Snapshot Safety
 
-- [x] 2.1 **RED (PR 3A)**: In `internal/source/acquire_test.go`, prove one fixed copy, regular-file Stat, 4 MiB cap, exact download/Stat length, complete UTF-8, post-copy ownership, and no snapshot on cancel/deadline/download/read/close/cleanup/joined errors.
-- [x] 2.2 **GREEN (PR 3A)**: Create `internal/source/acquire.go`; update `retrieve.go` and `remote/ssh.go` for one download, remove/not-found confirmation before publication, and a cleanup-owned independent connection/lifecycle.
-- [x] 2.3 **REFACTOR (PR 3A)**: Share fake/loopback acquisition helpers; keep cleanup scoped to the Nexus temporary and rerun the focused source suite.
-- [ ] 2.4 **RED (PR 3B)**: Add recovery tests for exact `/tmp/bac-nexus-catalog-<32 lowercase hex>.utf8`, 256-entry/32-delete/one-hour bounds, preserved generic/recent/malformed/nonregular entries, and fail-closed listing, confirmation, truncation, ambiguity, or >32 stale files.
-- [ ] 2.5 **GREEN (PR 3B)**: Add bounded recovery behind the cleanup-owned connection in `acquire.go`, `retrieve.go`, and `remote/ssh.go`; expose no generic listing/deletion outside the connector.
-- [ ] 2.6 **REFACTOR (PR 3B)**: Isolate recovery listing fakes and rerun `go test -count=1 ./internal/source`.
+- [x] 2.1 **RED (PR 3A)**: Test `internal/source/acquire_test.go` copy/UTF-8/cancel/cleanup publication failures.
+- [x] 2.2 **GREEN (PR 3A)**: Implement `acquire.go`/`retrieve.go`/`remote/ssh.go` download and independent confirmed cleanup.
+- [x] 2.3 **REFACTOR (PR 3A)**: Share `acquire_test.go` fakes; scope cleanup.
+- [ ] 2.4 **RED (PR 3B.1)**: `internal/source/ownership*_test.go`: strict schema/forbidden/unknown, `ReadDir(65)` 64-limit, duplicate/malformed/oversized/nonregular/reparse/owner-ACL, Win32 lock/durable create/remove contracts.
+- [ ] 2.5 **GREEN (PR 3B.1)**: `internal/source/ownership*.go`: generic ledger plus build-tagged Windows/non-Windows backends passing those tests.
+- [ ] 2.6 **REFACTOR (PR 3B.1)**: Simplify `internal/source/ownership*_test.go` fixtures/seams; rerun source checks.
+- [ ] 2.7 **RED (PR 3B.2)**: `acquire_test.go`: absolute-home/0700/traversal-symlink-reparse-escape/128-bit-0600/binding/ledger-first.
+- [ ] 2.8 **GREEN (PR 3B.2)**: `acquire.go`/`retrieve.go`/`remote/ssh.go`: private tmp; record-before-copy; Remove+Stat-before-record removal.
+- [ ] 2.9 **REFACTOR (PR 3B.2)**: `acquire_test.go` fakes; retain record/no snapshot; no recovery/generic API.
+- [ ] 2.10 **RED (PR 3B.3)**: `ownership_test.go`: lock/load/profile-credential-digest-pin/crash/exact-path/absent/corruption-overflow-contention-ambiguity blocks.
+- [ ] 2.11 **GREEN (PR 3B.3)**: `ownership.go`: locked startup/pre-acquire fresh-pin recovery; remove record after absence.
+- [ ] 2.12 **REFACTOR (PR 3B.3)**: `docs/SECURITY.md`: no `/tmp` discovery; operator/privileged-admin risk; no MCP operation.
 
 ## Phase 3: Local Security and Freshness
 
-- [ ] 3.1 **RED**: Add `internal/{security,credential,audit}/*_test.go`: invalid selectors/differing `clientInfo` before remote work, unavailable credentials, TOFU change, redaction; no product-authentication or parent checks.
-- [ ] 3.2 **GREEN**: Create `internal/security/policy.go`, `internal/audit/audit.go`, and build-tagged `internal/credential/wincred_*` stores.
-- [ ] 3.3 **REFACTOR**: Table-drive those tests; run `go test -count=1 ./internal/credential ./internal/security ./internal/audit`.
-- [ ] 3.4 **RED**: Add `internal/app/service_test.go` for 50 candidates, re-query, stale coordinate, byte changes, and denial before remote work.
-- [ ] 3.5 **GREEN**: Create `internal/app/service.go` with narrow resolver/acquirer/store interfaces and deterministic errors.
-- [ ] 3.6 **REFACTOR**: Consolidate `internal/app` fakes; run its suite.
+- [ ] 3.1 **RED (PR 5)**: `internal/security/*_test.go`, `internal/credential/*_test.go`, `internal/audit/*_test.go`: selector/clientInfo/credential/TOFU/redaction/no-remote.
+- [ ] 3.2 **GREEN (PR 5)**: Create `security/policy.go`, `audit/audit.go`, `credential/wincred_*`.
+- [ ] 3.3 **REFACTOR (PR 5)**: Table-drive package tests.
+- [ ] 3.4 **RED (PR 6)**: `internal/app/service_test.go`: 50/re-query/stale/bytes/pre-remote-denial.
+- [ ] 3.5 **GREEN (PR 6)**: Create narrow deterministic `internal/app/service.go`.
+- [ ] 3.6 **REFACTOR (PR 6)**: Consolidate `service_test.go` fakes.
 
 ## Phase 4: MCP, Rollout, and Acceptance
 
-- [ ] 4.1 **RED**: Add `internal/mcp/server_test.go` and `cmd/nexus/main_test.go` for schemas, two read tools, errors, cancellation, and shutdown.
-- [ ] 4.2 **GREEN**: Pin SDK in `go.mod`; create `internal/mcp/server.go` and `cmd/nexus/main.go`.
-- [ ] 4.3 **REFACTOR**: Update `README.md` and `docs/SECURITY.md`; preserve `cmd/catalogspike`; run `go test -count=1 ./...`.
-- [ ] 4.4 Perform the approved manual IBM i traversal from line 1 to EOF; record sanitized newline, EOF, success/cancellation cleanup evidence without retaining source.
+- [ ] 4.1 **RED (PR 7)**: `mcp/server_test.go`, `cmd/nexus/main_test.go`: typed tools/no paths/errors/cancel/shutdown.
+- [ ] 4.2 **GREEN (PR 7)**: Pin SDK; create `mcp/server.go`, `cmd/nexus/main.go`; no generic remote.
+- [ ] 4.3 **REFACTOR (PR 7)**: Update `README.md`/`docs/SECURITY.md`; preserve spike/full tests.
+- [ ] 4.4 **Acceptance (PR 8)**: `docs/SECURITY.md`: IBM i line-1/EOF/newline/cleanup evidence; no source.

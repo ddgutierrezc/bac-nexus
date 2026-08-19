@@ -56,7 +56,7 @@ The first valid request MUST acquire one immutable process-local snapshot lease;
 
 ### Requirement: Bounded Lease Lifecycle
 
-The system MUST acquire one fixed remote copy/download per snapshot, enforce a 4 MiB complete-member ceiling and 16 MiB aggregate snapshot quota, and publish a cursor only after complete UTF-8 validation and confirmed immediate remote-temporary cleanup. A lease MUST expire after 10 idle minutes, refreshed only by valid page access. Snapshot recovery MUST be bounded to old Nexus-owned remote temporaries and MUST NOT delete generic files.
+The system MUST acquire one fixed remote copy/download per snapshot, enforce a 4 MiB complete-member ceiling and 16 MiB aggregate snapshot quota, and publish a cursor only after complete UTF-8 validation and confirmed immediate remote-temporary cleanup. CPYTOSTMF MUST write only the exact Nexus-owned IFS target; the original QSYS member MUST remain immutable and MUST NOT be modified or deleted. A lease MUST expire after 10 idle minutes, refreshed only by valid page access. Recovery SHALL follow the Durable Temporary Ownership and Recovery requirement.
 
 #### Scenario: Resource limits and acquisition failures are safe
 
@@ -69,6 +69,50 @@ The system MUST acquire one fixed remote copy/download per snapshot, enforce a 4
 - GIVEN a cursor has expired, been evicted, or the process restarted
 - WHEN a later page is requested
 - THEN it returns `snapshot_expired`; a full traversal reacquires a snapshot at line 1 and never mixes snapshots
+
+#### Scenario: Acquisition preserves the source member
+
+- GIVEN an authorized exact selection is acquired
+- WHEN Nexus copies it to its temporary target
+- THEN only that exact target is written and the QSYS member is neither modified nor deleted
+
+### Requirement: Durable Temporary Ownership and Recovery
+
+Before any remote reservation or copy, the system MUST durably commit one immutable local ownership record. Its schema SHALL contain only a version, 128-bit random token, validated exact remote path, profile selector, target-binding digest, and creation time; it MUST NOT contain source, credentials, commands, cursor, or model content. The path MUST be beneath the authenticated user's validated absolute home in a Nexus-private `0700` directory; traversal, symlink, reparse-point, and escape paths MUST be rejected. Each temporary MUST be exclusively created at its random exact path with `0600` permissions.
+
+The ledger MUST admit no more than 64 records by bounded local iteration. Entry 65, corruption, unknown fields, malformed or duplicate records, wrong owner or ACL, unsupported platform or durability guarantee, or lock contention MUST fail closed before new acquisition. Windows MUST use a documented cross-process lock and documented durable create/remove ordering; no unsupported portable durability guarantee SHALL be claimed. The system MUST re-resolve the current profile and credential, compare the exact target binding, and verify the recorded pinned host on a fresh connection before recovery; any retargeting, ambiguity, or failure MUST block new acquisition and publish no snapshot, cursor, or content.
+
+Recovery MUST address only exact validated ledger paths under the private directory. It MUST remove the path and confirm `Stat` reports not found before deleting the record. Crash recovery MUST be idempotent for a record before copy with an absent target, a partial or complete copy, and remote removal before record deletion. Rollback MUST retain a record unless exact remote absence is confirmed. Historical pre-ledger shared `/tmp` files MUST NOT be pattern-discovered or automatically deleted; only an authorized operator MAY clean confirmed historical paths. A privileged IBM i administrator MAY race or replace a remote file; the system MUST NOT claim absolute protection.
+
+#### Scenario: Caller cannot direct temporary handling
+
+- GIVEN an MCP caller starts a source traversal
+- WHEN it submits its typed request
+- THEN Nexus derives the temporary path itself and accepts no temporary, list, or delete path
+
+#### Scenario: Ledger admission fails closed
+
+- GIVEN the ledger has 64 valid records or an invalid record, ACL, lock, platform, or durability condition
+- WHEN Nexus attempts a new acquisition or recovery
+- THEN it performs no new remote reserve or copy and publishes no snapshot, cursor, or content
+
+#### Scenario: Recovery validates ownership and target
+
+- GIVEN a ledger record names an exact private temporary path
+- WHEN startup or pre-acquisition recovery runs
+- THEN Nexus revalidates ownership, binding, credential, and pinned host before exact-path removal
+
+#### Scenario: Crash recovery is idempotent
+
+- GIVEN a crash occurred before copy, during a partial or full copy, or after remote removal before record deletion
+- WHEN recovery removes the recorded exact path and confirms it absent
+- THEN it deletes only that record and permits later acquisition
+
+#### Scenario: Historical and privileged risks remain bounded
+
+- GIVEN a historical shared `/tmp` file or a privileged IBM i administrator changes a remote file
+- WHEN Nexus recovers temporaries
+- THEN it never auto-discovers the historical file and reports no absolute replacement protection
 
 ### Requirement: Deterministic Page Boundaries and Validation
 

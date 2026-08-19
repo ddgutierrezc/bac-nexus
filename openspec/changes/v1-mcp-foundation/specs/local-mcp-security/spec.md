@@ -56,7 +56,7 @@ The system MUST support explicit pinned TOFU enrollment that records non-secret 
 
 ### Requirement: Sanitized Read-Only Surface and Audit
 
-The system MUST expose only the defined catalog-context read operations and MUST NOT provide arbitrary SQL, shell, CL, SSH, SFTP, mutation, or infrastructure-execution tools. It MUST audit only operation class, allowlisted client-policy identifier, result classification, requested and returned line counts, duration, and opaque lifecycle outcome. Audit, logs, fixtures, and artifacts MUST exclude source or line text, hashes, cursors, coordinates, paths, hosts, users, commands, SQL, credential references, secrets, and remote-cleanup details.
+The system MUST expose only the defined catalog-context read operations and MUST NOT provide arbitrary SQL, shell, CL, SSH, SFTP, mutation, or infrastructure-execution tools. Its MCP schemas MUST NOT accept a temporary, delete, or listing path, and no generic remote listing or deletion capability SHALL exist. It MUST audit only operation class, allowlisted client-policy identifier, result classification, requested and returned line counts, duration, and opaque lifecycle outcome. Audit, logs, fixtures, and artifacts MUST exclude source or line text, hashes, cursors, coordinates, paths, hosts, users, commands, SQL, credential references, secrets, and remote-cleanup details.
 
 #### Scenario: Audit records a successful page
 
@@ -69,3 +69,9 @@ The system MUST expose only the defined catalog-context read operations and MUST
 - GIVEN an unauthorized request is rejected
 - WHEN its audit outcome is recorded
 - THEN the record identifies the denial classification without sensitive material
+
+#### Scenario: Remote path control is unavailable
+
+- GIVEN an MCP caller requests catalog context
+- WHEN it attempts to specify a temporary, delete, or listing path
+- THEN the request is rejected as unsupported and no generic remote operation occurs
