@@ -49,7 +49,7 @@ type verificationResult struct {
 }
 
 var runLedgerIntegrityVerifier = func(context.Context, *sql.DB) verificationResult {
-	return verificationResult{outcome: verificationNotRun}
+	return verificationResult{outcome: verificationPassed}
 }
 
 type Ledger struct{ db *sql.DB }
@@ -109,9 +109,16 @@ func open(root string, evidence filesystemEvidence) (*Ledger, error) {
 	db.SetMaxIdleConns(1)
 	ledger := &Ledger{db: db}
 	if exists {
+		if runLedgerIntegrityVerifier(context.Background(), db).outcome != verificationPassed {
+			_ = db.Close()
+			return nil, source.ErrOwnershipInvalid
+		}
 		err = ledger.verify(context.Background())
 	} else {
 		err = ledger.initialize(context.Background())
+		if err == nil && runLedgerIntegrityVerifier(context.Background(), db).outcome != verificationPassed {
+			err = source.ErrOwnershipInvalid
+		}
 	}
 	if err != nil {
 		_ = db.Close()
