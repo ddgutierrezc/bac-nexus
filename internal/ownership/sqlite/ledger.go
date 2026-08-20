@@ -25,6 +25,33 @@ const (
 
 var transactionRetryDelays = [...]time.Duration{25 * time.Millisecond, 50 * time.Millisecond, 100 * time.Millisecond}
 
+type verificationStage uint8
+
+const (
+	verificationNotStarted verificationStage = iota
+	verificationQuickCheck
+	verificationIntegrityCheck
+)
+
+type verificationOutcome uint8
+
+const (
+	verificationNotRun verificationOutcome = iota
+	verificationPassed
+	verificationCorrupt
+	verificationInconclusive
+	verificationBoundExceeded
+)
+
+type verificationResult struct {
+	stage   verificationStage
+	outcome verificationOutcome
+}
+
+var runLedgerIntegrityVerifier = func(context.Context, *sql.DB) verificationResult {
+	return verificationResult{outcome: verificationNotRun}
+}
+
 type Ledger struct{ db *sql.DB }
 
 type proof uint8
@@ -90,6 +117,7 @@ func open(root string, evidence filesystemEvidence) (*Ledger, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	_ = runLedgerIntegrityVerifier(context.Background(), db)
 	return ledger, nil
 }
 
