@@ -151,6 +151,25 @@ func temporaryName(random io.Reader) (string, error) {
 	return "/tmp/bac-nexus-catalog-" + hex.EncodeToString(token) + ".utf8", nil
 }
 
+func reservePrivateFile(ctx context.Context, remote AcquisitionRemote, directory string, random io.Reader) (string, error) {
+	if random == nil {
+		random = rand.Reader
+	}
+	token := make([]byte, 16)
+	if _, err := io.ReadFull(random, token); err != nil {
+		return "", fmt.Errorf("generate remote temporary name: %w", err)
+	}
+	temporary := path.Join(directory, hex.EncodeToString(token)+".utf8")
+	if err := remote.CreateExclusive(ctx, temporary); err != nil {
+		return "", fmt.Errorf("create exclusive remote temporary file: %w", err)
+	}
+	info, err := remote.Lstat(ctx, temporary)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 {
+		return "", errors.New("remote source temporary path is unsafe")
+	}
+	return temporary, nil
+}
+
 func privateDirectory(home string) (string, error) {
 	if !strings.HasPrefix(home, "/") || strings.Contains(home, "..") {
 		return "", errors.New("authenticated remote home is not an absolute safe path")

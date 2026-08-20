@@ -256,7 +256,10 @@ func (r *SourceAcquisitionRemote) CreateExclusive(ctx context.Context, path stri
 	if err != nil {
 		return err
 	}
-	return file.Close()
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return r.client.Chmod(path, 0o600)
 }
 func (r *SourceAcquisitionRemote) Lstat(ctx context.Context, path string) (os.FileInfo, error) {
 	if err := r.ready(ctx); err != nil {
