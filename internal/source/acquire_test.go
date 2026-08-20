@@ -114,10 +114,35 @@ func (l *acquisitionLedger) Delete(_ context.Context, record OwnershipRecord) er
 }
 func (*acquisitionLedger) Close() error { return nil }
 
-func newAcquirer(request, cleanup *acquisitionRemote, events *[]string) Acquirer {
-	request.home = "/home/nexus"
-	request.directoryInfo = acquisitionInfo{mode: os.ModeDir | 0o700}
-	return Acquirer{Open: sequentialOpener(request, cleanup), Random: bytes.NewReader(make([]byte, 16)), Ownership: &acquisitionLedger{events: events}, Profile: "test", TargetDigest: make([]byte, 32)}
+type acquisitionFixture struct {
+	request, cleanup *acquisitionRemote
+	ledger           *acquisitionLedger
+	acquirer         Acquirer
+}
+
+func newAcquisitionFixture(events *[]string) acquisitionFixture {
+	request := &acquisitionRemote{
+		data:          []byte("ok\n"),
+		info:          acquisitionInfo{3, 0o600},
+		directoryInfo: acquisitionInfo{mode: os.ModeDir | 0o700},
+		home:          "/home/nexus",
+		events:        events,
+	}
+	cleanup := &acquisitionRemote{info: request.info, events: events}
+	ledger := &acquisitionLedger{events: events}
+	return acquisitionFixture{
+		request: request,
+		cleanup: cleanup,
+		ledger:  ledger,
+		acquirer: Acquirer{
+			Open:         sequentialOpener(request, cleanup),
+			Random:       bytes.NewReader(make([]byte, 16)),
+			Ownership:    ledger,
+			Profile:      "test",
+			TargetDigest: make([]byte, 32),
+			Now:          func() time.Time { return time.Unix(0, 0) },
+		},
+	}
 }
 
 type readCloser struct {
@@ -147,21 +172,22 @@ func (i acquisitionInfo) Sys() any           { return nil }
 
 func TestAcquirerAcquiresOneCompleteSnapshotAndConfirmsCleanup(t *testing.T) {
 	events := []string{}
-	request := &acquisitionRemote{data: []byte("one\ntwo\n"), info: acquisitionInfo{8, 0o600}, events: &events}
-	cleanup := &acquisitionRemote{info: acquisitionInfo{8, 0o600}, events: &events}
+	fixture := newAcquisitionFixture(&events)
+	fixture.request.data = []byte("one\ntwo\n")
+	fixture.request.info.size = 8
+	fixture.cleanup.info.size = 8
 	var opens int
-	a := newAcquirer(request, cleanup, &events)
-	a.Open = func(context.Context) (AcquisitionRemote, io.Closer, error) {
+	fixture.acquirer.Open = func(context.Context) (AcquisitionRemote, io.Closer, error) {
 		opens++
 		if opens == 1 {
-			return request, io.NopCloser(nil), nil
+			return fixture.request, io.NopCloser(nil), nil
 		}
-		return cleanup, io.NopCloser(nil), nil
+		return fixture.cleanup, io.NopCloser(nil), nil
 	}
 
-	snap, err := a.Acquire(context.Background(), candidate())
-	if err != nil || snap == nil || opens != 2 || request.copies != 1 || request.downloads != 1 || cleanup.removes != 1 || request.copyPath != "/home/nexus/.bac-nexus/tmp/00000000000000000000000000000000.utf8" {
-		t.Fatalf("Acquire() = %v, %v; opens/copy/download/remove = %d/%d/%d/%d", snap, err, opens, request.copies, request.downloads, cleanup.removes)
+	snap, err := fixture.acquirer.Acquire(context.Background(), candidate())
+	if err != nil || snap == nil || opens != 2 || fixture.request.copies != 1 || fixture.request.downloads != 1 || fixture.cleanup.removes != 1 || fixture.request.copyPath != "/home/nexus/.bac-nexus/tmp/00000000000000000000000000000000.utf8" {
+		t.Fatalf("Acquire() = %v, %v; opens/copy/download/remove = %d/%d/%d/%d", snap, err, opens, fixture.request.copies, fixture.request.downloads, fixture.cleanup.removes)
 	}
 	if page, err := snap.Page(1, 2); err != nil || strings.Join(page.Lines, ",") != "one,two" || strings.Join(events, ",") != "admit,reserve,copy,download,remove,delete" {
 		t.Fatalf("snapshot/events = %#v, %v / %v", page, err, events)
@@ -217,26 +243,22 @@ func TestReservePrivateFileRejectsTraversalAndSymlinkEscape(t *testing.T) {
 
 func TestAcquirerAdmitsOwnershipBeforeReserveAndCopy(t *testing.T) {
 	events := []string{}
-	request := &acquisitionRemote{data: []byte("ok\n"), info: acquisitionInfo{3, 0o600}, directoryInfo: acquisitionInfo{mode: os.ModeDir | 0o700}, home: "/home/nexus", events: &events}
-	cleanup := &acquisitionRemote{info: acquisitionInfo{3, 0o600}, events: &events}
-	ledger := &acquisitionLedger{events: &events}
-	a := Acquirer{Open: sequentialOpener(request, cleanup), Random: bytes.NewReader(make([]byte, 16)), Ownership: ledger, Profile: "test", TargetDigest: make([]byte, 32), Now: func() time.Time { return time.Unix(0, 0) }}
-	snap, err := a.Acquire(context.Background(), candidate())
-	if err != nil || snap == nil || strings.Join(events, ",") != "admit,reserve,copy,download,remove,delete" || ledger.record.RemotePath != request.created {
-		t.Fatalf("Acquire() = %v, %v; events=%v record=%#v", snap, err, events, ledger.record)
+	fixture := newAcquisitionFixture(&events)
+	snap, err := fixture.acquirer.Acquire(context.Background(), candidate())
+	if err != nil || snap == nil || strings.Join(events, ",") != "admit,reserve,copy,download,remove,delete" || fixture.ledger.record.RemotePath != fixture.request.created {
+		t.Fatalf("Acquire() = %v, %v; events=%v record=%#v", snap, err, events, fixture.ledger.record)
 	}
 }
 
 func TestAcquirerDeletesExactOwnershipOnlyAfterConfirmedPrivateCleanup(t *testing.T) {
 	events := []string{}
-	request := &acquisitionRemote{data: []byte("ok\n"), info: acquisitionInfo{3, 0o600}, directoryInfo: acquisitionInfo{mode: os.ModeDir | 0o700}, home: "/home/nexus", events: &events, trackStats: true}
-	cleanup := &acquisitionRemote{info: acquisitionInfo{3, 0o600}, events: &events, trackStats: true}
-	ledger := &acquisitionLedger{events: &events}
-	a := Acquirer{Open: sequentialOpener(request, cleanup), Random: bytes.NewReader(make([]byte, 16)), Ownership: ledger, Profile: "test", TargetDigest: make([]byte, 32), Now: func() time.Time { return time.Unix(0, 0) }}
+	fixture := newAcquisitionFixture(&events)
+	fixture.request.trackStats = true
+	fixture.cleanup.trackStats = true
 
-	snap, err := a.Acquire(context.Background(), candidate())
-	if err != nil || snap == nil || cleanup.removes != 1 || cleanup.stats != 1 || ledger.deletes != 1 || ledger.deleted.RemotePath != request.created || strings.Join(events, ",") != "admit,reserve,copy,stat,download,remove,stat,delete" {
-		t.Fatalf("Acquire() = %v, %v; cleanup/delete/events = %d/%d/%v", snap, err, cleanup.removes, ledger.deletes, events)
+	snap, err := fixture.acquirer.Acquire(context.Background(), candidate())
+	if err != nil || snap == nil || fixture.cleanup.removes != 1 || fixture.cleanup.stats != 1 || fixture.ledger.deletes != 1 || fixture.ledger.deleted.RemotePath != fixture.request.created || strings.Join(events, ",") != "admit,reserve,copy,stat,download,remove,stat,delete" {
+		t.Fatalf("Acquire() = %v, %v; cleanup/delete/events = %d/%d/%v", snap, err, fixture.cleanup.removes, fixture.ledger.deletes, events)
 	}
 }
 
@@ -252,15 +274,12 @@ func TestAcquirerRetainsOwnershipWhenPrivateCleanupIsUncertain(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			events := []string{}
-			request := &acquisitionRemote{data: []byte("ok\n"), info: acquisitionInfo{3, 0o600}, directoryInfo: acquisitionInfo{mode: os.ModeDir | 0o700}, home: "/home/nexus", events: &events}
-			cleanup := &acquisitionRemote{info: acquisitionInfo{3, 0o600}, events: &events}
-			tt.set(cleanup)
-			ledger := &acquisitionLedger{events: &events}
-			a := Acquirer{Open: sequentialOpener(request, cleanup), Random: bytes.NewReader(make([]byte, 16)), Ownership: ledger, Profile: "test", TargetDigest: make([]byte, 32)}
+			fixture := newAcquisitionFixture(&events)
+			tt.set(fixture.cleanup)
 
-			snap, err := a.Acquire(context.Background(), candidate())
-			if err == nil || snap != nil || ledger.deletes != 0 {
-				t.Fatalf("Acquire() = %v, %v; ownership deletes = %d", snap, err, ledger.deletes)
+			snap, err := fixture.acquirer.Acquire(context.Background(), candidate())
+			if err == nil || snap != nil || fixture.ledger.deletes != 0 {
+				t.Fatalf("Acquire() = %v, %v; ownership deletes = %d", snap, err, fixture.ledger.deletes)
 			}
 		})
 	}
@@ -268,13 +287,12 @@ func TestAcquirerRetainsOwnershipWhenPrivateCleanupIsUncertain(t *testing.T) {
 
 func TestAcquirerApprovalCopiesFromButNeverWritesSourceMember(t *testing.T) {
 	events := []string{}
-	request := &acquisitionRemote{data: []byte("ok\n"), info: acquisitionInfo{3, 0o600}, events: &events}
-	cleanup := &acquisitionRemote{info: acquisitionInfo{3, 0o600}, events: &events}
+	fixture := newAcquisitionFixture(&events)
 	selection := candidate()
-	snap, err := newAcquirer(request, cleanup, &events).Acquire(context.Background(), selection)
+	snap, err := fixture.acquirer.Acquire(context.Background(), selection)
 	wantSource, sourceErr := selection.QSYSPath()
-	if sourceErr != nil || err != nil || snap == nil || request.copySource != wantSource || request.copyPath == wantSource {
-		t.Fatalf("Acquire() = %v, %v; copy source/target = %q/%q", snap, err, request.copySource, request.copyPath)
+	if sourceErr != nil || err != nil || snap == nil || fixture.request.copySource != wantSource || fixture.request.copyPath == wantSource {
+		t.Fatalf("Acquire() = %v, %v; copy source/target = %q/%q", snap, err, fixture.request.copySource, fixture.request.copyPath)
 	}
 }
 
@@ -306,20 +324,19 @@ func TestAcquirerFailsClosedAndCleansOwnedTemporary(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			events := []string{}
-			request := &acquisitionRemote{data: []byte("ok\n"), info: acquisitionInfo{3, 0o600}, events: &events}
-			tt.set(request)
-			cleanup := &acquisitionRemote{info: request.info, events: &events}
+			fixture := newAcquisitionFixture(&events)
+			tt.set(fixture.request)
+			fixture.cleanup.info = fixture.request.info
 			if tt.name == "cleanup remove" {
-				cleanup.removeErr = boom
+				fixture.cleanup.removeErr = boom
 			}
 			if tt.name == "cleanup confirmation" {
-				cleanup.statErr = boom
+				fixture.cleanup.statErr = boom
 			}
-			a := newAcquirer(request, cleanup, &events)
-			snap, err := a.Acquire(tt.ctx, candidate())
+			snap, err := fixture.acquirer.Acquire(tt.ctx, candidate())
 			wantRemoteWork := tt.name != "nonregular stat"
-			if err == nil || snap != nil || (request.copies == 1) != wantRemoteWork || (cleanup.removes == 1) != wantRemoteWork || cleanup.removeContextErr != nil {
-				t.Fatalf("Acquire() = %v, %v; copy/remove = %d/%d", snap, err, request.copies, cleanup.removes)
+			if err == nil || snap != nil || (fixture.request.copies == 1) != wantRemoteWork || (fixture.cleanup.removes == 1) != wantRemoteWork || fixture.cleanup.removeContextErr != nil {
+				t.Fatalf("Acquire() = %v, %v; copy/remove = %d/%d", snap, err, fixture.request.copies, fixture.cleanup.removes)
 			}
 		})
 	}
@@ -328,9 +345,10 @@ func TestAcquirerFailsClosedAndCleansOwnedTemporary(t *testing.T) {
 func TestAcquirerJoinsPrimaryAndCleanupErrors(t *testing.T) {
 	boom, cleanupBoom := errors.New("copy"), errors.New("cleanup")
 	events := []string{}
-	request := &acquisitionRemote{info: acquisitionInfo{0, 0o600}, copyErr: boom, events: &events}
-	cleanup := &acquisitionRemote{info: acquisitionInfo{0, 0o600}, removeErr: cleanupBoom, events: &events}
-	snap, err := newAcquirer(request, cleanup, &events).Acquire(context.Background(), candidate())
+	fixture := newAcquisitionFixture(&events)
+	fixture.request.copyErr = boom
+	fixture.cleanup.removeErr = cleanupBoom
+	snap, err := fixture.acquirer.Acquire(context.Background(), candidate())
 	if snap != nil || !errors.Is(err, boom) || !errors.Is(err, cleanupBoom) {
 		t.Fatalf("Acquire() = %v, %v", snap, err)
 	}
@@ -338,11 +356,11 @@ func TestAcquirerJoinsPrimaryAndCleanupErrors(t *testing.T) {
 
 func TestAcquirerAcceptsAlreadyRemovedTemporaryOnlyAfterConfirmation(t *testing.T) {
 	events := []string{}
-	request := &acquisitionRemote{data: []byte("ok\n"), info: acquisitionInfo{3, 0o600}, events: &events}
-	cleanup := &acquisitionRemote{info: acquisitionInfo{3, 0o600}, removeErr: ErrRemoteNotFound, events: &events}
-	snap, err := newAcquirer(request, cleanup, &events).Acquire(context.Background(), candidate())
-	if err != nil || snap == nil || cleanup.removes != 1 {
-		t.Fatalf("Acquire() = %v, %v; removes = %d", snap, err, cleanup.removes)
+	fixture := newAcquisitionFixture(&events)
+	fixture.cleanup.removeErr = ErrRemoteNotFound
+	snap, err := fixture.acquirer.Acquire(context.Background(), candidate())
+	if err != nil || snap == nil || fixture.cleanup.removes != 1 {
+		t.Fatalf("Acquire() = %v, %v; removes = %d", snap, err, fixture.cleanup.removes)
 	}
 }
 
