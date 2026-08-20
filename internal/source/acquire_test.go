@@ -22,7 +22,7 @@ type acquisitionRemote struct {
 	removes                int
 	events                 *[]string
 	removeContextErr       error
-	copyPath               string
+	copyPath, copySource   string
 	home                   string
 	prepared               string
 	prepareErr             error
@@ -31,8 +31,9 @@ type acquisitionRemote struct {
 	directoryInfo          acquisitionInfo
 }
 
-func (r *acquisitionRemote) CopyToUTF8(ctx context.Context, _, path string) error {
+func (r *acquisitionRemote) CopyToUTF8(ctx context.Context, source, path string) error {
 	r.copies++
+	r.copySource = source
 	r.copyPath = path
 	if r.events != nil {
 		*r.events = append(*r.events, "copy")
@@ -208,6 +209,18 @@ func TestAcquirerAdmitsOwnershipBeforeReserveAndCopy(t *testing.T) {
 	snap, err := a.Acquire(context.Background(), candidate())
 	if err != nil || snap == nil || strings.Join(events, ",") != "admit,reserve,copy,download,remove" || ledger.record.RemotePath != request.created {
 		t.Fatalf("Acquire() = %v, %v; events=%v record=%#v", snap, err, events, ledger.record)
+	}
+}
+
+func TestAcquirerApprovalCopiesFromButNeverWritesSourceMember(t *testing.T) {
+	events := []string{}
+	request := &acquisitionRemote{data: []byte("ok\n"), info: acquisitionInfo{3, 0o600}, events: &events}
+	cleanup := &acquisitionRemote{info: acquisitionInfo{3, 0o600}, events: &events}
+	selection := candidate()
+	snap, err := newAcquirer(request, cleanup, &events).Acquire(context.Background(), selection)
+	wantSource, sourceErr := selection.QSYSPath()
+	if sourceErr != nil || err != nil || snap == nil || request.copySource != wantSource || request.copyPath == wantSource {
+		t.Fatalf("Acquire() = %v, %v; copy source/target = %q/%q", snap, err, request.copySource, request.copyPath)
 	}
 }
 
