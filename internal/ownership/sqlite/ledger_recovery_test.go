@@ -47,6 +47,32 @@ func TestLedgerListsBoundedValidatedRecoveryRows(t *testing.T) {
 			t.Fatalf("row 65 recovery rows = %#v; want no rows", got)
 		}
 	})
+
+	t.Run("rejects malformed rows without partial results", func(t *testing.T) {
+		ledger := openRecoveryLedger(t)
+		insertRecoveryRecord(t, ledger, recoveryRecord(1))
+		malformed := recoveryRecord(2)
+		_, err := ledger.db.Exec(
+			`INSERT INTO ownership (token, remote_path, version, profile, target_digest, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+			malformed.Token,
+			malformed.RemotePath,
+			1,
+			malformed.Profile,
+			malformed.TargetDigest,
+			"not-a-canonical-time",
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		got, err := recoveryRows(t, ledger)
+		if !errors.Is(err, source.ErrOwnershipInvalid) {
+			t.Fatalf("malformed row list error = %v; want ErrOwnershipInvalid", err)
+		}
+		if got != nil {
+			t.Fatalf("malformed recovery rows = %#v; want no rows", got)
+		}
+	})
 }
 
 func openRecoveryLedger(t *testing.T) *Ledger {
