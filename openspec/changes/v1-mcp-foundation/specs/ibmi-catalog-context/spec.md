@@ -78,11 +78,11 @@ The system MUST acquire one fixed remote copy/download per snapshot, enforce a 4
 
 ### Requirement: Durable Temporary Ownership and Recovery
 
-Before any remote reservation or copy, the system MUST durably commit one immutable local ownership record. Its schema SHALL contain only a version, 128-bit random token, validated exact remote path, profile selector, target-binding digest, and creation time; it MUST NOT contain source, credentials, commands, cursor, or model content. The path MUST be beneath the authenticated user's validated absolute home in a Nexus-private `0700` directory; traversal, symlink, reparse-point, and escape paths MUST be rejected. Each temporary MUST be exclusively created at its random exact path with `0600` permissions.
+Before remote reservation or copy, the system MUST commit and exactly reopen/read back one SQLite ownership row for the stable 128-bit token. The local-only database MUST be outside network filesystems and store only version, token, exact validated remote path, approved bounded selector, target-binding digest, and creation time; it MUST NOT store source, credentials, commands, cursors, model content, or host/user plaintext. Paths MUST remain beneath the validated home in a Nexus-private `0700` directory, and temporaries MUST be exclusive random `0600` files.
 
-The ledger MUST admit no more than 64 records by bounded local iteration. Entry 65, corruption, unknown fields, malformed or duplicate records, wrong owner or ACL, unsupported platform or durability guarantee, or lock contention MUST fail closed before new acquisition. Windows MUST use a documented cross-process lock and documented durable create/remove ordering; no unsupported portable durability guarantee SHALL be claimed. The system MUST re-resolve the current profile and credential, compare the exact target binding, and verify the recorded pinned host on a fresh connection before recovery; any retargeting, ambiguity, or failure MUST block new acquisition and publish no snapshot, cursor, or content.
+Admission MUST use a single-writer, bounded transaction that atomically counts and inserts. The same token and exact row SHALL be idempotent; active rows MUST be unique by token and path, limited to 64, and listed with `LIMIT 65`. Remote work is forbidden until commit and exact readback succeed. Busy handling MUST use a bounded timeout and context-aware bounded retries; ambiguous commit MUST resolve by exact-token readback, while mismatch, corruption, or policy/dependency denial MUST fail closed.
 
-Recovery MUST address only exact validated ledger paths under the private directory. It MUST remove the path and confirm `Stat` reports not found before deleting the record. Crash recovery MUST be idempotent for a record before copy with an absent target, a partial or complete copy, and remote removal before record deletion. Rollback MUST retain a record unless exact remote absence is confirmed. Historical pre-ledger shared `/tmp` files MUST NOT be pattern-discovered or automatically deleted; only an authorized operator MAY clean confirmed historical paths. A privileged IBM i administrator MAY race or replace a remote file; the system MUST NOT claim absolute protection.
+Every open MUST verify the effective application/user version, schema, journal/durability pragmas, path/permissions, and bounded integrity checks. Mismatch, corruption, or policy denial MUST fail closed without destructive rebuild. Recovery MUST revalidate the profile, credential, binding, pin, directory, token, and exact path; it MUST complete exact `Remove` plus `Stat`-not-found before transactional row deletion. Remote uncertainty retains the row. Stale-row resurrection is safe because tokens and paths MUST NOT be reused. Historical `/tmp` paths MUST NOT be discovered or deleted automatically. Dependency approval unavailability MUST prevent acquisition deterministically; tests MUST NOT claim to prove power-loss durability.
 
 #### Scenario: Caller cannot direct temporary handling
 
@@ -90,11 +90,17 @@ Recovery MUST address only exact validated ledger paths under the private direct
 - WHEN it submits its typed request
 - THEN Nexus derives the temporary path itself and accepts no temporary, list, or delete path
 
+#### Scenario: Atomic SQLite admission is confirmed
+
+- GIVEN a stable token is new or exactly matches an active row
+- WHEN Nexus admits it below the 64-row limit
+- THEN it commits and exact-readbacks the row before any remote reserve or copy
+
 #### Scenario: Ledger admission fails closed
 
-- GIVEN the ledger has 64 valid records or an invalid record, ACL, lock, platform, or durability condition
-- WHEN Nexus attempts a new acquisition or recovery
-- THEN it performs no new remote reserve or copy and publishes no snapshot, cursor, or content
+- GIVEN SQLite reports row 65, contention beyond bounded retries, corruption, a policy/dependency denial, or a verification mismatch
+- WHEN Nexus attempts admission or recovery
+- THEN it performs no remote work and publishes no snapshot, cursor, or content
 
 #### Scenario: Recovery validates ownership and target
 
@@ -104,9 +110,9 @@ Recovery MUST address only exact validated ledger paths under the private direct
 
 #### Scenario: Crash recovery is idempotent
 
-- GIVEN a crash occurred before copy, during a partial or full copy, or after remote removal before record deletion
-- WHEN recovery removes the recorded exact path and confirms it absent
-- THEN it deletes only that record and permits later acquisition
+- GIVEN a crash occurred before copy, during copy, or after remote removal before row deletion
+- WHEN recovery confirms the recorded exact path is absent
+- THEN it deletes only that row; otherwise it retains the row for later recovery
 
 #### Scenario: Historical and privileged risks remain bounded
 
