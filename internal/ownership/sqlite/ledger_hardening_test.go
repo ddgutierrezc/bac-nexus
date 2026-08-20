@@ -149,12 +149,12 @@ func TestLedgerHardeningProcessHelper(t *testing.T) {
 	if os.Getenv("LEDGER_HARDENING_CHILD") != "1" {
 		return
 	}
-	ledger, err := Open(os.Getenv("LEDGER_ROOT"))
+	db, err := sql.Open("sqlite", filepath.Join(os.Getenv("LEDGER_ROOT"), "ownership.db"))
 	if err != nil {
 		os.Exit(2)
 	}
-	defer ledger.Close()
-	conn, err := ledger.db.Conn(context.Background())
+	defer db.Close()
+	conn, err := db.Conn(context.Background())
 	if err != nil {
 		os.Exit(3)
 	}
