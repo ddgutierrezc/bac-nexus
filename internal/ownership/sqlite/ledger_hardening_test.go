@@ -18,7 +18,6 @@ func TestLedgerFilesystemPolicyRejectsRootOutsideApplicationData(t *testing.T) {
 }
 
 func TestLedgerFilesystemPolicyRejectsNetworkOrSharedRoots(t *testing.T) {
-	root := t.TempDir()
 	for _, testCase := range []struct {
 		name  string
 		apply func(*filesystemEvidence)
@@ -27,6 +26,7 @@ func TestLedgerFilesystemPolicyRejectsNetworkOrSharedRoots(t *testing.T) {
 		{name: "shared", apply: func(evidence *filesystemEvidence) { evidence.Shared = true }},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
+			root := t.TempDir()
 			evidence := approvedFilesystemEvidence(root)
 			testCase.apply(&evidence)
 			assertPolicyRejects(t, root, evidence)
@@ -35,7 +35,6 @@ func TestLedgerFilesystemPolicyRejectsNetworkOrSharedRoots(t *testing.T) {
 }
 
 func TestLedgerFilesystemPolicyRejectsUnprovenOwnerOrPermissions(t *testing.T) {
-	root := t.TempDir()
 	for _, testCase := range []struct {
 		name  string
 		apply func(*filesystemEvidence)
@@ -44,6 +43,7 @@ func TestLedgerFilesystemPolicyRejectsUnprovenOwnerOrPermissions(t *testing.T) {
 		{name: "permissions", apply: func(evidence *filesystemEvidence) { evidence.PermissionsRestrictive = false }},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
+			root := t.TempDir()
 			evidence := approvedFilesystemEvidence(root)
 			testCase.apply(&evidence)
 			assertPolicyRejects(t, root, evidence)
@@ -66,7 +66,6 @@ func TestLedgerFilesystemPolicyRejectsWindowsReparseEvidence(t *testing.T) {
 }
 
 func TestLedgerFilesystemPolicyFailsClosedForUnknownUnavailableOrContradictoryEvidence(t *testing.T) {
-	root := t.TempDir()
 	for _, testCase := range []struct {
 		name  string
 		apply func(*filesystemEvidence)
@@ -79,6 +78,7 @@ func TestLedgerFilesystemPolicyFailsClosedForUnknownUnavailableOrContradictoryEv
 		{name: "contradictory locality", apply: func(evidence *filesystemEvidence) { evidence.Shared = true }},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
+			root := t.TempDir()
 			evidence := approvedFilesystemEvidence(root)
 			testCase.apply(&evidence)
 			assertPolicyRejects(t, root, evidence)
