@@ -23,7 +23,29 @@ const (
 
 type Ledger struct{ db *sql.DB }
 
+type filesystemEvidence struct {
+	Available              bool
+	ApplicationDataRoot    string
+	LocalKnown             bool
+	Local                  bool
+	Shared                 bool
+	OwnerKnown             bool
+	OwnerVerified          bool
+	PermissionsKnown       bool
+	PermissionsRestrictive bool
+	LinkKnown              bool
+	Symlink                bool
+	WindowsReparsePoint    bool
+}
+
+var queryFilesystemEvidence = func(string) filesystemEvidence { return filesystemEvidence{} }
+
 func Open(root string) (*Ledger, error) {
+	return open(root, queryFilesystemEvidence(root))
+}
+
+func open(root string, evidence filesystemEvidence) (*Ledger, error) {
+	_ = evidence
 	if info, err := os.Stat(root); !filepath.IsAbs(root) || err != nil || !info.IsDir() {
 		return nil, source.ErrOwnershipInvalid
 	}
