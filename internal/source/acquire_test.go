@@ -20,6 +20,8 @@ type acquisitionRemote struct {
 	removed                bool
 	copies, downloads      int
 	removes                int
+	stats                  int
+	trackStats             bool
 	events                 *[]string
 	removeContextErr       error
 	copyPath, copySource   string
@@ -44,6 +46,10 @@ func (r *acquisitionRemote) CopyToUTF8(ctx context.Context, source, path string)
 	return ctx.Err()
 }
 func (r *acquisitionRemote) Stat(_ context.Context, _ string) (os.FileInfo, error) {
+	r.stats++
+	if r.trackStats {
+		*r.events = append(*r.events, "stat")
+	}
 	if r.statErr != nil {
 		return nil, r.statErr
 	}
@@ -88,13 +94,21 @@ func (r *acquisitionRemote) CreateExclusive(_ context.Context, path string) erro
 }
 
 type acquisitionLedger struct {
-	events *[]string
-	record OwnershipRecord
+	events  *[]string
+	record  OwnershipRecord
+	deleted OwnershipRecord
+	deletes int
 }
 
 func (l *acquisitionLedger) Admit(_ context.Context, record OwnershipRecord) error {
 	l.record = record
 	*l.events = append(*l.events, "admit")
+	return nil
+}
+func (l *acquisitionLedger) Delete(_ context.Context, record OwnershipRecord) error {
+	l.deleted = record
+	l.deletes++
+	*l.events = append(*l.events, "delete")
 	return nil
 }
 func (*acquisitionLedger) Close() error { return nil }
@@ -209,6 +223,19 @@ func TestAcquirerAdmitsOwnershipBeforeReserveAndCopy(t *testing.T) {
 	snap, err := a.Acquire(context.Background(), candidate())
 	if err != nil || snap == nil || strings.Join(events, ",") != "admit,reserve,copy,download,remove" || ledger.record.RemotePath != request.created {
 		t.Fatalf("Acquire() = %v, %v; events=%v record=%#v", snap, err, events, ledger.record)
+	}
+}
+
+func TestAcquirerDeletesExactOwnershipOnlyAfterConfirmedPrivateCleanup(t *testing.T) {
+	events := []string{}
+	request := &acquisitionRemote{data: []byte("ok\n"), info: acquisitionInfo{3, 0o600}, directoryInfo: acquisitionInfo{mode: os.ModeDir | 0o700}, home: "/home/nexus", events: &events, trackStats: true}
+	cleanup := &acquisitionRemote{info: acquisitionInfo{3, 0o600}, events: &events, trackStats: true}
+	ledger := &acquisitionLedger{events: &events}
+	a := Acquirer{Open: sequentialOpener(request, cleanup), Random: bytes.NewReader(make([]byte, 16)), Ownership: ledger, Profile: "test", TargetDigest: make([]byte, 32), Now: func() time.Time { return time.Unix(0, 0) }}
+
+	snap, err := a.Acquire(context.Background(), candidate())
+	if err != nil || snap == nil || cleanup.removes != 1 || cleanup.stats != 1 || ledger.deletes != 1 || ledger.deleted.RemotePath != request.created || strings.Join(events, ",") != "admit,reserve,copy,stat,download,remove,stat,delete" {
+		t.Fatalf("Acquire() = %v, %v; cleanup/delete/events = %d/%d/%v", snap, err, cleanup.removes, ledger.deletes, events)
 	}
 }
 
