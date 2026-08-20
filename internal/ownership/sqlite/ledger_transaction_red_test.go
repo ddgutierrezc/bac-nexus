@@ -52,16 +52,11 @@ func TestLedgerTransactionLockHelper(t *testing.T) {
 }
 
 func TestLedgerAdmissionUsesExactRetrySchedule(t *testing.T) {
-	ledger, err := testOpen(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ledger.Close()
+	ledger := openTransactionLedger(t)
 
-	lock := startLedgerLock(t, ledger, "exclusive", 1100*time.Millisecond)
-	defer waitLedgerLock(t, lock)
+	startLedgerLock(t, ledger, "exclusive", 1100*time.Millisecond)
 	started := time.Now()
-	err = ledger.Admit(context.Background(), transactionRecord(1))
+	err := ledger.Admit(context.Background(), transactionRecord(1))
 	elapsed := time.Since(started)
 	if err != nil {
 		t.Fatalf("Admit during SQLite contention = %v; want retry after exactly 25ms, 50ms, and 100ms", err)
@@ -72,18 +67,13 @@ func TestLedgerAdmissionUsesExactRetrySchedule(t *testing.T) {
 }
 
 func TestLedgerAdmissionCancellationInterruptsRetryBackoff(t *testing.T) {
-	ledger, err := testOpen(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ledger.Close()
+	ledger := openTransactionLedger(t)
 
-	lock := startLedgerLock(t, ledger, "exclusive", time.Second)
-	defer waitLedgerLock(t, lock)
+	startLedgerLock(t, ledger, "exclusive", time.Second)
 	ctx, cancel := context.WithCancel(context.Background())
 	time.AfterFunc(275*time.Millisecond, cancel)
 	started := time.Now()
-	err = ledger.Admit(ctx, transactionRecord(2))
+	err := ledger.Admit(ctx, transactionRecord(2))
 	elapsed := time.Since(started)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Admit cancellation error = %v; want context.Canceled while retrying", err)
@@ -94,14 +84,9 @@ func TestLedgerAdmissionCancellationInterruptsRetryBackoff(t *testing.T) {
 }
 
 func TestLedgerAdmissionReadsBackAfterAmbiguousCommit(t *testing.T) {
-	ledger, err := testOpen(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ledger.Close()
+	ledger := openTransactionLedger(t)
 
-	lock := startLedgerLock(t, ledger, "reader", 300*time.Millisecond)
-	defer waitLedgerLock(t, lock)
+	startLedgerLock(t, ledger, "reader", 300*time.Millisecond)
 	record := transactionRecord(3)
 	if err := ledger.Admit(context.Background(), record); err != nil {
 		t.Fatalf("Admit after ambiguous COMMIT = %v; want exact-token readback and retry", err)
@@ -116,18 +101,13 @@ func TestLedgerAdmissionReadsBackAfterAmbiguousCommit(t *testing.T) {
 }
 
 func TestLedgerBoundsCooperatingProcessContention(t *testing.T) {
-	ledger, err := testOpen(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ledger.Close()
+	ledger := openTransactionLedger(t)
 
-	lock := startLedgerLock(t, ledger, "exclusive", time.Second)
-	defer waitLedgerLock(t, lock)
+	startLedgerLock(t, ledger, "exclusive", time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
 	defer cancel()
 	started := time.Now()
-	err = ledger.Admit(ctx, transactionRecord(65))
+	err := ledger.Admit(ctx, transactionRecord(65))
 	elapsed := time.Since(started)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Admit under cooperating-process contention = %v; want context deadline", err)
@@ -137,7 +117,21 @@ func TestLedgerBoundsCooperatingProcessContention(t *testing.T) {
 	}
 }
 
-func startLedgerLock(t *testing.T, ledger *Ledger, mode string, duration time.Duration) *exec.Cmd {
+func openTransactionLedger(t *testing.T) *Ledger {
+	t.Helper()
+	ledger, err := testOpen(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := ledger.Close(); err != nil {
+			t.Errorf("close ledger: %v", err)
+		}
+	})
+	return ledger
+}
+
+func startLedgerLock(t *testing.T, ledger *Ledger, mode string, duration time.Duration) {
 	t.Helper()
 	command := exec.Command(os.Args[0], "-test.run=^TestLedgerTransactionLockHelper$")
 	command.Env = append(os.Environ(),
@@ -158,14 +152,11 @@ func startLedgerLock(t *testing.T, ledger *Ledger, mode string, duration time.Du
 		_ = command.Process.Kill()
 		t.Fatalf("SQLite lock helper readiness = %q, %v", ready, err)
 	}
-	return command
-}
-
-func waitLedgerLock(t *testing.T, command *exec.Cmd) {
-	t.Helper()
-	if err := command.Wait(); err != nil {
-		t.Errorf("SQLite lock helper failed: %v", err)
-	}
+	t.Cleanup(func() {
+		if err := command.Wait(); err != nil {
+			t.Errorf("SQLite lock helper failed: %v", err)
+		}
+	})
 }
 
 func ledgerRoot(ledger *Ledger) string {
