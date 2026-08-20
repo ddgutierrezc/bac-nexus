@@ -233,6 +233,40 @@ var _ source.AcquisitionRemote = (*SourceAcquisitionRemote)(nil)
 func NewSourceAcquisitionRemote(client *Client) *SourceAcquisitionRemote {
 	return &SourceAcquisitionRemote{client: client}
 }
+func (r *SourceAcquisitionRemote) AuthenticatedHome(ctx context.Context) (string, error) {
+	if err := r.ready(ctx); err != nil {
+		return "", err
+	}
+	return r.client.WorkingDirectory()
+}
+func (r *SourceAcquisitionRemote) PreparePrivateDirectory(ctx context.Context, directory string) error {
+	if err := r.ready(ctx); err != nil {
+		return err
+	}
+	if err := r.client.MkdirAll(directory); err != nil {
+		return err
+	}
+	return r.client.Chmod(directory, 0o700)
+}
+func (r *SourceAcquisitionRemote) CreateExclusive(ctx context.Context, path string) error {
+	if err := r.ready(ctx); err != nil {
+		return err
+	}
+	file, err := r.client.OpenWriteExclusive(path)
+	if err != nil {
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return r.client.Chmod(path, 0o600)
+}
+func (r *SourceAcquisitionRemote) Lstat(ctx context.Context, path string) (os.FileInfo, error) {
+	if err := r.ready(ctx); err != nil {
+		return nil, err
+	}
+	return r.client.Lstat(path)
+}
 func (r *SourceAcquisitionRemote) CopyToUTF8(ctx context.Context, qsysPath, temporary string) error {
 	if err := r.ready(ctx); err != nil {
 		return err
@@ -356,7 +390,8 @@ func (c *Client) MkdirAll(path string) error        { return c.sftp.MkdirAll(pat
 func (c *Client) Chmod(path string, mode os.FileMode) error {
 	return c.sftp.Chmod(path, mode)
 }
-func (c *Client) Stat(path string) (os.FileInfo, error) { return c.sftp.Stat(path) }
+func (c *Client) Stat(path string) (os.FileInfo, error)  { return c.sftp.Stat(path) }
+func (c *Client) Lstat(path string) (os.FileInfo, error) { return c.sftp.Lstat(path) }
 func (c *Client) OpenRead(path string) (io.ReadCloser, error) {
 	return c.sftp.Open(path)
 }

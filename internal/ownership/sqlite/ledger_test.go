@@ -134,4 +134,28 @@ func TestLedgerAdmissionIsBoundedIdempotentAndFailClosed(t *testing.T) {
 	}
 }
 
+func TestLedgerDeletesOnlyExactAdmittedOwnershipRecord(t *testing.T) {
+	ledger, err := testOpen(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ledger.Close()
+	record := source.OwnershipRecord{Token: bytes.Repeat([]byte{1}, 16), RemotePath: "/home/nexus/.bac-nexus/tmp/a.utf8", Profile: "approved", TargetDigest: bytes.Repeat([]byte{2}, 32), CreatedAt: time.Now().UTC()}
+	if err := ledger.Admit(context.Background(), record); err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.Delete(context.Background(), record); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if err := ledger.Admit(context.Background(), record); err != nil {
+		t.Fatalf("Admit() after Delete() error = %v", err)
+	}
+
+	changed := record
+	changed.RemotePath = "/home/nexus/.bac-nexus/tmp/other.utf8"
+	if err := ledger.Delete(context.Background(), changed); !errors.Is(err, source.ErrOwnershipInvalid) {
+		t.Fatalf("Delete() mismatch error = %v", err)
+	}
+}
+
 func testOpen(root string) (*Ledger, error) { return open(root, approvedFilesystemEvidence(root)) }

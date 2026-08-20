@@ -233,6 +233,42 @@ func (l *Ledger) Admit(ctx context.Context, record source.OwnershipRecord) error
 	}
 }
 
+func (l *Ledger) Delete(ctx context.Context, record source.OwnershipRecord) error {
+	conn, err := l.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "PRAGMA busy_timeout = 250"); err != nil {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+	result, err := conn.ExecContext(ctx, `DELETE FROM ownership WHERE token = ? AND remote_path = ? AND version = ? AND profile = ? AND target_digest = ? AND created_at = ?`, record.Token, record.RemotePath, userVersion, record.Profile, record.TargetDigest, record.CreatedAt.UTC().Format(time.RFC3339))
+	if err != nil {
+		return err
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if deleted != 1 {
+		return source.ErrOwnershipInvalid
+	}
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
 func (l *Ledger) admitAttempt(ctx context.Context, record source.OwnershipRecord) (commitAttempted bool, err error) {
 	conn, err := l.db.Conn(ctx)
 	if err != nil {

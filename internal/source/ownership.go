@@ -19,5 +19,6 @@ type OwnershipRecord struct {
 }
 type OwnershipLedger interface {
 	Admit(context.Context, OwnershipRecord) error
+	Delete(context.Context, OwnershipRecord) error
 	Close() error
 }
