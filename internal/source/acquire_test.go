@@ -106,6 +106,16 @@ func TestAcquirerAcquiresOneCompleteSnapshotAndConfirmsCleanup(t *testing.T) {
 	}
 }
 
+func TestPrivateDirectoryRequiresAuthenticatedAbsoluteHome(t *testing.T) {
+	for _, home := range []string{"", "relative", "/home/../other"} {
+		t.Run(home, func(t *testing.T) {
+			if _, err := privateDirectory(home); err == nil {
+				t.Fatalf("privateDirectory(%q) succeeded", home)
+			}
+		})
+	}
+}
+
 func TestAcquirerFailsClosedAndCleansOwnedTemporary(t *testing.T) {
 	boom := errors.New("boom")
 	cancelled, cancel := context.WithCancel(context.Background())
