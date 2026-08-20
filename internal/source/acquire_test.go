@@ -148,6 +148,27 @@ func TestReservePrivateFileCreatesExclusive0600RegularFile(t *testing.T) {
 	}
 }
 
+func TestReservePrivateFileRejectsTraversalAndSymlinkEscape(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		directory string
+		mode      os.FileMode
+	}{
+		{"traversal", "/home/nexus/.bac-nexus/tmp/../../escape", 0o600},
+		{"symlink", "/home/nexus/.bac-nexus/tmp", os.ModeSymlink | 0o600},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			remote := &acquisitionRemote{info: acquisitionInfo{mode: tt.mode}}
+			if _, err := reservePrivateFile(context.Background(), remote, tt.directory, bytes.NewReader(make([]byte, 16))); err == nil {
+				t.Fatal("reservePrivateFile() succeeded")
+			}
+			if tt.name == "traversal" && remote.creates != 0 {
+				t.Fatalf("CreateExclusive calls = %d, want 0", remote.creates)
+			}
+		})
+	}
+}
+
 func TestAcquirerFailsClosedAndCleansOwnedTemporary(t *testing.T) {
 	boom := errors.New("boom")
 	cancelled, cancel := context.WithCancel(context.Background())
