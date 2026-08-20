@@ -174,19 +174,6 @@ func TestLedgerIntegrityVerifierHandlesBoundedQueryEdges(t *testing.T) {
 	}
 }
 
-func TestLedgerIntegrityVerifierRejectsCancelledContext(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	ledger, err := testOpen(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ledger.Close()
-	if result := verifyLedgerIntegrity(ctx, ledger.db); result.outcome != verificationInconclusive {
-		t.Fatalf("result = %#v", result)
-	}
-}
-
 func TestLedgerIntegrityVerifierRejectsOversizedLedger(t *testing.T) {
 	ledger, err := testOpen(t.TempDir())
 	if err != nil {

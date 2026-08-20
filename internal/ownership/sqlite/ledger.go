@@ -77,7 +77,7 @@ func verifyLedgerIntegrity(parent context.Context, db *sql.DB) verificationResul
 	defer cancel()
 	quick, err := queryLedgerIntegrity(ctx, db, "PRAGMA quick_check(1)")
 	if err != nil || len(quick) != 1 {
-		return verificationResult{stage: verificationQuickCheck, outcome: verificationInconclusive}
+		return verificationResult{stage: verificationQuickCheck, outcome: verificationFailure(err)}
 	}
 	if quick[0] != "ok" {
 		return verificationResult{stage: verificationQuickCheck, outcome: verificationCorrupt}
@@ -97,12 +97,20 @@ func verifyLedgerIntegrity(parent context.Context, db *sql.DB) verificationResul
 	}
 	integrity, err := queryLedgerIntegrity(ctx, db, "PRAGMA integrity_check(1)")
 	if err != nil || len(integrity) != 1 {
-		return verificationResult{stage: verificationIntegrityCheck, outcome: verificationInconclusive}
+		return verificationResult{stage: verificationIntegrityCheck, outcome: verificationFailure(err)}
 	}
 	if integrity[0] != "ok" {
 		return verificationResult{stage: verificationIntegrityCheck, outcome: verificationCorrupt}
 	}
 	return verificationResult{stage: verificationIntegrityCheck, outcome: verificationPassed}
+}
+
+func verificationFailure(err error) verificationOutcome {
+	var sqliteError *sqliteDriver.Error
+	if errors.As(err, &sqliteError) && (sqliteError.Code()&0xff == 11 || sqliteError.Code()&0xff == 26) {
+		return verificationCorrupt
+	}
+	return verificationInconclusive
 }
 
 type Ledger struct{ db *sql.DB }
