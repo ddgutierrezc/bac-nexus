@@ -121,18 +121,21 @@ func TestLedgerOpenRejectsIntegrityCheckFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ledger.db.Exec("PRAGMA ignore_check_constraints = ON"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ledger.db.Exec(`INSERT INTO ownership (token, remote_path, version, profile, target_digest, created_at) VALUES (?, ?, 99, ?, ?, ?)`, bytes.Repeat([]byte{4}, 16), "/home/nexus/tmp/integrity", "approved", bytes.Repeat([]byte{4}, 32), "2026-08-20T00:00:00Z"); err != nil {
-		t.Fatal(err)
-	}
 	if err := ledger.Close(); err != nil {
 		t.Fatal(err)
 	}
 
+	path := filepath.Join(root, "ownership.db")
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents[36], contents[37], contents[38], contents[39] = 0, 0, 0, 1
+	if err := os.WriteFile(path, contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := testOpen(root); !errors.Is(err, source.ErrOwnershipInvalid) {
-		t.Fatalf("Open integrity failure = %v; want deterministic %v from bounded quick_check/integrity_check", err, source.ErrOwnershipInvalid)
+		t.Fatalf("Open with inconsistent free-page count = %v; want deterministic %v when bounded quick_check cannot establish integrity", err, source.ErrOwnershipInvalid)
 	}
 }
 
@@ -152,16 +155,24 @@ func TestLedgerOpenRejectsCorruptOwnershipPages(t *testing.T) {
 	}
 
 	path := filepath.Join(root, "ownership.db")
-	contents, err := os.ReadFile(path)
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	contents[len(contents)-64] ^= 0xff
-	if err := os.WriteFile(path, contents, 0o600); err != nil {
+	if _, err := db.Exec("PRAGMA writable_schema = ON"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("UPDATE sqlite_master SET rootpage = 3 WHERE type = 'table' AND name = 'ownership'"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("PRAGMA writable_schema = OFF"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := testOpen(root); !errors.Is(err, source.ErrOwnershipInvalid) {
-		t.Fatalf("Open corrupted database = %v; want deterministic %v", err, source.ErrOwnershipInvalid)
+		t.Fatalf("Open with corrupted ownership root page = %v; want deterministic %v", err, source.ErrOwnershipInvalid)
 	}
 }
 
