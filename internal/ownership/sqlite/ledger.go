@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"bac-nexus/internal/source"
@@ -23,7 +24,44 @@ const (
 
 type Ledger struct{ db *sql.DB }
 
+type proof uint8
+
+const (
+	proofUnknown proof = iota
+	proofYes
+	proofNo
+)
+
+type filesystemLocality uint8
+
+const (
+	localityUnknown filesystemLocality = iota
+	localityLocal
+	localityNetwork
+	localityShared
+	localityContradictory
+)
+
+type filesystemEvidence struct {
+	Available           proof
+	ApplicationDataRoot string
+	Locality            filesystemLocality
+	Owner               proof
+	Permissions         proof
+	LinkSafe            proof
+	ReparseSafe         proof
+}
+
+var queryFilesystemEvidence = filesystemEvidenceFor
+
 func Open(root string) (*Ledger, error) {
+	return open(root, queryFilesystemEvidence(root))
+}
+
+func open(root string, evidence filesystemEvidence) (*Ledger, error) {
+	if !filesystemPolicyAllows(root, evidence) {
+		return nil, source.ErrOwnershipInvalid
+	}
 	if info, err := os.Stat(root); !filepath.IsAbs(root) || err != nil || !info.IsDir() {
 		return nil, source.ErrOwnershipInvalid
 	}
@@ -50,6 +88,25 @@ func Open(root string) (*Ledger, error) {
 		return nil, err
 	}
 	return ledger, nil
+}
+
+func filesystemPolicyAllows(root string, evidence filesystemEvidence) bool {
+	if evidence.Available != proofYes || evidence.Locality != localityLocal || evidence.Owner != proofYes || evidence.Permissions != proofYes || evidence.LinkSafe != proofYes || evidence.ReparseSafe != proofYes {
+		return false
+	}
+	if !filepath.IsAbs(root) || !filepath.IsAbs(evidence.ApplicationDataRoot) {
+		return false
+	}
+	rel, err := filepath.Rel(evidence.ApplicationDataRoot, root)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && !filepath.IsAbs(rel)
+}
+
+func applicationDataRoot() string {
+	root, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return root
 }
 func (l *Ledger) Close() error { return l.db.Close() }
 func (l *Ledger) Admit(ctx context.Context, record source.OwnershipRecord) error {
