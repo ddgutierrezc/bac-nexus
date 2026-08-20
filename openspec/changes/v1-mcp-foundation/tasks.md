@@ -36,7 +36,7 @@ PoC exceptions are approved; production/corporate SQLite/keyring rollout approva
 | 7 | MCP; 5B,6 | `go test -count=1 ./internal/mcp ./cmd/nexus` | stdio | MCP/docs |
 | 8 | Acceptance; all | `go test -count=1 ./...` | approved IBM i | evidence |
 
-For each 3B.1c PR, GHA must record the focused command, `gofmt -d internal/ownership/sqlite/*.go`, `go vet ./...`, and matrix `CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build ./...` for windows/darwin/linux × amd64/arm64; runtime claims use only available runners. Local WDAC blocks Go test executables, so it supplies no runtime result.
+For each 3B.1c PR, GHA must record the focused command, `gofmt -d internal/ownership/sqlite/*.go`, `go vet ./...`, and matrix `CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build ./...` for windows/darwin/linux × amd64/arm64; runtime claims use only available runners. Local WDAC blocks Go test executables, so it supplies no runtime result. PR #36 task 2.13c has maintainer-authorized `size:exception` with a native 500-line ceiling: coherent fixture completion avoids artificial compaction, technical debt, and wasted iterations; it does not authorize unrelated growth.
 
 Draft PR #28 / issue #27 must narrow to 3B.1b; its current RED is not valid or complete. Open a new issue/branch/PR for 3B.1c only after 3B.1b merges.
 
@@ -66,7 +66,7 @@ Draft PR #28 / issue #27 must narrow to 3B.1b; its current RED is not valid or c
 - [x] 2.13 **REFACTOR (PR 3B.1c-T)**: Compact transaction/child-process fixtures, rerun focused CI and six-target build/static evidence, and keep PR #32 independently green below 400 lines.
 - [x] 2.13a **RED→GREEN (PR 3B.1c-I)**: In `ledger_integrity_red_test.go`/`ledger.go`, complete isolated `Open` microcycles: invoke verification for new/existing ledgers; retain injected `passed` as approval-safety-net success; independently RED then GREEN-map not-run, corrupt, inconclusive, and bound-exceeded to `source.ErrOwnershipInvalid`, with no shared placeholder/gate.
 - [x] 2.13b **RED→GREEN (PR 3B.1c-I)**: In `ledger_integrity_red_test.go`/`ledger.go`, complete isolated verifier microcycles: prove/implement ordered real `quick_check(1)` then eligible `integrity_check(1)`, existing-before-metadata ordering, one-second context for every query, real corruption/cancellation/>4 MiB; inject bounded rows/queries only for malformed/multiple/absent output, deterministic failure/blocking, and arithmetic overflow.
-- [ ] 2.13c **REFACTOR (PR 3B.1c-I)**: Compact verifier fixtures; record focused CI, runtime-harness, static, and six-target evidence; retain the independently revertible `ledger.go`/integrity-test boundary at ≤400 lines.
+- [x] 2.13c **REFACTOR (PR 3B.1c-I)**: Compact verifier fixtures; record focused CI, runtime-harness, static, and six-target evidence; retain the independently revertible `ledger.go`/integrity-test boundary under the maintainer-authorized `size:exception` native 500-line ceiling.
 - [ ] 2.14 **RED (PR 3B.2)**: Test `internal/source/acquire_test.go` authenticated home, private `0700`, exclusive random `0600`, immutable source, traversal/symlink escape, durable row readback before reserve/copy, and retain-on-failure.
 - [ ] 2.15 **GREEN (PR 3B.2)**: Update `internal/source/{acquire,retrieve}.go` and `internal/remote/ssh.go` for exact private path; `Remove` plus `Stat`-not-found before transactional DELETE, never recovery-loop.
 - [ ] 2.16 **REFACTOR (PR 3B.2)**: Consolidate acquisition fakes; no snapshot if row/cleanup confirmation fails.
