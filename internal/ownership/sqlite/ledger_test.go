@@ -14,7 +14,7 @@ import (
 )
 
 func TestLedgerCreatesOnlyApprovedSchemaAndPragmas(t *testing.T) {
-	ledger, err := Open(t.TempDir())
+	ledger, err := testOpen(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestLedgerCreatesOnlyApprovedSchemaAndPragmas(t *testing.T) {
 
 func TestLedgerRejectsPersistentFormatMismatch(t *testing.T) {
 	root := t.TempDir()
-	ledger, err := Open(root)
+	ledger, err := testOpen(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestLedgerRejectsPersistentFormatMismatch(t *testing.T) {
 	if err := ledger.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Open(root); !errors.Is(err, source.ErrOwnershipInvalid) {
+	if _, err := testOpen(root); !errors.Is(err, source.ErrOwnershipInvalid) {
 		t.Fatalf("application mismatch error = %v", err)
 	}
 }
@@ -83,7 +83,7 @@ func TestLedgerRejectsUnsafeRootAndSchemaMismatch(t *testing.T) {
 	}
 
 	root := t.TempDir()
-	ledger, err := Open(root)
+	ledger, err := testOpen(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,13 +93,13 @@ func TestLedgerRejectsUnsafeRootAndSchemaMismatch(t *testing.T) {
 	if err := ledger.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Open(root); !errors.Is(err, source.ErrOwnershipInvalid) {
+	if _, err := testOpen(root); !errors.Is(err, source.ErrOwnershipInvalid) {
 		t.Fatalf("schema mismatch error = %v", err)
 	}
 }
 
 func TestLedgerAdmissionIsBoundedIdempotentAndFailClosed(t *testing.T) {
-	ledger, err := Open(t.TempDir())
+	ledger, err := testOpen(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,3 +133,5 @@ func TestLedgerAdmissionIsBoundedIdempotentAndFailClosed(t *testing.T) {
 		t.Fatalf("row 65 error = %v", err)
 	}
 }
+
+func testOpen(root string) (*Ledger, error) { return open(root, approvedFilesystemEvidence(root)) }

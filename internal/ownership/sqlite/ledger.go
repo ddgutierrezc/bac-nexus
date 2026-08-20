@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"bac-nexus/internal/source"
@@ -97,7 +98,7 @@ func filesystemPolicyAllows(root string, evidence filesystemEvidence) bool {
 		return false
 	}
 	rel, err := filepath.Rel(evidence.ApplicationDataRoot, root)
-	return err == nil && rel != ".." && !filepath.IsAbs(rel)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && !filepath.IsAbs(rel)
 }
 
 func applicationDataRoot() string {
