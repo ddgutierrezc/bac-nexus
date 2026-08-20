@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
+	"strings"
 	"time"
 
 	"bac-nexus/internal/catalog"
@@ -143,4 +145,11 @@ func temporaryName(random io.Reader) (string, error) {
 		return "", fmt.Errorf("generate remote temporary name: %w", err)
 	}
 	return "/tmp/bac-nexus-catalog-" + hex.EncodeToString(token) + ".utf8", nil
+}
+
+func privateDirectory(home string) (string, error) {
+	if !strings.HasPrefix(home, "/") || strings.Contains(home, "..") {
+		return "", errors.New("authenticated remote home is not an absolute safe path")
+	}
+	return path.Join(home, ".bac-nexus", "tmp"), nil
 }
