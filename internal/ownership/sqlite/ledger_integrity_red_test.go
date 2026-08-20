@@ -176,3 +176,17 @@ func TestOpenRejectsInjectedBoundExceededVerifierResult(t *testing.T) {
 		t.Fatalf("Open() error = %v; want ownership invalid", err)
 	}
 }
+
+func TestLedgerIntegrityVerifierEndsWithRealIntegrityCheck(t *testing.T) {
+	ledger, err := testOpen(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ledger.Close()
+
+	result := runLedgerIntegrityVerifier(context.Background(), ledger.db)
+	want := verificationResult{stage: verificationIntegrityCheck, outcome: verificationPassed}
+	if result != want {
+		t.Fatalf("verification result = %#v, want %#v", result, want)
+	}
+}
