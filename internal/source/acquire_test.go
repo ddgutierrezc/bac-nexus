@@ -28,12 +28,15 @@ type acquisitionRemote struct {
 	prepareErr             error
 	created                string
 	creates                int
+	directoryInfo          acquisitionInfo
 }
 
 func (r *acquisitionRemote) CopyToUTF8(ctx context.Context, _, path string) error {
 	r.copies++
 	r.copyPath = path
-	*r.events = append(*r.events, "copy")
+	if r.events != nil {
+		*r.events = append(*r.events, "copy")
+	}
 	if r.copyErr != nil {
 		return r.copyErr
 	}
@@ -68,12 +71,32 @@ func (r *acquisitionRemote) PreparePrivateDirectory(_ context.Context, directory
 	r.prepared = directory
 	return r.prepareErr
 }
-func (r *acquisitionRemote) Lstat(context.Context, string) (os.FileInfo, error) { return r.info, nil }
+func (r *acquisitionRemote) Lstat(_ context.Context, path string) (os.FileInfo, error) {
+	if path == r.prepared && r.directoryInfo.mode != 0 {
+		return r.directoryInfo, nil
+	}
+	return r.info, nil
+}
 func (r *acquisitionRemote) CreateExclusive(_ context.Context, path string) error {
 	r.created = path
 	r.creates++
+	if r.events != nil {
+		*r.events = append(*r.events, "reserve")
+	}
 	return nil
 }
+
+type acquisitionLedger struct {
+	events *[]string
+	record OwnershipRecord
+}
+
+func (l *acquisitionLedger) Admit(_ context.Context, record OwnershipRecord) error {
+	l.record = record
+	*l.events = append(*l.events, "admit")
+	return nil
+}
+func (*acquisitionLedger) Close() error { return nil }
 
 type readCloser struct {
 	io.Reader
@@ -166,6 +189,18 @@ func TestReservePrivateFileRejectsTraversalAndSymlinkEscape(t *testing.T) {
 				t.Fatalf("CreateExclusive calls = %d, want 0", remote.creates)
 			}
 		})
+	}
+}
+
+func TestAcquirerAdmitsOwnershipBeforeReserveAndCopy(t *testing.T) {
+	events := []string{}
+	request := &acquisitionRemote{data: []byte("ok\n"), info: acquisitionInfo{3, 0o600}, directoryInfo: acquisitionInfo{mode: os.ModeDir | 0o700}, home: "/home/nexus", events: &events}
+	cleanup := &acquisitionRemote{info: acquisitionInfo{3, 0o600}, events: &events}
+	ledger := &acquisitionLedger{events: &events}
+	a := Acquirer{Open: sequentialOpener(request, cleanup), Random: bytes.NewReader(make([]byte, 16)), Ownership: ledger, Profile: "test", TargetDigest: make([]byte, 32), Now: func() time.Time { return time.Unix(0, 0) }}
+	snap, err := a.Acquire(context.Background(), candidate())
+	if err != nil || snap == nil || strings.Join(events, ",") != "admit,reserve,copy,download,remove" || ledger.record.RemotePath != request.created {
+		t.Fatalf("Acquire() = %v, %v; events=%v record=%#v", snap, err, events, ledger.record)
 	}
 }
 
