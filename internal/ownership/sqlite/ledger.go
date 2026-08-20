@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,10 +21,97 @@ const (
 	applicationID   = 1111573326
 	userVersion     = 1
 	sqliteBusy      = 5
+	maxLedgerBytes  = 4 << 20
 	ownershipSchema = `CREATE TABLE ownership (token BLOB PRIMARY KEY CHECK(length(token) = 16), remote_path TEXT UNIQUE CHECK(length(CAST(remote_path AS BLOB)) BETWEEN 1 AND 1024), version INTEGER NOT NULL CHECK(version = 1), profile TEXT NOT NULL CHECK(length(profile) BETWEEN 1 AND 64), target_digest BLOB NOT NULL CHECK(length(target_digest) = 32), created_at TEXT NOT NULL CHECK(length(created_at) = 20))`
 )
 
 var transactionRetryDelays = [...]time.Duration{25 * time.Millisecond, 50 * time.Millisecond, 100 * time.Millisecond}
+
+type verificationStage uint8
+
+const (
+	verificationNotStarted verificationStage = iota
+	verificationQuickCheck
+	verificationIntegrityCheck
+)
+
+type verificationOutcome uint8
+
+const (
+	verificationNotRun verificationOutcome = iota
+	verificationPassed
+	verificationCorrupt
+	verificationInconclusive
+	verificationBoundExceeded
+)
+
+type verificationResult struct {
+	stage   verificationStage
+	outcome verificationOutcome
+}
+
+var runLedgerIntegrityVerifier = verifyLedgerIntegrity
+
+var queryLedgerIntegrity = func(ctx context.Context, db *sql.DB, query string) ([]string, error) {
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var values []string
+	for rows.Next() {
+		var value string
+		if err := rows.Scan(&value); err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+		if len(values) == 2 {
+			break
+		}
+	}
+	return values, rows.Err()
+}
+
+func verifyLedgerIntegrity(parent context.Context, db *sql.DB) verificationResult {
+	ctx, cancel := context.WithTimeout(parent, time.Second)
+	defer cancel()
+	quick, err := queryLedgerIntegrity(ctx, db, "PRAGMA quick_check(1)")
+	if err != nil || len(quick) != 1 {
+		return verificationResult{stage: verificationQuickCheck, outcome: verificationFailure(err)}
+	}
+	if quick[0] != "ok" {
+		return verificationResult{stage: verificationQuickCheck, outcome: verificationCorrupt}
+	}
+	pages, err := queryLedgerIntegrity(ctx, db, "PRAGMA page_count")
+	if err != nil || len(pages) != 1 {
+		return verificationResult{stage: verificationQuickCheck, outcome: verificationInconclusive}
+	}
+	pageSize, err := queryLedgerIntegrity(ctx, db, "PRAGMA page_size")
+	if err != nil || len(pageSize) != 1 {
+		return verificationResult{stage: verificationQuickCheck, outcome: verificationInconclusive}
+	}
+	pageCount, countErr := strconv.ParseInt(pages[0], 10, 64)
+	size, sizeErr := strconv.ParseInt(pageSize[0], 10, 64)
+	if countErr != nil || sizeErr != nil || pageCount < 0 || size <= 0 || pageCount > maxLedgerBytes/size {
+		return verificationResult{stage: verificationQuickCheck, outcome: verificationBoundExceeded}
+	}
+	integrity, err := queryLedgerIntegrity(ctx, db, "PRAGMA integrity_check(1)")
+	if err != nil || len(integrity) != 1 {
+		return verificationResult{stage: verificationIntegrityCheck, outcome: verificationFailure(err)}
+	}
+	if integrity[0] != "ok" {
+		return verificationResult{stage: verificationIntegrityCheck, outcome: verificationCorrupt}
+	}
+	return verificationResult{stage: verificationIntegrityCheck, outcome: verificationPassed}
+}
+
+func verificationFailure(err error) verificationOutcome {
+	var sqliteError *sqliteDriver.Error
+	if errors.As(err, &sqliteError) && (sqliteError.Code()&0xff == 11 || sqliteError.Code()&0xff == 26) {
+		return verificationCorrupt
+	}
+	return verificationInconclusive
+}
 
 type Ledger struct{ db *sql.DB }
 
@@ -82,9 +170,16 @@ func open(root string, evidence filesystemEvidence) (*Ledger, error) {
 	db.SetMaxIdleConns(1)
 	ledger := &Ledger{db: db}
 	if exists {
+		if runLedgerIntegrityVerifier(context.Background(), db).outcome != verificationPassed {
+			_ = db.Close()
+			return nil, source.ErrOwnershipInvalid
+		}
 		err = ledger.verify(context.Background())
 	} else {
 		err = ledger.initialize(context.Background())
+		if err == nil && runLedgerIntegrityVerifier(context.Background(), db).outcome != verificationPassed {
+			err = source.ErrOwnershipInvalid
+		}
 	}
 	if err != nil {
 		_ = db.Close()

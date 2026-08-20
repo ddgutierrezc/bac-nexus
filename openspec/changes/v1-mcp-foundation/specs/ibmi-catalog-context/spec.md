@@ -82,7 +82,7 @@ Before reservation/copy, the system MUST commit/readback a SQLite row with a sta
 
 Admission MUST atomically count/insert in a bounded single-writer transaction. Exact token/row retries SHALL be idempotent; rows MUST be unique by token/path, limited to 64, and listed `LIMIT 65`. No remote work precedes commit/readback. Busy handling MUST be bounded/context-aware; ambiguous commit MUST readback, while mismatch, corruption, or policy/dependency denial MUST fail closed.
 
-Every open MUST verify `application_id=1111573326` (`BACN`), `user_version=1`, exact schema, journal/durability pragmas, path/permissions, and bounded integrity. Every open MUST run `quick_check(1)`. When exact quick-check success and overflow-safe `page_count × page_size` establish ≤4 MiB, the system MUST run `integrity_check(1)`. Verification MUST finish in one second, respecting cancellation. Package-internal tests MUST observe only non-sensitive stage/outcome classifications: not-run, passed, corrupt, inconclusive, or bound-exceeded; never diagnostics/source/database content. Failed, incomplete, cancelled, inconclusive, corrupt, or bound-exceeded verification MUST return public `source.ErrOwnershipInvalid`. Mismatch, corruption, or policy denial MUST fail closed without rebuild. Recovery MUST revalidate profile, credential, binding, pin, directory, token, and path; it MUST confirm `Remove` plus `Stat`-not-found before row deletion. Remote uncertainty retains the row; tokens/paths MUST NOT be reused. Historical `/tmp` paths MUST NOT be auto-discovered or deleted. Dependency denial MUST prevent acquisition; tests MUST NOT claim power-loss durability.
+Every open MUST verify `application_id=1111573326` (`BACN`), `user_version=1`, exact schema, journal/durability pragmas, path/permissions, and bounded integrity. An existing ledger MUST complete ordered integrity verification before metadata/schema acceptance; a new ledger MUST initialize and then complete it. Every open MUST run `quick_check(1)` under one one-second context that reaches every verification query. When exact quick-check success and overflow-safe `page_count × page_size` establish ≤4 MiB, the system MUST run `integrity_check(1)`. Eligible successful verification MUST terminate as integrity-check passed; quick-check passed MUST be an intermediate ordered observation, not a terminal result. Verification MUST execute as focused independently testable package-internal behavior. Package-internal tests MUST observe only non-sensitive stage/outcome classifications: not-run, passed, corrupt, inconclusive, or bound-exceeded; never diagnostics/source/database content. A package-internal verifier result supplied to `Open` with `passed` MUST allow opening to continue; `not-run`, `corrupt`, `inconclusive`, and `bound-exceeded` MUST return public `source.ErrOwnershipInvalid`. Failed, incomplete, cancelled, inconclusive, corrupt, or bound-exceeded verification MUST return public `source.ErrOwnershipInvalid`. Mismatch, corruption, or policy denial MUST fail closed without rebuild. Recovery MUST revalidate profile, credential, binding, pin, directory, token, and path; it MUST confirm `Remove` plus `Stat`-not-found before row deletion. Remote uncertainty retains the row; tokens/paths MUST NOT be reused. Historical `/tmp` paths MUST NOT be auto-discovered or deleted. Dependency denial MUST prevent acquisition; tests MUST NOT claim power-loss durability.
 
 #### Scenario: Caller cannot direct temporary handling
 
@@ -108,11 +108,17 @@ Every open MUST verify `application_id=1111573326` (`BACN`), `user_version=1`, e
 - WHEN it opens
 - THEN `quick_check(1)` runs before full-check eligibility
 
-#### Scenario: Bounded ledger receives proportional verification
+#### Scenario: Verification ordering respects ledger state
 
-- GIVEN exact quick-check success and metadata establishes ≤4 MiB
+- GIVEN an existing ledger or a new ledger that requires initialization
 - WHEN the ledger opens
-- THEN `integrity_check(1)` runs within one second
+- THEN existing-ledger verification precedes metadata/schema acceptance, and new-ledger verification follows initialization
+
+#### Scenario: Eligible verification ends with integrity-check passed
+
+- GIVEN exact quick-check success, metadata establishes ≤4 MiB, and full verification succeeds
+- WHEN the ledger opens
+- THEN `quick_check(1)` is an intermediate ordered observation and `integrity_check(1)` terminates as passed within one second
 
 #### Scenario: Overflow or an oversized ledger is refused
 
@@ -138,11 +144,17 @@ Every open MUST verify `application_id=1111573326` (`BACN`), `user_version=1`, e
 - WHEN the ledger opens
 - THEN it returns `source.ErrOwnershipInvalid` with no remote work
 
-#### Scenario: Internal outcomes preserve public contract
+#### Scenario: Passed internal verifier result continues opening
 
-- GIVEN a package-internal test observes verification
-- WHEN its outcome is passed, corrupt, inconclusive, bound-exceeded, or not-run
-- THEN it exposes no diagnostics/content and non-passed maps to `source.ErrOwnershipInvalid`
+- GIVEN a package-internal verifier result of `passed` is supplied to `Open`
+- WHEN `Open` maps the result
+- THEN opening continues and exposes no diagnostics or content
+
+#### Scenario: Non-success internal verifier results fail closed
+
+- GIVEN a package-internal verifier result of `not-run`, `corrupt`, `inconclusive`, or `bound-exceeded` is supplied to `Open`
+- WHEN `Open` maps the result
+- THEN it returns `source.ErrOwnershipInvalid` and exposes no diagnostics or content
 
 #### Scenario: Recovery validates ownership and target
 
