@@ -91,7 +91,7 @@ func (i acquisitionInfo) Name() string       { return "source" }
 func (i acquisitionInfo) Size() int64        { return i.size }
 func (i acquisitionInfo) Mode() os.FileMode  { return i.mode }
 func (i acquisitionInfo) ModTime() time.Time { return time.Time{} }
-func (i acquisitionInfo) IsDir() bool        { return false }
+func (i acquisitionInfo) IsDir() bool        { return i.mode.IsDir() }
 func (i acquisitionInfo) Sys() any           { return nil }
 
 func TestAcquirerAcquiresOneCompleteSnapshotAndConfirmsCleanup(t *testing.T) {
