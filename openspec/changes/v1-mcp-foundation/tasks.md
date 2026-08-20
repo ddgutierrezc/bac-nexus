@@ -4,10 +4,9 @@
 
 | Field | Value |
 |---|---|
-| Estimated changed lines | 2,100–2,800 authored; ≤400/unit |
+| Estimated changed lines | 2,800–3,600 authored; ≤400 per unit |
 | 400-line budget risk | High |
-| Chained PRs recommended | Yes |
-| Suggested split | 1→2→3A→3B.1→3B.2→3B.3→5→6→7→8 to `main` |
+| Suggested split | 1→2→3A→3B.1→3B.2→3B.3→5A→5B→6→7→8 to `main` |
 | Delivery strategy | ask-on-risk (resolved: approved split) |
 | Chain strategy | stacked-to-main |
 
@@ -16,22 +15,25 @@ Chained PRs recommended: Yes
 Chain strategy: stacked-to-main
 400-line budget risk: High
 
+PoC exceptions are approved; production/corporate SQLite/keyring rollout approval remains unresolved and mandatory.
+
 ### Suggested Work Units
 
-| Unit | Goal / dependency | Focused test command | Runtime harness | Rollback boundary |
+| Unit | Goal / deps | Focused test command | Harness | Rollback boundary |
 |---|---|---|---|---|
-| 1 | Lines;— | `go test -count=1 ./internal/source` | memory | snapshot |
-| 2 | Leases;1 | `go test -count=1 ./internal/source` | fake clock | store |
-| 3A | Acquire;1–2 | `go test -count=1 ./internal/source` | loopback | acquire |
-| 3B.1 | Ledger;3A | `go test -count=1 ./internal/source` | FS/Win32 fakes | ownership |
-| 3B.2 | Private acquire;3B.1 | `go test -count=1 ./internal/source` | loopback | acquire |
-| 3B.3 | Recovery;3B.2 | `go test -count=1 ./internal/source` | recovery fake | recovery/docs |
-| 5 | Security;— | `go test -count=1 ./internal/credential ./internal/security ./internal/audit` | Win32 fakes | packages |
-| 6 | Freshness;2,3B.3,5 | `go test -count=1 ./internal/app` | app fakes | service |
-| 7 | MCP;5–6 | `go test -count=1 ./internal/mcp ./cmd/nexus` | stdio | MCP/command/docs |
-| 8 | Accept;1–7 | `go test -count=1 ./...` | approved IBM i | evidence |
+| 1 | Lines | `go test -count=1 ./internal/source` | memory | snapshot |
+| 2 | Leases; 1 | `go test -count=1 ./internal/source` | fake clock | store |
+| 3A | Acquire; 1–2 | `go test -count=1 ./internal/source` | loopback | acquire |
+| 3B.1 | SQLite ledger; 3A | `go test -count=1 ./internal/ownership/sqlite ./internal/source` | temp DB, processes | ledger |
+| 3B.2 | Private acquire; 3B.1 | `go test -count=1 ./internal/source ./internal/remote` | loopback | acquire |
+| 3B.3 | Recovery; 3B.2 | `go test -count=1 ./internal/source ./internal/ownership/sqlite` | crash/contention fake | recovery/docs |
+| 5A | Credentials | `go test -count=1 ./internal/credential` | available OS only | credential |
+| 5B | Policy/audit; 5A | `go test -count=1 ./internal/security ./internal/audit` | fakes | policy/audit |
+| 6 | Freshness; 2,3B.3,5B | `go test -count=1 ./internal/app` | app fakes | service |
+| 7 | MCP; 5B,6 | `go test -count=1 ./internal/mcp ./cmd/nexus` | stdio | MCP/docs |
+| 8 | Acceptance; all | `go test -count=1 ./...` | approved IBM i | evidence |
 
-Rollback: revert 3B.3 first; stop acquisition before retaining/reverting ledger semantics; retain records unless remote absence was confirmed, then revert 3B.2 and 3B.1.
+OS matrix: use available-runner CI evidence for windows/darwin/linux amd64+arm64; locally use `$env:GOOS='windows'; $env:GOARCH='amd64'; go build ./...` (substitute each target). Do not claim unavailable runners.
 
 ## Phase 1: Source Foundation
 
@@ -47,28 +49,35 @@ Rollback: revert 3B.3 first; stop acquisition before retaining/reverting ledger 
 - [x] 2.1 **RED (PR 3A)**: Test `internal/source/acquire_test.go` copy/UTF-8/cancel/cleanup publication failures.
 - [x] 2.2 **GREEN (PR 3A)**: Implement `acquire.go`/`retrieve.go`/`remote/ssh.go` download and independent confirmed cleanup.
 - [x] 2.3 **REFACTOR (PR 3A)**: Share `acquire_test.go` fakes; scope cleanup.
-- [ ] 2.4 **RED (PR 3B.1)**: `internal/source/ownership*_test.go`: strict schema/forbidden/unknown, `ReadDir(65)` 64-limit, duplicate/malformed/oversized/nonregular/reparse/owner-ACL, Win32 lock/durable create/remove contracts.
-- [ ] 2.5 **GREEN (PR 3B.1)**: `internal/source/ownership*.go`: generic ledger plus build-tagged Windows/non-Windows backends passing those tests.
-- [ ] 2.6 **REFACTOR (PR 3B.1)**: Simplify `internal/source/ownership*_test.go` fixtures/seams; rerun source checks.
-- [ ] 2.7 **RED (PR 3B.2)**: `acquire_test.go`: absolute-home/0700/traversal-symlink-reparse-escape/128-bit-0600/binding/ledger-first.
-- [ ] 2.8 **GREEN (PR 3B.2)**: `acquire.go`/`retrieve.go`/`remote/ssh.go`: private tmp; record-before-copy; Remove+Stat-before-record removal.
-- [ ] 2.9 **REFACTOR (PR 3B.2)**: `acquire_test.go` fakes; retain record/no snapshot; no recovery/generic API.
-- [ ] 2.10 **RED (PR 3B.3)**: `ownership_test.go`: lock/load/profile-credential-digest-pin/crash/exact-path/absent/corruption-overflow-contention-ambiguity blocks.
-- [ ] 2.11 **GREEN (PR 3B.3)**: `ownership.go`: locked startup/pre-acquire fresh-pin recovery; remove record after absence.
-- [ ] 2.12 **REFACTOR (PR 3B.3)**: `docs/SECURITY.md`: no `/tmp` discovery; operator/privileged-admin risk; no MCP operation.
+- [ ] 2.4 **GATE (PR 3B.1)**: Verify PoC-exception `modernc.org/sqlite` v1.38.2: pure-Go/no-CGO, Go 1.23, SQLite 3.50.1, windows/darwin/linux amd64+arm64; exact module graph/SBOM, checksums, licenses/transitives, `govulncheck`/known vulnerabilities, no DLL/runtime download, platform compile/tests, endpoint policy. Failure blocks 3B.1.
+- [ ] 2.5 **RED (PR 3B.1)**: Test `internal/ownership/sqlite/*_test.go` exact schema/version/application ID/checks/no sensitive fields; local non-network protected no-symlink DB, DELETE/EXTRA pragmas, quick/integrity, 64/65, `BEGIN IMMEDIATE`, retries, idempotent/ambiguous readback, and multiprocess contention.
+- [ ] 2.6 **GREEN (PR 3B.1)**: Add consumer `internal/source/ownership.go` and SQLite adapter with one connection, 250ms busy timeout, 25/50/100ms context retries, and fail-closed readback; no remote behavior.
+- [ ] 2.7 **REFACTOR (PR 3B.1)**: Keep fixtures/process harness only; retain exact-readback and fail-closed assertions.
+- [ ] 2.8 **RED (PR 3B.2)**: Test `internal/source/acquire_test.go` authenticated home, private `0700`, exclusive random `0600`, immutable source, traversal/symlink escape, durable row readback before reserve/copy, and retain-on-failure.
+- [ ] 2.9 **GREEN (PR 3B.2)**: Update `internal/source/{acquire,retrieve}.go` and `internal/remote/ssh.go` for exact private path; `Remove` plus `Stat`-not-found before transactional DELETE, never recovery-loop.
+- [ ] 2.10 **REFACTOR (PR 3B.2)**: Consolidate acquisition fakes; no snapshot if row/cleanup confirmation fails.
+- [ ] 2.11 **RED (PR 3B.3)**: Test bounded `LIMIT 65` exact rows, fresh profile/credential/pin/binding, crash idempotence, corruption/contention/retarget blocking, and no historical `/tmp` discovery.
+- [ ] 2.12 **GREEN (PR 3B.3)**: Implement exact-path startup/pre-acquire recovery in `internal/source/ownership.go`; delete only after confirmed absence.
+- [ ] 2.13 **REFACTOR (PR 3B.3)**: Add `docs/SECURITY.md` operator/privileged-risk guidance and available cross-process/platform evidence; no MCP recovery operation.
 
-## Phase 3: Local Security and Freshness
+## Phase 3: Credentials, Policy, and Freshness
 
-- [ ] 3.1 **RED (PR 5)**: `internal/security/*_test.go`, `internal/credential/*_test.go`, `internal/audit/*_test.go`: selector/clientInfo/credential/TOFU/redaction/no-remote.
-- [ ] 3.2 **GREEN (PR 5)**: Create `security/policy.go`, `audit/audit.go`, `credential/wincred_*`.
-- [ ] 3.3 **REFACTOR (PR 5)**: Table-drive package tests.
-- [ ] 3.4 **RED (PR 6)**: `internal/app/service_test.go`: 50/re-query/stale/bytes/pre-remote-denial.
-- [ ] 3.5 **GREEN (PR 6)**: Create narrow deterministic `internal/app/service.go`.
-- [ ] 3.6 **REFACTOR (PR 6)**: Consolidate `service_test.go` fakes.
+- [ ] 3.1 **GATE (PR 5A)**: Verify PoC-exception `github.com/zalando/go-keyring` v0.2.8 (declares Go 1.18): exact module graph/SBOM, checksums, licenses/transitives, `govulncheck`/known vulnerabilities, no DLL/runtime download, platform compile/tests, endpoint policy. Failure blocks 5A.
+- [ ] 3.2 **RED (PR 5A)**: Test `internal/credential/*_test.go` only exact Get/Set/Delete, grammar/1–4096 bounds, redaction/zeroing, unavailable-before-remote, fixed macOS stdin/no argv-env, and Windows/Linux deterministic failures.
+- [ ] 3.3 **GREEN (PR 5A)**: Add `CredentialStore`/keyring adapter: Credential Manager, fixed `/usr/bin/security`, Secret Service D-Bus; explicit vault write/readback/zero/delete migration, retaining vault when native storage fails.
+- [ ] 3.4 **REFACTOR (PR 5A)**: Isolate consumer and per-platform tests; preserve available-runner-only evidence.
+- [ ] 3.5 **RED (PR 5B)**: Test `internal/{security,audit}/*_test.go` selector and spoofed `clientInfo`, TOFU changes, allowlisted audit redaction, and no remote/generic path operations.
+- [ ] 3.6 **GREEN (PR 5B)**: Add `internal/security/policy.go` and `internal/audit/audit.go` pinned trust and sanitized outcomes, depending on 5A credentials.
+- [ ] 3.7 **REFACTOR (PR 5B)**: Table-drive policy/audit fakes and rerun both package commands.
+- [ ] 3.8 **RED (PR 6)**: Test `internal/app/service_test.go` 50-result bound, re-query/stale, page bytes, and credential/policy denial before remote work.
+- [ ] 3.9 **GREEN (PR 6)**: Create deterministic `internal/app/service.go` over 2, 3B.3, and 5B.
+- [ ] 3.10 **REFACTOR (PR 6)**: Consolidate service fakes and freshness cases.
 
-## Phase 4: MCP, Rollout, and Acceptance
+## Phase 4: MCP and Acceptance
 
-- [ ] 4.1 **RED (PR 7)**: `mcp/server_test.go`, `cmd/nexus/main_test.go`: typed tools/no paths/errors/cancel/shutdown.
-- [ ] 4.2 **GREEN (PR 7)**: Pin SDK; create `mcp/server.go`, `cmd/nexus/main.go`; no generic remote.
-- [ ] 4.3 **REFACTOR (PR 7)**: Update `README.md`/`docs/SECURITY.md`; preserve spike/full tests.
-- [ ] 4.4 **Acceptance (PR 8)**: `docs/SECURITY.md`: IBM i line-1/EOF/newline/cleanup evidence; no source.
+- [ ] 4.1 **RED (PR 7)**: Test `internal/mcp/server_test.go` and `cmd/nexus/main_test.go` typed tools, no paths, deterministic errors, cancellation, and shutdown.
+- [ ] 4.2 **GREEN (PR 7)**: Create `internal/mcp/server.go` and `cmd/nexus/main.go`; pin SDK, wire 5B/6, and expose no generic remote tool.
+- [ ] 4.3 **REFACTOR (PR 7)**: Update `README.md` and `docs/SECURITY.md`; preserve `catalogspike` and full tests.
+- [ ] 4.4 **Acceptance (PR 8)**: Run documented approved IBM i line-1/EOF/newline/success-cancel cleanup evidence without retained source; verify `go test -count=1 ./...`.
+
+Rollback: stop acquisition; revert 3B.3→3B.2→3B.1 while retaining unresolved rows. Revert 5B, then 5A only after preserving accessible secrets and migration state.

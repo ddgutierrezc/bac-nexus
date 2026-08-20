@@ -6,25 +6,27 @@ Protect local MCP access to IBM i catalog context through fail-closed client, cr
 
 ## Requirements
 
-### Requirement: Explicit Client Authorization
+### Requirement: Local-Principal Authorization
 
-The system MUST authorize each local client against an explicit policy before catalog or source access. Source-page authorization MUST explicitly authorize complete source reconstruction, not merely partial reads. Unauthorized, unknown, or malformed identity MUST fail closed with `unauthorized` and MUST NOT contact the remote system.
+The current local OS principal MUST be the trust boundary on Windows, macOS, and Linux. The system MUST authorize each advisory selector against explicit policy before catalog or source access; `clientInfo` and profile names MUST NOT authenticate a product or principal. Source-page authorization MUST explicitly authorize complete source reconstruction. Unauthorized, unknown, or malformed selectors MUST fail closed with `unauthorized` and MUST NOT contact the remote system. Same-principal malicious processes and privileged OS users remain residual risks.
 
-#### Scenario: Authorized client proceeds
+#### Scenario: Authorized selector proceeds
 
-- GIVEN a client identity explicitly permits the requested read-only operation
+- GIVEN an advisory selector explicitly permits the requested read-only operation
 - WHEN it invokes a catalog-context tool
 - THEN authorization permits evaluation of the request
 
-#### Scenario: Unauthorized client is rejected
+#### Scenario: Unauthorized selector is rejected
 
-- GIVEN an unknown client or a client without source-access permission
+- GIVEN an unknown selector or a selector without source-access permission
 - WHEN it invokes a catalog-context tool
 - THEN it receives `unauthorized` and no remote operation occurs
 
 ### Requirement: Native Secret Isolation
 
-The system MUST obtain required credentials only through the approved native credential facility. Secrets MUST NOT appear in MCP requests or responses, command arguments, environment variables, logs, audit events, fixtures, or persisted SDD artifacts. Missing or unavailable credentials MUST fail closed with deterministic `credentials_unavailable` and no remote attempt.
+The consumer-owned `CredentialStore` MUST expose only exact `Get`, `Set`, and `Delete`, using fixed service `BAC Nexus`, account `ibmi/<profile>`, profile `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, and secrets of 1–4096 bytes. Its approved native-keyring adapter SHALL map Windows Credential Manager, macOS Keychain, and Linux Secret Service. SQLite MUST NOT store secrets. Missing, locked, unavailable, policy-denied, malformed, or ambiguous native-store results MUST return `credentials_unavailable`; no prompt, vault, plaintext, SQLite, or remote fallback is permitted.
+
+Secrets MUST NOT appear in argv, environment, logs, audit, MCP, SQLite, fixtures, errors, or persisted artifacts. macOS MUST invoke only the fixed keychain executable, use stdin—not argv or environment—for Set secrets, and MUST NOT use a generic shell. Windows native failures and Linux D-Bus failures MUST be deterministic. Corporate policy or dependency approval denial MUST fail closed before remote access.
 
 #### Scenario: Credential is available
 
@@ -34,9 +36,37 @@ The system MUST obtain required credentials only through the approved native cre
 
 #### Scenario: Credential is unavailable
 
-- GIVEN required credentials cannot be obtained
+- GIVEN the required native store is missing, locked, unavailable, denied, malformed, or ambiguous
 - WHEN the client invokes an operation
-- THEN it receives `credentials_unavailable` and no source is returned
+- THEN it receives `credentials_unavailable` and no remote attempt or fallback occurs
+
+#### Scenario: Platform secret transport is constrained
+
+- GIVEN a macOS Set operation or a Windows/Linux native-store failure
+- WHEN the adapter handles the operation
+- THEN the secret is absent from argv and environment, or the failure is deterministic
+
+#### Scenario: Supported-platform evidence is bounded
+
+- GIVEN a supported windows, darwin, or linux amd64/arm64 target
+- WHEN platform acceptance is planned
+- THEN it uses available runners only and does not invent unavailable-runner coverage
+
+### Requirement: Explicit Native Credential Migration
+
+The system MUST migrate an old vault only through an explicit operation. It SHALL read the old secret once, write it to the active native store, read back the exact secret, zeroize temporary buffers where possible, and delete the old vault only after confirmation. Native-store unavailability MUST retain the vault and fail closed. Automatic migration is prohibited.
+
+#### Scenario: Migration succeeds only after confirmation
+
+- GIVEN an operator explicitly requests migration and the active native store is available
+- WHEN the stored secret is read back exactly after Set
+- THEN Nexus zeroizes temporary buffers and deletes the old vault
+
+#### Scenario: Migration cannot confirm native storage
+
+- GIVEN an explicit migration cannot access or confirm the native store
+- WHEN migration is attempted
+- THEN it retains the old vault and returns `credentials_unavailable`
 
 ### Requirement: Pinned Host Trust Policy
 
