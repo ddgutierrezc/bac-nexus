@@ -13,14 +13,17 @@ import (
 
 	"bac-nexus/internal/source"
 
-	_ "modernc.org/sqlite"
+	sqliteDriver "modernc.org/sqlite"
 )
 
 const (
 	applicationID   = 1111573326
 	userVersion     = 1
+	sqliteBusy      = 5
 	ownershipSchema = `CREATE TABLE ownership (token BLOB PRIMARY KEY CHECK(length(token) = 16), remote_path TEXT UNIQUE CHECK(length(CAST(remote_path AS BLOB)) BETWEEN 1 AND 1024), version INTEGER NOT NULL CHECK(version = 1), profile TEXT NOT NULL CHECK(length(profile) BETWEEN 1 AND 64), target_digest BLOB NOT NULL CHECK(length(target_digest) = 32), created_at TEXT NOT NULL CHECK(length(created_at) = 20))`
 )
+
+var transactionRetryDelays = [...]time.Duration{25 * time.Millisecond, 50 * time.Millisecond, 100 * time.Millisecond}
 
 type Ledger struct{ db *sql.DB }
 
@@ -110,16 +113,42 @@ func applicationDataRoot() string {
 }
 func (l *Ledger) Close() error { return l.db.Close() }
 func (l *Ledger) Admit(ctx context.Context, record source.OwnershipRecord) error {
-	if err := ctx.Err(); err != nil {
-		return err
+	for attempt := 0; ; attempt++ {
+		commitAttempted, err := l.admitAttempt(ctx, record)
+		if err == nil {
+			return l.requireExactRecord(ctx, record)
+		}
+		if commitAttempted {
+			found, readbackErr := l.readbackExactRecord(ctx, record)
+			if readbackErr != nil {
+				return readbackErr
+			}
+			if found {
+				return nil
+			}
+		} else if !isSQLiteBusy(err) {
+			return err
+		}
+		if attempt == len(transactionRetryDelays) {
+			return err
+		}
+		if err := waitForRetry(ctx, transactionRetryDelays[attempt]); err != nil {
+			return err
+		}
 	}
+}
+
+func (l *Ledger) admitAttempt(ctx context.Context, record source.OwnershipRecord) (commitAttempted bool, err error) {
 	conn, err := l.db.Conn(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "PRAGMA busy_timeout = 250"); err != nil {
+		return false, err
+	}
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		return err
+		return false, err
 	}
 	committed := false
 	defer func() {
@@ -135,27 +164,72 @@ func (l *Ledger) Admit(ctx context.Context, record source.OwnershipRecord) error
 	switch {
 	case err == nil:
 		if path != record.RemotePath || version != userVersion || profile != record.Profile || !bytes.Equal(digest, record.TargetDigest) || created != record.CreatedAt.UTC().Format(time.RFC3339) {
-			return source.ErrOwnershipMismatch
+			return false, source.ErrOwnershipMismatch
 		}
 	case errors.Is(err, sql.ErrNoRows):
 		var count int
 		if err := conn.QueryRowContext(ctx, "SELECT count(*) FROM ownership").Scan(&count); err != nil {
-			return err
+			return false, err
 		}
 		if count >= 64 {
-			return source.ErrOwnershipCapacity
+			return false, source.ErrOwnershipCapacity
 		}
 		if _, err := conn.ExecContext(ctx, `INSERT INTO ownership (token, remote_path, version, profile, target_digest, created_at) VALUES (?, ?, ?, ?, ?, ?)`, record.Token, record.RemotePath, userVersion, record.Profile, record.TargetDigest, record.CreatedAt.UTC().Format(time.RFC3339)); err != nil {
-			return err
+			return false, err
 		}
 	default:
-		return err
+		return false, err
 	}
 	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
-		return err
+		return true, err
 	}
 	committed = true
+	return true, nil
+}
+
+func (l *Ledger) requireExactRecord(ctx context.Context, record source.OwnershipRecord) error {
+	found, err := l.readbackExactRecord(ctx, record)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return source.ErrOwnershipInvalid
+	}
 	return nil
+}
+
+func (l *Ledger) readbackExactRecord(ctx context.Context, record source.OwnershipRecord) (bool, error) {
+	var path, profile, created string
+	var version int
+	var digest []byte
+	err := l.db.QueryRowContext(ctx, `SELECT remote_path, version, profile, target_digest, created_at FROM ownership WHERE token = ?`, record.Token).
+		Scan(&path, &version, &profile, &digest, &created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if path != record.RemotePath || version != userVersion || profile != record.Profile || !bytes.Equal(digest, record.TargetDigest) || created != record.CreatedAt.UTC().Format(time.RFC3339) {
+		return false, source.ErrOwnershipMismatch
+	}
+	return true, nil
+}
+
+func isSQLiteBusy(err error) bool {
+	var sqliteErr *sqliteDriver.Error
+	return errors.As(err, &sqliteErr) && sqliteErr.Code()&0xff == sqliteBusy
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 func (l *Ledger) initialize(ctx context.Context) error {
 	for _, statement := range []string{"PRAGMA journal_mode = DELETE", "PRAGMA synchronous = EXTRA", "PRAGMA busy_timeout = 250", fmt.Sprintf("PRAGMA application_id = %d", applicationID), fmt.Sprintf("PRAGMA user_version = %d", userVersion), ownershipSchema} {
