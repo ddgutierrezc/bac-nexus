@@ -115,7 +115,7 @@ func BuildCopyCommand(qsysPath, temporary string) (string, error) {
 	if !strings.HasPrefix(qsysPath, "/QSYS.LIB/") || strings.Contains(qsysPath, "..") || strings.ContainsAny(qsysPath, "'\"\r\n ") {
 		return "", errors.New("invalid QSYS.LIB source path")
 	}
-	if !strings.HasPrefix(temporary, "/tmp/bac-nexus-catalog-") || !strings.HasSuffix(temporary, ".utf8") || strings.ContainsAny(temporary, "'\"\r\n ") {
+	if !strings.HasPrefix(temporary, "/") || strings.Contains(temporary, "..") || !strings.HasSuffix(temporary, ".utf8") || strings.ContainsAny(temporary, "'\"\r\n ") {
 		return "", errors.New("invalid Nexus remote temporary path")
 	}
 	cl := "CPYTOSTMF FROMMBR('" + qsysPath + "') TOSTMF('" + temporary + "') STMFOPT(*REPLACE) STMFCCSID(1208)"

@@ -98,6 +98,12 @@ func (l *acquisitionLedger) Admit(_ context.Context, record OwnershipRecord) err
 }
 func (*acquisitionLedger) Close() error { return nil }
 
+func newAcquirer(request, cleanup *acquisitionRemote, events *[]string) Acquirer {
+	request.home = "/home/nexus"
+	request.directoryInfo = acquisitionInfo{mode: os.ModeDir | 0o700}
+	return Acquirer{Open: sequentialOpener(request, cleanup), Random: bytes.NewReader(make([]byte, 16)), Ownership: &acquisitionLedger{events: events}, Profile: "test", TargetDigest: make([]byte, 32)}
+}
+
 type readCloser struct {
 	io.Reader
 	readErr, closeErr error
@@ -128,19 +134,20 @@ func TestAcquirerAcquiresOneCompleteSnapshotAndConfirmsCleanup(t *testing.T) {
 	request := &acquisitionRemote{data: []byte("one\ntwo\n"), info: acquisitionInfo{8, 0o600}, events: &events}
 	cleanup := &acquisitionRemote{info: acquisitionInfo{8, 0o600}, events: &events}
 	var opens int
-	a := Acquirer{Open: func(context.Context) (AcquisitionRemote, io.Closer, error) {
+	a := newAcquirer(request, cleanup, &events)
+	a.Open = func(context.Context) (AcquisitionRemote, io.Closer, error) {
 		opens++
 		if opens == 1 {
 			return request, io.NopCloser(nil), nil
 		}
 		return cleanup, io.NopCloser(nil), nil
-	}, Random: bytes.NewReader(make([]byte, 16))}
+	}
 
 	snap, err := a.Acquire(context.Background(), candidate())
-	if err != nil || snap == nil || opens != 2 || request.copies != 1 || request.downloads != 1 || cleanup.removes != 1 || request.copyPath != "/tmp/bac-nexus-catalog-00000000000000000000000000000000.utf8" {
+	if err != nil || snap == nil || opens != 2 || request.copies != 1 || request.downloads != 1 || cleanup.removes != 1 || request.copyPath != "/home/nexus/.bac-nexus/tmp/00000000000000000000000000000000.utf8" {
 		t.Fatalf("Acquire() = %v, %v; opens/copy/download/remove = %d/%d/%d/%d", snap, err, opens, request.copies, request.downloads, cleanup.removes)
 	}
-	if page, err := snap.Page(1, 2); err != nil || strings.Join(page.Lines, ",") != "one,two" || strings.Join(events, ",") != "copy,download,remove" {
+	if page, err := snap.Page(1, 2); err != nil || strings.Join(page.Lines, ",") != "one,two" || strings.Join(events, ",") != "admit,reserve,copy,download,remove" {
 		t.Fatalf("snapshot/events = %#v, %v / %v", page, err, events)
 	}
 }
@@ -241,7 +248,7 @@ func TestAcquirerFailsClosedAndCleansOwnedTemporary(t *testing.T) {
 			if tt.name == "cleanup confirmation" {
 				cleanup.statErr = boom
 			}
-			a := Acquirer{Open: sequentialOpener(request, cleanup), Random: bytes.NewReader(make([]byte, 16))}
+			a := newAcquirer(request, cleanup, &events)
 			snap, err := a.Acquire(tt.ctx, candidate())
 			if err == nil || snap != nil || request.copies != 1 || cleanup.removes != 1 || cleanup.removeContextErr != nil {
 				t.Fatalf("Acquire() = %v, %v; copy/remove = %d/%d", snap, err, request.copies, cleanup.removes)
@@ -255,7 +262,7 @@ func TestAcquirerJoinsPrimaryAndCleanupErrors(t *testing.T) {
 	events := []string{}
 	request := &acquisitionRemote{info: acquisitionInfo{0, 0o600}, copyErr: boom, events: &events}
 	cleanup := &acquisitionRemote{info: acquisitionInfo{0, 0o600}, removeErr: cleanupBoom, events: &events}
-	snap, err := (Acquirer{Open: sequentialOpener(request, cleanup), Random: bytes.NewReader(make([]byte, 16))}).Acquire(context.Background(), candidate())
+	snap, err := newAcquirer(request, cleanup, &events).Acquire(context.Background(), candidate())
 	if snap != nil || !errors.Is(err, boom) || !errors.Is(err, cleanupBoom) {
 		t.Fatalf("Acquire() = %v, %v", snap, err)
 	}
@@ -265,7 +272,7 @@ func TestAcquirerAcceptsAlreadyRemovedTemporaryOnlyAfterConfirmation(t *testing.
 	events := []string{}
 	request := &acquisitionRemote{data: []byte("ok\n"), info: acquisitionInfo{3, 0o600}, events: &events}
 	cleanup := &acquisitionRemote{info: acquisitionInfo{3, 0o600}, removeErr: ErrRemoteNotFound, events: &events}
-	snap, err := (Acquirer{Open: sequentialOpener(request, cleanup), Random: bytes.NewReader(make([]byte, 16))}).Acquire(context.Background(), candidate())
+	snap, err := newAcquirer(request, cleanup, &events).Acquire(context.Background(), candidate())
 	if err != nil || snap == nil || cleanup.removes != 1 {
 		t.Fatalf("Acquire() = %v, %v; removes = %d", snap, err, cleanup.removes)
 	}

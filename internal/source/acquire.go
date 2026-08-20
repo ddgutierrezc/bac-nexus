@@ -36,12 +36,16 @@ type RemoteOpener func(context.Context) (AcquisitionRemote, io.Closer, error)
 
 // Acquirer builds a complete in-memory snapshot and confirms its remote temporary is gone.
 type Acquirer struct {
-	Open   RemoteOpener
-	Random io.Reader
+	Open         RemoteOpener
+	Random       io.Reader
+	Ownership    OwnershipLedger
+	Profile      string
+	TargetDigest []byte
+	Now          func() time.Time
 }
 
 func (a Acquirer) Acquire(ctx context.Context, candidate catalog.Candidate) (snap *Snapshot, err error) {
-	if a.Open == nil {
+	if a.Open == nil || a.Ownership == nil || a.Profile == "" || len(a.TargetDigest) != 32 {
 		return nil, errors.New("source acquisition dependencies are required")
 	}
 	remote, closeRemote, err := a.Open(ctx)
@@ -54,13 +58,25 @@ func (a Acquirer) Acquire(ctx context.Context, candidate catalog.Candidate) (sna
 			err = errors.Join(err, fmt.Errorf("close source acquisition connection: %w", closeErr))
 		}
 	}()
-	path, err := temporaryName(a.Random)
+	directory, err := preparePrivateDirectory(ctx, remote)
+	if err != nil {
+		return nil, err
+	}
+	token, err := randomToken(a.Random)
 	if err != nil {
 		return nil, err
 	}
 	qsysPath, err := candidate.QSYSPath()
 	if err != nil {
 		return nil, err
+	}
+	createdAt := time.Now()
+	if a.Now != nil {
+		createdAt = a.Now()
+	}
+	path := path.Join(directory, hex.EncodeToString(token)+".utf8")
+	if err := a.Ownership.Admit(ctx, OwnershipRecord{Token: token, RemotePath: path, Profile: a.Profile, TargetDigest: append([]byte(nil), a.TargetDigest...), CreatedAt: createdAt}); err != nil {
+		return nil, fmt.Errorf("admit remote temporary ownership: %w", err)
 	}
 	owned := false
 	defer func() {
@@ -71,6 +87,9 @@ func (a Acquirer) Acquire(ctx context.Context, candidate catalog.Candidate) (sna
 			}
 		}
 	}()
+	if path, err = reservePrivateFileWithToken(ctx, remote, directory, token); err != nil {
+		return nil, err
+	}
 	owned = true // CPYTOSTMF may create the fixed Nexus path even when it reports failure.
 	if err = remote.CopyToUTF8(ctx, qsysPath, path); err != nil {
 		return nil, err
@@ -141,26 +160,35 @@ func removeConfirmed(ctx context.Context, remote AcquisitionRemote, path string)
 }
 
 func temporaryName(random io.Reader) (string, error) {
-	if random == nil {
-		random = rand.Reader
-	}
-	token := make([]byte, 16)
-	if _, err := io.ReadFull(random, token); err != nil {
-		return "", fmt.Errorf("generate remote temporary name: %w", err)
+	token, err := randomToken(random)
+	if err != nil {
+		return "", err
 	}
 	return "/tmp/bac-nexus-catalog-" + hex.EncodeToString(token) + ".utf8", nil
 }
 
-func reservePrivateFile(ctx context.Context, remote AcquisitionRemote, directory string, random io.Reader) (string, error) {
-	if !strings.HasPrefix(directory, "/") || path.Clean(directory) != directory || strings.Contains(directory, "..") {
-		return "", errors.New("private remote directory is not an absolute safe path")
-	}
+func randomToken(random io.Reader) ([]byte, error) {
 	if random == nil {
 		random = rand.Reader
 	}
 	token := make([]byte, 16)
 	if _, err := io.ReadFull(random, token); err != nil {
-		return "", fmt.Errorf("generate remote temporary name: %w", err)
+		return nil, fmt.Errorf("generate remote temporary name: %w", err)
+	}
+	return token, nil
+}
+
+func reservePrivateFile(ctx context.Context, remote AcquisitionRemote, directory string, random io.Reader) (string, error) {
+	token, err := randomToken(random)
+	if err != nil {
+		return "", err
+	}
+	return reservePrivateFileWithToken(ctx, remote, directory, token)
+}
+
+func reservePrivateFileWithToken(ctx context.Context, remote AcquisitionRemote, directory string, token []byte) (string, error) {
+	if !strings.HasPrefix(directory, "/") || path.Clean(directory) != directory || strings.Contains(directory, "..") || len(token) != 16 {
+		return "", errors.New("private remote directory is not an absolute safe path")
 	}
 	temporary := path.Join(directory, hex.EncodeToString(token)+".utf8")
 	if err := remote.CreateExclusive(ctx, temporary); err != nil {
