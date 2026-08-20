@@ -11,71 +11,23 @@ import (
 )
 
 func TestLedgerFilesystemPolicyRejectsRootOutsideApplicationData(t *testing.T) {
-	root := t.TempDir()
-	evidence := approvedFilesystemEvidence(root)
-	evidence.ApplicationDataRoot = filepath.Join(t.TempDir(), "application-data")
-	assertPolicyRejects(t, root, evidence)
-}
-
-func TestLedgerFilesystemPolicyRejectsNetworkOrSharedRoots(t *testing.T) {
 	for _, testCase := range []struct {
 		name  string
 		apply func(*filesystemEvidence)
 	}{
-		{name: "network", apply: func(evidence *filesystemEvidence) { evidence.Local = false }},
-		{name: "shared", apply: func(evidence *filesystemEvidence) { evidence.Shared = true }},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			root := t.TempDir()
-			evidence := approvedFilesystemEvidence(root)
-			testCase.apply(&evidence)
-			assertPolicyRejects(t, root, evidence)
-		})
-	}
-}
-
-func TestLedgerFilesystemPolicyRejectsUnprovenOwnerOrPermissions(t *testing.T) {
-	for _, testCase := range []struct {
-		name  string
-		apply func(*filesystemEvidence)
-	}{
-		{name: "owner", apply: func(evidence *filesystemEvidence) { evidence.OwnerVerified = false }},
-		{name: "permissions", apply: func(evidence *filesystemEvidence) { evidence.PermissionsRestrictive = false }},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			root := t.TempDir()
-			evidence := approvedFilesystemEvidence(root)
-			testCase.apply(&evidence)
-			assertPolicyRejects(t, root, evidence)
-		})
-	}
-}
-
-func TestLedgerFilesystemPolicyRejectsSymlinkEvidence(t *testing.T) {
-	root := t.TempDir()
-	evidence := approvedFilesystemEvidence(root)
-	evidence.Symlink = true
-	assertPolicyRejects(t, root, evidence)
-}
-
-func TestLedgerFilesystemPolicyRejectsWindowsReparseEvidence(t *testing.T) {
-	root := t.TempDir()
-	evidence := approvedFilesystemEvidence(root)
-	evidence.WindowsReparsePoint = true
-	assertPolicyRejects(t, root, evidence)
-}
-
-func TestLedgerFilesystemPolicyFailsClosedForUnknownUnavailableOrContradictoryEvidence(t *testing.T) {
-	for _, testCase := range []struct {
-		name  string
-		apply func(*filesystemEvidence)
-	}{
-		{name: "unavailable", apply: func(evidence *filesystemEvidence) { evidence.Available = false }},
-		{name: "unknown locality", apply: func(evidence *filesystemEvidence) { evidence.LocalKnown = false }},
-		{name: "unknown owner", apply: func(evidence *filesystemEvidence) { evidence.OwnerKnown = false }},
-		{name: "unknown permissions", apply: func(evidence *filesystemEvidence) { evidence.PermissionsKnown = false }},
-		{name: "unknown link state", apply: func(evidence *filesystemEvidence) { evidence.LinkKnown = false }},
-		{name: "contradictory locality", apply: func(evidence *filesystemEvidence) { evidence.Shared = true }},
+		{"outside application data", func(e *filesystemEvidence) { e.ApplicationDataRoot = filepath.Join(t.TempDir(), "application-data") }},
+		{"network", func(e *filesystemEvidence) { e.Locality = localityNetwork }},
+		{"shared", func(e *filesystemEvidence) { e.Locality = localityShared }},
+		{"unproven owner", func(e *filesystemEvidence) { e.Owner = proofNo }},
+		{"unproven permissions", func(e *filesystemEvidence) { e.Permissions = proofNo }},
+		{"symlink", func(e *filesystemEvidence) { e.LinkSafe = proofNo }},
+		{"windows reparse point", func(e *filesystemEvidence) { e.ReparseSafe = proofNo }},
+		{"unavailable", func(e *filesystemEvidence) { e.Available = proofNo }},
+		{"unknown locality", func(e *filesystemEvidence) { e.Locality = localityUnknown }},
+		{"unknown owner", func(e *filesystemEvidence) { e.Owner = proofUnknown }},
+		{"unknown permissions", func(e *filesystemEvidence) { e.Permissions = proofUnknown }},
+		{"unknown link state", func(e *filesystemEvidence) { e.LinkSafe = proofUnknown }},
+		{"contradictory locality", func(e *filesystemEvidence) { e.Locality = localityContradictory }},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -131,17 +83,12 @@ func assertPolicyRejects(t *testing.T, root string, evidence filesystemEvidence)
 
 func approvedFilesystemEvidence(root string) filesystemEvidence {
 	return filesystemEvidence{
-		Available:              true,
-		ApplicationDataRoot:    root,
-		LocalKnown:             true,
-		Local:                  true,
-		Shared:                 false,
-		OwnerKnown:             true,
-		OwnerVerified:          true,
-		PermissionsKnown:       true,
-		PermissionsRestrictive: true,
-		LinkKnown:              true,
-		Symlink:                false,
-		WindowsReparsePoint:    false,
+		Available:           proofYes,
+		ApplicationDataRoot: root,
+		Locality:            localityLocal,
+		Owner:               proofYes,
+		Permissions:         proofYes,
+		LinkSafe:            proofYes,
+		ReparseSafe:         proofYes,
 	}
 }

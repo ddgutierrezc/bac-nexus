@@ -23,19 +23,32 @@ const (
 
 type Ledger struct{ db *sql.DB }
 
+type proof uint8
+
+const (
+	proofUnknown proof = iota
+	proofYes
+	proofNo
+)
+
+type filesystemLocality uint8
+
+const (
+	localityUnknown filesystemLocality = iota
+	localityLocal
+	localityNetwork
+	localityShared
+	localityContradictory
+)
+
 type filesystemEvidence struct {
-	Available              bool
-	ApplicationDataRoot    string
-	LocalKnown             bool
-	Local                  bool
-	Shared                 bool
-	OwnerKnown             bool
-	OwnerVerified          bool
-	PermissionsKnown       bool
-	PermissionsRestrictive bool
-	LinkKnown              bool
-	Symlink                bool
-	WindowsReparsePoint    bool
+	Available           proof
+	ApplicationDataRoot string
+	Locality            filesystemLocality
+	Owner               proof
+	Permissions         proof
+	LinkSafe            proof
+	ReparseSafe         proof
 }
 
 var queryFilesystemEvidence = func(string) filesystemEvidence { return filesystemEvidence{} }
