@@ -250,7 +250,8 @@ func TestAcquirerFailsClosedAndCleansOwnedTemporary(t *testing.T) {
 			}
 			a := newAcquirer(request, cleanup, &events)
 			snap, err := a.Acquire(tt.ctx, candidate())
-			if err == nil || snap != nil || request.copies != 1 || cleanup.removes != 1 || cleanup.removeContextErr != nil {
+			wantRemoteWork := tt.name != "nonregular stat"
+			if err == nil || snap != nil || (request.copies == 1) != wantRemoteWork || (cleanup.removes == 1) != wantRemoteWork || cleanup.removeContextErr != nil {
 				t.Fatalf("Acquire() = %v, %v; copy/remove = %d/%d", snap, err, request.copies, cleanup.removes)
 			}
 		})
