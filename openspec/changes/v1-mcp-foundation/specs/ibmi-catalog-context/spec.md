@@ -78,47 +78,89 @@ The system MUST acquire one fixed remote copy/download per snapshot, enforce a 4
 
 ### Requirement: Durable Temporary Ownership and Recovery
 
-Before remote reservation or copy, the system MUST commit and exactly reopen/read back one SQLite ownership row for the stable 128-bit token. The local-only database MUST be outside network filesystems and store only version, token, exact validated remote path, approved bounded selector, target-binding digest, and creation time; it MUST NOT store source, credentials, commands, cursors, model content, or host/user plaintext. Paths MUST remain beneath the validated home in a Nexus-private `0700` directory, and temporaries MUST be exclusive random `0600` files.
+Before reservation/copy, the system MUST commit/readback a SQLite row with a stable 128-bit token. The local-only database MUST contain only version/token/validated path/selector/binding digest/creation time—never source, credentials, commands, cursors, model content, or host/user plaintext. Paths MUST remain under validated home in private `0700`; files MUST be random exclusive `0600`.
 
-Admission MUST use a single-writer, bounded transaction that atomically counts and inserts. The same token and exact row SHALL be idempotent; active rows MUST be unique by token and path, limited to 64, and listed with `LIMIT 65`. Remote work is forbidden until commit and exact readback succeed. Busy handling MUST use a bounded timeout and context-aware bounded retries; ambiguous commit MUST resolve by exact-token readback, while mismatch, corruption, or policy/dependency denial MUST fail closed.
+Admission MUST atomically count/insert in a bounded single-writer transaction. Exact token/row retries SHALL be idempotent; rows MUST be unique by token/path, limited to 64, and listed `LIMIT 65`. No remote work precedes commit/readback. Busy handling MUST be bounded/context-aware; ambiguous commit MUST readback, while mismatch, corruption, or policy/dependency denial MUST fail closed.
 
-Every open MUST verify `application_id=1111573326` (`0x4241434E`, ASCII `BACN`), `user_version=1`, the exact schema, journal/durability pragmas, path/permissions, and bounded integrity checks. Mismatch, corruption, or policy denial MUST fail closed without destructive rebuild. Recovery MUST revalidate the profile, credential, binding, pin, directory, token, and exact path; it MUST complete exact `Remove` plus `Stat`-not-found before transactional row deletion. Remote uncertainty retains the row. Stale-row resurrection is safe because tokens and paths MUST NOT be reused. Historical `/tmp` paths MUST NOT be discovered or deleted automatically. Dependency approval unavailability MUST prevent acquisition deterministically; tests MUST NOT claim to prove power-loss durability.
+Every open MUST verify `application_id=1111573326` (`BACN`), `user_version=1`, exact schema, journal/durability pragmas, path/permissions, and bounded integrity. Every open MUST run `quick_check(1)`. When exact quick-check success and overflow-safe `page_count × page_size` establish ≤4 MiB, the system MUST run `integrity_check(1)`. Verification MUST finish in one second, respecting cancellation. Package-internal tests MUST observe only non-sensitive stage/outcome classifications: not-run, passed, corrupt, inconclusive, or bound-exceeded; never diagnostics/source/database content. Failed, incomplete, cancelled, inconclusive, corrupt, or bound-exceeded verification MUST return public `source.ErrOwnershipInvalid`. Mismatch, corruption, or policy denial MUST fail closed without rebuild. Recovery MUST revalidate profile, credential, binding, pin, directory, token, and path; it MUST confirm `Remove` plus `Stat`-not-found before row deletion. Remote uncertainty retains the row; tokens/paths MUST NOT be reused. Historical `/tmp` paths MUST NOT be auto-discovered or deleted. Dependency denial MUST prevent acquisition; tests MUST NOT claim power-loss durability.
 
 #### Scenario: Caller cannot direct temporary handling
 
-- GIVEN an MCP caller starts a source traversal
-- WHEN it submits its typed request
-- THEN Nexus derives the temporary path itself and accepts no temporary, list, or delete path
+- GIVEN an MCP caller starts traversal
+- WHEN it sends its typed request
+- THEN Nexus derives the path and accepts no temporary, list, or delete path
 
-#### Scenario: Atomic SQLite admission is confirmed
+#### Scenario: Atomic admission is confirmed
 
-- GIVEN a stable token is new or exactly matches an active row
-- WHEN Nexus admits it below the 64-row limit
-- THEN it commits and exact-readbacks the row before any remote reserve or copy
+- GIVEN a new token or exact active row below 64
+- WHEN Nexus admits it
+- THEN it commits and readbacks before remote reserve or copy
 
 #### Scenario: Ledger admission fails closed
 
-- GIVEN SQLite reports row 65, contention beyond bounded retries, corruption, a policy/dependency denial, or a verification mismatch
-- WHEN Nexus attempts admission or recovery
-- THEN it performs no remote work and publishes no snapshot, cursor, or content
+- GIVEN row 65, exhausted contention, corruption, policy/dependency denial, or verification mismatch
+- WHEN admission or recovery runs
+- THEN no remote work, snapshot, cursor, or content is published
+
+#### Scenario: Quick verification runs every open
+
+- GIVEN a new/existing ledger
+- WHEN it opens
+- THEN `quick_check(1)` runs before full-check eligibility
+
+#### Scenario: Bounded ledger receives proportional verification
+
+- GIVEN exact quick-check success and metadata establishes ≤4 MiB
+- WHEN the ledger opens
+- THEN `integrity_check(1)` runs within one second
+
+#### Scenario: Overflow or an oversized ledger is refused
+
+- GIVEN metadata overflow or a ledger larger than 4 MiB
+- WHEN quick-check succeeds
+- THEN `integrity_check(1)` is refused and returns `source.ErrOwnershipInvalid`
+
+#### Scenario: Verification respects deadline/cancellation
+
+- GIVEN verification exceeds one second or is cancelled
+- WHEN the ledger opens
+- THEN it is incomplete and returns `source.ErrOwnershipInvalid`
+
+#### Scenario: Corruption fails closed
+
+- GIVEN quick or full verification reports corruption
+- WHEN the ledger opens
+- THEN it returns `source.ErrOwnershipInvalid` with no remote work
+
+#### Scenario: Inconclusive verification fails closed
+
+- GIVEN malformed, multiple, absent, or inconclusive verification output
+- WHEN the ledger opens
+- THEN it returns `source.ErrOwnershipInvalid` with no remote work
+
+#### Scenario: Internal outcomes preserve public contract
+
+- GIVEN a package-internal test observes verification
+- WHEN its outcome is passed, corrupt, inconclusive, bound-exceeded, or not-run
+- THEN it exposes no diagnostics/content and non-passed maps to `source.ErrOwnershipInvalid`
 
 #### Scenario: Recovery validates ownership and target
 
-- GIVEN a ledger record names an exact private temporary path
+- GIVEN a ledger record names an exact private path
 - WHEN startup or pre-acquisition recovery runs
-- THEN Nexus revalidates ownership, binding, credential, and pinned host before exact-path removal
+- THEN it revalidates ownership, binding, credential, and pin before removal
 
 #### Scenario: Crash recovery is idempotent
 
-- GIVEN a crash occurred before copy, during copy, or after remote removal before row deletion
-- WHEN recovery confirms the recorded exact path is absent
-- THEN it deletes only that row; otherwise it retains the row for later recovery
+- GIVEN a crash before/during copy or after remote removal
+- WHEN recovery confirms the exact path absent
+- THEN it deletes only that row; otherwise it retains it
 
-#### Scenario: Historical and privileged risks remain bounded
+#### Scenario: Historical/privileged risks remain bounded
 
-- GIVEN a historical shared `/tmp` file or a privileged IBM i administrator changes a remote file
+- GIVEN historical shared `/tmp` or privileged remote-file replacement
 - WHEN Nexus recovers temporaries
-- THEN it never auto-discovers the historical file and reports no absolute replacement protection
+- THEN it never auto-discovers history or claims absolute replacement protection
 
 ### Requirement: Deterministic Page Boundaries and Validation
 
