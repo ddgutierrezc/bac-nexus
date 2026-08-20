@@ -152,6 +152,9 @@ func temporaryName(random io.Reader) (string, error) {
 }
 
 func reservePrivateFile(ctx context.Context, remote AcquisitionRemote, directory string, random io.Reader) (string, error) {
+	if !strings.HasPrefix(directory, "/") || path.Clean(directory) != directory || strings.Contains(directory, "..") {
+		return "", errors.New("private remote directory is not an absolute safe path")
+	}
 	if random == nil {
 		random = rand.Reader
 	}
