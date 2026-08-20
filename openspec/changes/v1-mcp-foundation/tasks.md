@@ -4,9 +4,9 @@
 
 | Field | Value |
 |---|---|
-| Estimated changed lines | 2,800–3,600 authored; ≤400 per unit |
+| Estimated changed lines | 2,950–3,750 authored; 3B.1c is 640–760 across two ≤400-line PRs |
 | 400-line budget risk | High |
-| Suggested split | 1→2→3A→3B.1a→3B.1b→3B.1c→3B.2→3B.3→5A→5B→6→7→8 to `main` |
+| Suggested split | 1→2→3A→3B.1a→3B.1b→3B.1c-T→3B.1c-I→3B.2→3B.3→5A→5B→6→7→8 to `main` |
 | Delivery strategy | ask-on-risk (resolved: stacked-to-main) |
 | Chain strategy | stacked-to-main |
 
@@ -26,7 +26,8 @@ PoC exceptions are approved; production/corporate SQLite/keyring rollout approva
 | 3A | Acquire; 1–2 | `go test -count=1 ./internal/source` | loopback | acquire |
 | 3B.1a | Isolated ledger foundation; 3A; target `main` | `go test -count=1 ./internal/ownership/sqlite ./internal/source` | draft #26 RED/temp DB | ledger foundation |
 | 3B.1b | Filesystem policy; 3B.1a; target `main` | `go test -count=1 ./internal/ownership/sqlite` | injected OS queries/temp roots | policy only |
-| 3B.1c | Transaction/integrity; 3B.1b; target `main` | `go test -count=1 ./internal/ownership/sqlite` | temp DB/cooperating processes | transaction/integrity |
+| 3B.1c-T | Transaction retry/readback; 3B.1b; PR #32 → `main`; 330–380 lines | `go test -count=1 ./internal/ownership/sqlite` | GHA Linux real child-process SQLite lock: 25/50/100ms, cancel, ambiguous COMMIT, deadline contention | `ledger.go` transaction retry/readback plus `ledger_transaction_red_test.go` transaction cases |
+| 3B.1c-I | Integrity verifier; 3B.1c-T merged; new PR → `main`; 310–380 lines | `go test -count=1 ./internal/ownership/sqlite` | GHA real verifier/temp DB plus injected `Open` result mapping; no shared/unconditional gate | verifier/result/Open mapping and integrity-specific tests |
 | 3B.2 | Private acquire; 3B.1c; target `main` | `go test -count=1 ./internal/source ./internal/remote` | loopback | acquire |
 | 3B.3 | Recovery; 3B.2; target `main` | `go test -count=1 ./internal/source ./internal/ownership/sqlite` | crash/contention fake | recovery/docs |
 | 5A | Credentials | `go test -count=1 ./internal/credential` | available OS only | credential |
@@ -35,7 +36,7 @@ PoC exceptions are approved; production/corporate SQLite/keyring rollout approva
 | 7 | MCP; 5B,6 | `go test -count=1 ./internal/mcp ./cmd/nexus` | stdio | MCP/docs |
 | 8 | Acceptance; all | `go test -count=1 ./...` | approved IBM i | evidence |
 
-OS matrix: use available-runner CI evidence for windows/darwin/linux amd64+arm64; locally use `$env:GOOS='windows'; $env:GOARCH='amd64'; go build ./...` (substitute each target). Do not claim unavailable runners.
+For each 3B.1c PR, GHA must record the focused command, `gofmt -d internal/ownership/sqlite/*.go`, `go vet ./...`, and matrix `CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build ./...` for windows/darwin/linux × amd64/arm64; runtime claims use only available runners. Local WDAC blocks Go test executables, so it supplies no runtime result.
 
 Draft PR #28 / issue #27 must narrow to 3B.1b; its current RED is not valid or complete. Open a new issue/branch/PR for 3B.1c only after 3B.1b merges.
 
@@ -60,9 +61,12 @@ Draft PR #28 / issue #27 must narrow to 3B.1b; its current RED is not valid or c
 - [x] 2.8 **RED (PR 3B.1b)**: Test `internal/ownership/sqlite/*_test.go` deterministic injected OS-query policy for app-data confinement, local-only/network/shared classification, ownership/restrictive permissions, symlink, and Windows reparse points; no interface-presence gate or mandatory mounted-network dependency.
 - [x] 2.9 **GREEN (PR 3B.1b)**: Implement internal platform-query seams and fail-closed filesystem policy only; no transaction, integrity, or remote changes.
 - [x] 2.10 **REFACTOR (PR 3B.1b)**: Compact per-platform fixtures/static/available-runner evidence; retain independently revertible policy rollback.
-- [ ] 2.11 **RED (PR 3B.1c)**: Test `internal/ownership/sqlite/*_test.go` independently observable exact 25/50/100ms retries, ambiguous-COMMIT exact-token readback, bounded quick/proportional integrity checks, corruption, and cooperating cross-process contention.
-- [ ] 2.12 **GREEN (PR 3B.1c)**: Implement SQLite transaction/integrity hardening only; no filesystem or remote changes.
-- [ ] 2.13 **REFACTOR (PR 3B.1c)**: Compact driver/process fixtures and platform/runtime evidence; retain independently revertible transaction/integrity rollback.
+- [ ] 2.11 **RED (PR 3B.1c-T)**: Retain only the four independent real-child-process RED cases in `internal/ownership/sqlite/ledger_transaction_red_test.go`: 25/50/100ms retry, cancellation, ambiguous-COMMIT exact-token readback, and deadline contention; remove the two masked integrity fixtures.
+- [ ] 2.12 **GREEN (PR 3B.1c-T)**: In `internal/ownership/sqlite/ledger.go`, add context-cancellable retries and post-COMMIT exact-token readback/retry semantics; end green in CI with no filesystem, integrity, remote, or recovery change.
+- [ ] 2.13 **REFACTOR (PR 3B.1c-T)**: Compact transaction/child-process fixtures, rerun focused CI and six-target build/static evidence, and keep PR #32 independently green below 400 lines.
+- [ ] 2.13a **RED (PR 3B.1c-I)**: Before verifier production code, add independent real-verifier tests for quick every open, eligible proportional integrity, corrupt/inconclusive/cancelled outcomes, overflow/over-4MiB bound; add injected `Open` tests for not-run/passed/corrupt/inconclusive/bound-exceeded mapping without shared gates.
+- [ ] 2.13b **GREEN (PR 3B.1c-I)**: Add package-internal non-sensitive verifier stage/outcome result in `internal/ownership/sqlite/ledger.go`: one-second context, exact `quick_check(1)`, overflow-safe size, mandatory eligible `integrity_check(1)`, and all non-success → `source.ErrOwnershipInvalid`.
+- [ ] 2.13c **REFACTOR (PR 3B.1c-I)**: Table-drive verifier fixtures, rerun focused CI/runtime and six-target build/static evidence, and retain an independently revertible ≤400-line integrity PR.
 - [ ] 2.14 **RED (PR 3B.2)**: Test `internal/source/acquire_test.go` authenticated home, private `0700`, exclusive random `0600`, immutable source, traversal/symlink escape, durable row readback before reserve/copy, and retain-on-failure.
 - [ ] 2.15 **GREEN (PR 3B.2)**: Update `internal/source/{acquire,retrieve}.go` and `internal/remote/ssh.go` for exact private path; `Remove` plus `Stat`-not-found before transactional DELETE, never recovery-loop.
 - [ ] 2.16 **REFACTOR (PR 3B.2)**: Consolidate acquisition fakes; no snapshot if row/cleanup confirmation fails.
