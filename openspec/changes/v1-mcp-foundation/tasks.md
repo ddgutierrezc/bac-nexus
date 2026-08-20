@@ -6,6 +6,7 @@
 |---|---|
 | Estimated changed lines | 2,970–3,750 authored; 3B.1c is 660–760 across two ≤400-line PRs; 3B.2 is 340–390 in one ≤400-line PR |
 | 400-line budget risk | High |
+| Maintainer-selected active PR review ceiling | 800 authored additions + deletions for draft PR #38; a ceiling, not permission for unrelated scope |
 | Suggested split | 1→2→3A→3B.1a→3B.1b→3B.1c-T→3B.1c-I→3B.2→3B.3→5A→5B→6→7→8 to `main` |
 | Delivery strategy | ask-on-risk (resolved: stacked-to-main) |
 | Chain strategy | stacked-to-main |
@@ -68,8 +69,8 @@ Draft PR #28 / issue #27 must narrow to 3B.1b; its current RED is not valid or c
 - [x] 2.13b **RED→GREEN (PR 3B.1c-I)**: In `ledger_integrity_red_test.go`/`ledger.go`, complete isolated verifier microcycles: prove/implement ordered real `quick_check(1)` then eligible `integrity_check(1)`, existing-before-metadata ordering, one-second context for every query, real corruption/cancellation/>4 MiB; inject bounded rows/queries only for malformed/multiple/absent output, deterministic failure/blocking, and arithmetic overflow.
 - [x] 2.13c **REFACTOR (PR 3B.1c-I)**: Compact verifier fixtures; record focused CI, runtime-harness, static, and six-target evidence; retain the independently revertible `ledger.go`/integrity-test boundary under the maintainer-authorized `size:exception` native 500-line ceiling.
 - [x] 2.14 **RED→GREEN (PR 3B.2 — private acquisition boundaries)**: In `internal/source/acquire_test.go` and minimal production boundaries, independently RED then GREEN authenticated absolute home; private `0700`; exclusive random `0600` + `Lstat`; immutable-source approval/safety-net success; traversal/symlink rejection; durable `Admit`/readback before reserve/copy—no shared compile gate or synthetic test-only implementation.
-- [ ] 2.15 **RED→GREEN (PR 3B.2 — cleanup integration)**: In `internal/source/{acquire,retrieve}.go` and `internal/remote/ssh.go`, independently RED then GREEN exact private-path wiring and `Remove` + `Stat`-not-found before transactional DELETE; retain on failure and never add recovery-loop behavior.
-- [ ] 2.16 **REFACTOR (PR 3B.2)**: Consolidate acquisition fixtures; record focused CI/runtime/static evidence, independent rollback, and the ≤400-line review budget; no snapshot when row or cleanup confirmation fails.
+- [x] 2.15 **RED→GREEN (PR 3B.2 — cleanup integration)**: In `internal/source/{acquire,retrieve}.go` and `internal/remote/ssh.go`, independently RED then GREEN exact private-path wiring and `Remove` + `Stat`-not-found before transactional DELETE; retain on failure and never add recovery-loop behavior.
+- [ ] 2.16 **REFACTOR (PR 3B.2)**: Consolidate acquisition fixtures; record focused CI/runtime/static evidence, independent rollback, and the maintainer-selected 800-line review ceiling; no snapshot when row or cleanup confirmation fails.
 - [ ] 2.17 **RED (PR 3B.3)**: Test bounded `LIMIT 65` exact rows, fresh profile/credential/pin/binding, crash idempotence, corruption/contention/retarget blocking, and no historical `/tmp` discovery.
 - [ ] 2.18 **GREEN (PR 3B.3)**: Implement exact-path startup/pre-acquire recovery in `internal/source/ownership.go`; delete only after confirmed absence.
 - [ ] 2.19 **REFACTOR (PR 3B.3)**: Add `docs/SECURITY.md` operator/privileged-risk guidance and available cross-process/platform evidence; no MCP recovery operation.

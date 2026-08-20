@@ -13,7 +13,7 @@ execution:
   mode: interactive
 delivery:
   strategy: ask-on-risk
-  review_budget_lines: 400
+  review_budget_lines: 800
 
 strict_tdd: true
 testing:

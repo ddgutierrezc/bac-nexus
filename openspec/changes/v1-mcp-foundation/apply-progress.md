@@ -1,50 +1,46 @@
 # Apply Progress: v1 MCP Foundation
 
 ## Cumulative Task State
-
 - [x] 1.1–1.6 — source foundation.
 - [x] 2.1–2.4 — remote snapshot safety and SQLite dependency gate.
-- [x] 2.5–2.7 — PR #26 SQLite ledger foundation.
-- [x] 2.8–2.10 — PR #28 filesystem-policy hardening.
-- [x] 2.11 — four independent transaction RED cases.
-- [x] 2.12 — context-cancellable admission retries and exact-token readback.
-- [x] 2.13 — transaction child-process fixture refactor and evidence refresh.
-- [x] 2.13a — Open-boundary verifier invocation and independent non-success result mapping.
-- [x] 2.13b — real bounded SQLite integrity verifier microcycles.
-- [x] 2.13c — verifier fixture lifecycle/seam refactor with approval coverage and independent GHA evidence.
-- [ ] 2.14 and later — remote and recovery scope remain pending.
+- [x] 2.5–2.7 — SQLite ledger foundation.
+- [x] 2.8–2.10 — filesystem policy.
+- [x] 2.11–2.13 — transaction retry/readback and refactor.
+- [x] 2.13a–2.13c — integrity verifier microcycles and evidence refactor.
+- [x] 2.14 — private acquisition boundaries.
+- [x] 2.15 — exact private cleanup and transactional ownership deletion.
+- [ ] 2.16 and later — acquisition refactor, recovery, and remaining product scope.
 
-Task count: 22/42 complete.
+Task count: 24/42 complete.
 
 ## Strict TDD Cycle Evidence
+| Task / microcycle | Test file / layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 2.11–2.13c | SQLite transaction/integrity package tests | Prior GHA baselines recorded in earlier apply-progress revisions; WDAC blocks local test execution. | Independent transaction/integrity RED runs recorded through CI 32419671217. | GHA package/full-suite and vet green through CI 32419671217. | Distinct retry, cancellation, mapping, ordering, corruption, size, and bounded-query paths. | Completed in task 2.13/2.13c only. |
+| 2.14 private acquisition | `internal/source/acquire_test.go`, GHA Ubuntu source fakes | CI 32419671217 green before acquisition work; local Go test execution blocked by WDAC. | CI 32421871674, 32422071150, 32423035573, 32423204499, and 32423417915 independently failed the missing home, directory, reservation, escape, and admission behaviors. | CI 32423941299 passed `go test -count=1 ./...` and `go vet ./...`. | Home, directory, exclusive-file/Lstat, traversal/symlink, admission ordering, and immutable-source cases exercise distinct paths. | Not assigned; task 2.16 remains pending. |
+| 2.15 confirmed cleanup deletion | `internal/source/acquire_test.go`, `internal/ownership/sqlite/ledger_test.go`, GHA temporary SQLite/source fakes | CI 32423941299 was green before task 2.15; WDAC blocked local test execution. | CI 32424557263 failed only `TestAcquirerDeletesExactOwnershipOnlyAfterConfirmedPrivateCleanup`: `cleanup/delete/events = 1/0/[admit reserve copy stat download remove stat]`. | CI 32424770121 passed `go test -count=1 ./...` and `go vet ./...`. | Success proves exact record deletion after `Remove`/not-found `Stat`; remove failure, stat error, and still-present path each retain the row; SQLite proves exact-record transactional deletion/mismatch rejection. | Not assigned; task 2.16 remains pending. |
 
-| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
-|---|---|---|---|---|---|---|---|
-| 2.11 | `ledger_transaction_red_test.go` | GHA real child-process SQLite | WDAC blocks local test execution; CI baseline 32409460869 failed transaction behavior. | CI 32410283697 failed only the four independent transaction cases. | N/A — RED task. | Retry, cancellation, ambiguous COMMIT, and deadline contention are independent. | Not assigned. |
-| 2.12 | Existing 2.11 contract | GHA real child-process SQLite | RED baseline above. | Existing four RED cases. | CI 32410783761 passed all packages. | Four unchanged cases passed. | Not assigned. |
-| 2.13 | Same four approval tests | GHA real child-process SQLite | Local execution blocked by WDAC; CI 32410783761 was green before fixture-only refactor. | N/A — fixture-only refactor. | CI 32412640014, 32412756552, and 32413019667 passed. | Existing four cases remain unchanged. | Consolidated fixtures; no production behavior changed. |
-| 2.13a | `ledger_integrity_red_test.go` | GHA temporary SQLite package tests | WDAC forbids local test execution; existing suite safety net was supplied by GHA. | CI 32417114349 independently failed new invocation, existing-before-metadata invocation, passed observation, and each non-success mapping. | CI 32417203981 passed `go test -count=1 ./...` and `go vet ./...`; final-head CI 32417380586 repeated green. | New/existing ledger paths plus five independently injected results exercise distinct paths. | Not assigned. |
-| 2.13b | `ledger_integrity_red_test.go` | GHA temporary SQLite package tests | CI 32417380586 was the pre-change green safety net; WDAC blocked local test execution. | CI 32417940275, 32418332944, and 32418539538 each failed the missing required verifier behavior. | CI 32418077313, 32418443116, 32418691268, and final-head 32418844082 passed `go test -count=1 ./...` and `go vet ./...`. | Real SQLite proves successful ordered full verification, size refusal, and corruption; injection proves malformed output, errors, overflow, and cancellation. | Not assigned. |
-| 2.13c | `ledger_integrity_red_test.go` | GHA temporary SQLite package tests | CI 32418844082 was the pre-refactor green safety net; WDAC blocked local test execution. | N/A — fixture-only refactor; 2.13a/2.13b behavior tests are approval coverage. | CI 32419431344 passed `go test -count=1 ./...` and `go vet ./...` after the refactor; final evidence-artifact CI 32419671217 repeated green. | Existing independent new/existing, mapping, ordering, corruption, cancellation, bound, and malformed-output cases remain unchanged. | Replaced repeated ledger opening and global seam restoration with intention-revealing `t.Cleanup` helpers; production semantics unchanged. |
-
-## Work Unit Evidence: 3B.1c-I task 2.13c
-
+## Work Unit Evidence: 3B.2 task 2.14
 | Evidence | Result |
 |---|---|
-| Focused test command and exact result | GHA run 32419431344: `go test -count=1 ./...` exit 0; `internal/ownership/sqlite` and all packages passed. `go vet ./...` exit 0. Final evidence-artifact CI 32419671217 repeated green. |
-| Runtime harness command/scenario and exact result | GHA Ubuntu temporary SQLite exercised the approval suite: initialized/existing ledger verifier ordering, `Open` passed/non-success mapping, real quick/full integrity verification, real corruption, cancellation, size bound, and injected bounded-query edge cases. No live IBM i boundary exists. |
-| Static and build evidence | Local `gofmt -d internal/ownership/sqlite/ledger_integrity_red_test.go`, `go vet ./...`, compile-only `go test -c -o %TEMP%/bac-nexus-integrity-refactor.test.exe ./internal/ownership/sqlite`, and all six `CGO_ENABLED=0 GOOS={windows,darwin,linux} GOARCH={amd64,arm64} go build ./...` commands exited 0. No local test binary executed; the compile output was removed. |
-| Rollback boundary | Revert `52f7ee3` to remove only integrity test fixture lifecycle/seam helpers. Revert `7841480` and `d9c6b2f` to restore task/progress context; verifier behavior, transaction behavior, filesystem policy, remote acquisition, and recovery remain unchanged. |
+| Focused test command | GHA CI 32423941299: `go test -count=1 ./...` and `go vet ./...` exited 0. |
+| Runtime harness | GHA Ubuntu source fakes exercised private acquisition behaviors. No live IBM i boundary exists; WDAC blocked local test binaries and was not bypassed. |
+| Rollback boundary | Revert commits `6ba0d1f` through `7790eed` to remove only private acquisition/reservation tests and boundaries. |
 
-## Boundary and Delivery
+## Work Unit Evidence: 3B.2 task 2.15
+| Evidence | Result |
+|---|---|
+| Focused test command | GHA CI 32424770121: `go test -count=1 ./...` and `go vet ./...` exited 0 after the task 2.15 GREEN. |
+| Runtime harness | GHA Ubuntu ran the source fake and temporary SQLite harness: exact private path cleanup performs `Remove`, then `Stat`-not-found, then a transactional exact-record delete. No live IBM i boundary exists. |
+| Static / builds | Local `gofmt`, `go vet ./...`, compile-only `go test -c` for `./internal/source` (output removed), six `CGO_ENABLED=0` builds for windows/darwin/linux × amd64/arm64, and `git diff --check` exited 0. No local Go test binary ran. |
+| Rollback boundary | Revert `fb60a3a` and `1d40c5a` to remove only confirmed cleanup deletion tests, the ownership `Delete` contract/SQLite transaction, and acquisition cleanup wiring; reservation, copy, and recovery remain untouched. |
 
-- Draft PR #36 remains stacked-to-main targeting `main`; it was not merged.
-- Maintainer-authorized `size:exception` applies only to coherent task 2.13c completion under a native 500-line ceiling. It prevents artificial compaction, technical debt, and wasted iterations; it does not permit unrelated growth.
-- The refactor is limited to `internal/ownership/sqlite/ledger_integrity_red_test.go`; the PR boundary remains `ledger.go`, the integrity test, and current change evidence artifacts.
-- Harness disposition: GitHub Actions is runtime evidence; WDAC was not bypassed and no local Go test executable ran. No compiled package test executable remains locally.
+## Delivery / exclusions
+- Draft PR #38 remains stacked-to-main → `main`, open and draft; issue #37 remains approved.
+- Maintainer-selected review ceiling: 800 authored additions + deletions. It is a ceiling, not permission for unrelated scope; delivery strategy remains `ask-on-risk` resolved as `stacked-to-main`.
+- Excluded: task 2.16 refactor, recovery-loop behavior, acquisition/rescope/reset/settle, and merge.
 
 ## Settlement Handoff
-
-- Authorized attempt token: `sha256:ded96cdf6d42288376fcd0466e75197b3913c6e03b880631f5dbfd4bf3161f4f`.
-- Proposed evidence revision: `sha256:8aaf81895002371b8e7299732d9c76e4d7a4ad706841e3cdc4c118e498c4f398` (BOM-less UTF-8 canonical JSON for the authorized attempt, work unit, task, PR, refactor head, and CI run).
-- The parent orchestrator retains acquire, rescope, reset, and settle authority.
+- Authorized attempt token: `sha256:29b6abd189b6f506c706804a9f8ef9eba030458c8b7e153c3fa20c9962f4492f`.
+- Proposed BOM-less UTF-8 canonical JSON evidence revision: `sha256:fe3d4e894392dfc5fbcf7a868b9e9db629aa2b27fca2c2662469c15653ff0185` for `{attempt_token,change,ci_run:32424770121,final_head:"1d40c5a7566442aa7cf930f2fbdb9c6643504dfe",pr:38,task:"2.15",work_unit:"3B.2"}`.
+- The parent/orchestrator retains acquire, rescope, reset, settle, recovery, and merge authority.
