@@ -14,22 +14,16 @@ import (
 
 func TestOpenInvokesVerifierForInitializedNewLedger(t *testing.T) {
 	called := false
-	original := runLedgerIntegrityVerifier
-	runLedgerIntegrityVerifier = func(_ context.Context, db *sql.DB) verificationResult {
+	replaceLedgerIntegrityVerifier(t, func(_ context.Context, db *sql.DB) verificationResult {
 		called = true
 		var schema string
 		if err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'ownership'`).Scan(&schema); err != nil || schema != ownershipSchema {
 			t.Fatalf("new ledger was not initialized before verification: schema = %q, error = %v", schema, err)
 		}
 		return verificationResult{outcome: verificationPassed}
-	}
-	t.Cleanup(func() { runLedgerIntegrityVerifier = original })
+	})
 
-	ledger, err := testOpen(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ledger.Close()
+	openIntegrityLedger(t)
 	if !called {
 		t.Fatal("new ledger verifier was not invoked after initialization")
 	}
@@ -57,16 +51,14 @@ func TestOpenInvokesVerifierBeforeExistingMetadataAcceptance(t *testing.T) {
 	}
 
 	called := false
-	original := runLedgerIntegrityVerifier
-	runLedgerIntegrityVerifier = func(context.Context, *sql.DB) verificationResult {
+	replaceLedgerIntegrityVerifier(t, func(context.Context, *sql.DB) verificationResult {
 		called = true
 		return verificationResult{outcome: verificationPassed}
-	}
-	t.Cleanup(func() { runLedgerIntegrityVerifier = original })
+	})
 
 	ledger, err = testOpen(root)
 	if ledger != nil {
-		defer ledger.Close()
+		t.Cleanup(func() { _ = ledger.Close() })
 	}
 	if !called {
 		t.Fatal("existing ledger verifier was not invoked before metadata acceptance")
@@ -98,15 +90,14 @@ func TestOpenRejectsInjectedBoundExceededVerifierResult(t *testing.T) {
 
 func assertOpenVerifierResult(t *testing.T, outcome verificationOutcome, rejected bool) {
 	t.Helper()
-	called, original := false, runLedgerIntegrityVerifier
-	runLedgerIntegrityVerifier = func(context.Context, *sql.DB) verificationResult {
+	called := false
+	replaceLedgerIntegrityVerifier(t, func(context.Context, *sql.DB) verificationResult {
 		called = true
 		return verificationResult{outcome: outcome}
-	}
-	t.Cleanup(func() { runLedgerIntegrityVerifier = original })
+	})
 	ledger, err := testOpen(t.TempDir())
 	if ledger != nil {
-		defer ledger.Close()
+		t.Cleanup(func() { _ = ledger.Close() })
 	}
 	if !called || rejected != errors.Is(err, source.ErrOwnershipInvalid) {
 		t.Fatalf("called = %t, error = %v, rejected = %t", called, err, rejected)
@@ -114,11 +105,7 @@ func assertOpenVerifierResult(t *testing.T, outcome verificationOutcome, rejecte
 }
 
 func TestLedgerIntegrityVerifierEndsWithRealIntegrityCheck(t *testing.T) {
-	ledger, err := testOpen(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ledger.Close()
+	ledger := openIntegrityLedger(t)
 
 	result := runLedgerIntegrityVerifier(context.Background(), ledger.db)
 	want := verificationResult{stage: verificationIntegrityCheck, outcome: verificationPassed}
@@ -128,8 +115,6 @@ func TestLedgerIntegrityVerifierEndsWithRealIntegrityCheck(t *testing.T) {
 }
 
 func TestLedgerIntegrityVerifierHandlesBoundedQueryEdges(t *testing.T) {
-	original := queryLedgerIntegrity
-	t.Cleanup(func() { queryLedgerIntegrity = original })
 	for _, testCase := range []struct {
 		name  string
 		query func(string) ([]string, error)
@@ -159,10 +144,10 @@ func TestLedgerIntegrityVerifierHandlesBoundedQueryEdges(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			var queries []string
-			queryLedgerIntegrity = func(_ context.Context, _ *sql.DB, query string) ([]string, error) {
+			replaceLedgerIntegrityQuery(t, func(_ context.Context, _ *sql.DB, query string) ([]string, error) {
 				queries = append(queries, query)
 				return testCase.query(query)
-			}
+			})
 			result := verifyLedgerIntegrity(context.Background(), nil)
 			if result != testCase.want {
 				t.Fatalf("result = %#v, want %#v", result, testCase.want)
@@ -175,11 +160,7 @@ func TestLedgerIntegrityVerifierHandlesBoundedQueryEdges(t *testing.T) {
 }
 
 func TestLedgerIntegrityVerifierRejectsOversizedLedger(t *testing.T) {
-	ledger, err := testOpen(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ledger.Close()
+	ledger := openIntegrityLedger(t)
 	if _, err := ledger.db.Exec("CREATE TABLE padding (data BLOB); INSERT INTO padding VALUES (zeroblob(4194305))"); err != nil {
 		t.Fatal(err)
 	}
@@ -211,14 +192,12 @@ func TestLedgerIntegrityVerifierClassifiesRealCorruption(t *testing.T) {
 }
 
 func TestLedgerIntegrityVerifierCancellationReleasesBlockingQuery(t *testing.T) {
-	original := queryLedgerIntegrity
-	t.Cleanup(func() { queryLedgerIntegrity = original })
 	started := make(chan struct{})
-	queryLedgerIntegrity = func(ctx context.Context, _ *sql.DB, _ string) ([]string, error) {
+	replaceLedgerIntegrityQuery(t, func(ctx context.Context, _ *sql.DB, _ string) ([]string, error) {
 		close(started)
 		<-ctx.Done()
 		return nil, ctx.Err()
-	}
+	})
 	ctx, cancel := context.WithCancel(context.Background())
 	results := make(chan verificationResult, 1)
 	go func() { results <- verifyLedgerIntegrity(ctx, nil) }()
@@ -227,4 +206,32 @@ func TestLedgerIntegrityVerifierCancellationReleasesBlockingQuery(t *testing.T) 
 	if result := <-results; result.outcome != verificationInconclusive {
 		t.Fatalf("result = %#v", result)
 	}
+}
+
+func openIntegrityLedger(t *testing.T) *Ledger {
+	t.Helper()
+	ledger, err := testOpen(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := ledger.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	return ledger
+}
+
+func replaceLedgerIntegrityVerifier(t *testing.T, verifier func(context.Context, *sql.DB) verificationResult) {
+	t.Helper()
+	original := runLedgerIntegrityVerifier
+	runLedgerIntegrityVerifier = verifier
+	t.Cleanup(func() { runLedgerIntegrityVerifier = original })
+}
+
+func replaceLedgerIntegrityQuery(t *testing.T, query func(context.Context, *sql.DB, string) ([]string, error)) {
+	t.Helper()
+	original := queryLedgerIntegrity
+	queryLedgerIntegrity = query
+	t.Cleanup(func() { queryLedgerIntegrity = original })
 }
