@@ -21,6 +21,10 @@ var ErrRemoteNotFound = errors.New("remote file not found")
 
 // AcquisitionRemote permits only the fixed copy and operations on its temporary result.
 type AcquisitionRemote interface {
+	AuthenticatedHome(context.Context) (string, error)
+	PreparePrivateDirectory(context.Context, string) error
+	CreateExclusive(context.Context, string) error
+	Lstat(context.Context, string) (os.FileInfo, error)
 	CopyToUTF8(context.Context, string, string) error
 	Stat(context.Context, string) (os.FileInfo, error)
 	Download(context.Context, string) (io.ReadCloser, error)
@@ -152,4 +156,23 @@ func privateDirectory(home string) (string, error) {
 		return "", errors.New("authenticated remote home is not an absolute safe path")
 	}
 	return path.Join(home, ".bac-nexus", "tmp"), nil
+}
+
+func preparePrivateDirectory(ctx context.Context, remote AcquisitionRemote) (string, error) {
+	home, err := remote.AuthenticatedHome(ctx)
+	if err != nil {
+		return "", fmt.Errorf("resolve authenticated remote home: %w", err)
+	}
+	directory, err := privateDirectory(home)
+	if err != nil {
+		return "", err
+	}
+	if err := remote.PreparePrivateDirectory(ctx, directory); err != nil {
+		return "", fmt.Errorf("prepare private remote directory: %w", err)
+	}
+	info, err := remote.Lstat(ctx, directory)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o700 {
+		return "", errors.New("private remote directory is unsafe")
+	}
+	return directory, nil
 }
