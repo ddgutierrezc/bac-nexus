@@ -26,6 +26,8 @@ type acquisitionRemote struct {
 	home                   string
 	prepared               string
 	prepareErr             error
+	created                string
+	creates                int
 }
 
 func (r *acquisitionRemote) CopyToUTF8(ctx context.Context, _, path string) error {
@@ -67,7 +69,11 @@ func (r *acquisitionRemote) PreparePrivateDirectory(_ context.Context, directory
 	return r.prepareErr
 }
 func (r *acquisitionRemote) Lstat(context.Context, string) (os.FileInfo, error) { return r.info, nil }
-func (r *acquisitionRemote) CreateExclusive(context.Context, string) error      { return nil }
+func (r *acquisitionRemote) CreateExclusive(_ context.Context, path string) error {
+	r.created = path
+	r.creates++
+	return nil
+}
 
 type readCloser struct {
 	io.Reader
@@ -131,6 +137,14 @@ func TestPreparePrivateDirectoryCreatesAndVerifies0700(t *testing.T) {
 	directory, err := preparePrivateDirectory(context.Background(), remote)
 	if err != nil || directory != "/home/nexus/.bac-nexus/tmp" || remote.prepared != directory {
 		t.Fatalf("preparePrivateDirectory() = %q, %v; prepared %q", directory, err, remote.prepared)
+	}
+}
+
+func TestReservePrivateFileCreatesExclusive0600RegularFile(t *testing.T) {
+	remote := &acquisitionRemote{info: acquisitionInfo{mode: 0o600}}
+	path, err := reservePrivateFile(context.Background(), remote, "/home/nexus/.bac-nexus/tmp", bytes.NewReader(make([]byte, 16)))
+	if err != nil || path != "/home/nexus/.bac-nexus/tmp/00000000000000000000000000000000.utf8" || remote.created != path || remote.creates != 1 {
+		t.Fatalf("reservePrivateFile() = %q, %v; created %q (%d)", path, err, remote.created, remote.creates)
 	}
 }
 
