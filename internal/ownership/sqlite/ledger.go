@@ -117,7 +117,6 @@ func open(root string, evidence filesystemEvidence) (*Ledger, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	_ = runLedgerIntegrityVerifier(context.Background(), db)
 	return ledger, nil
 }
 
