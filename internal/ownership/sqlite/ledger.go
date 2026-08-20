@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,27 +52,54 @@ type verificationResult struct {
 
 var runLedgerIntegrityVerifier = verifyLedgerIntegrity
 
+var queryLedgerIntegrity = func(ctx context.Context, db *sql.DB, query string) ([]string, error) {
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var values []string
+	for rows.Next() {
+		var value string
+		if err := rows.Scan(&value); err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+		if len(values) == 2 {
+			break
+		}
+	}
+	return values, rows.Err()
+}
+
 func verifyLedgerIntegrity(parent context.Context, db *sql.DB) verificationResult {
 	ctx, cancel := context.WithTimeout(parent, time.Second)
 	defer cancel()
-	var result string
-	if db.QueryRowContext(ctx, "PRAGMA quick_check(1)").Scan(&result) != nil {
+	quick, err := queryLedgerIntegrity(ctx, db, "PRAGMA quick_check(1)")
+	if err != nil || len(quick) != 1 {
 		return verificationResult{stage: verificationQuickCheck, outcome: verificationInconclusive}
 	}
-	if result != "ok" {
+	if quick[0] != "ok" {
 		return verificationResult{stage: verificationQuickCheck, outcome: verificationCorrupt}
 	}
-	var pages, pageSize int64
-	if db.QueryRowContext(ctx, "PRAGMA page_count").Scan(&pages) != nil || db.QueryRowContext(ctx, "PRAGMA page_size").Scan(&pageSize) != nil {
+	pages, err := queryLedgerIntegrity(ctx, db, "PRAGMA page_count")
+	if err != nil || len(pages) != 1 {
 		return verificationResult{stage: verificationQuickCheck, outcome: verificationInconclusive}
 	}
-	if pages < 0 || pageSize <= 0 || pages > maxLedgerBytes/pageSize {
+	pageSize, err := queryLedgerIntegrity(ctx, db, "PRAGMA page_size")
+	if err != nil || len(pageSize) != 1 {
+		return verificationResult{stage: verificationQuickCheck, outcome: verificationInconclusive}
+	}
+	pageCount, countErr := strconv.ParseInt(pages[0], 10, 64)
+	size, sizeErr := strconv.ParseInt(pageSize[0], 10, 64)
+	if countErr != nil || sizeErr != nil || pageCount < 0 || size <= 0 || pageCount > maxLedgerBytes/size {
 		return verificationResult{stage: verificationQuickCheck, outcome: verificationBoundExceeded}
 	}
-	if db.QueryRowContext(ctx, "PRAGMA integrity_check(1)").Scan(&result) != nil {
+	integrity, err := queryLedgerIntegrity(ctx, db, "PRAGMA integrity_check(1)")
+	if err != nil || len(integrity) != 1 {
 		return verificationResult{stage: verificationIntegrityCheck, outcome: verificationInconclusive}
 	}
-	if result != "ok" {
+	if integrity[0] != "ok" {
 		return verificationResult{stage: verificationIntegrityCheck, outcome: verificationCorrupt}
 	}
 	return verificationResult{stage: verificationIntegrityCheck, outcome: verificationPassed}
