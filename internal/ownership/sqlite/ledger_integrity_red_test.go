@@ -11,8 +11,10 @@ import (
 )
 
 func TestOpenInvokesVerifierForInitializedNewLedger(t *testing.T) {
+	called := false
 	original := runLedgerIntegrityVerifier
 	runLedgerIntegrityVerifier = func(_ context.Context, db *sql.DB) verificationResult {
+		called = true
 		var schema string
 		if err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'ownership'`).Scan(&schema); err != nil || schema != ownershipSchema {
 			t.Fatalf("new ledger was not initialized before verification: schema = %q, error = %v", schema, err)
@@ -26,6 +28,9 @@ func TestOpenInvokesVerifierForInitializedNewLedger(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ledger.Close()
+	if !called {
+		t.Fatal("new ledger verifier was not invoked after initialization")
+	}
 }
 
 func TestOpenInvokesVerifierBeforeExistingMetadataAcceptance(t *testing.T) {
