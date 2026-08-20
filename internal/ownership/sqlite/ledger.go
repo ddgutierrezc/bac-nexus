@@ -20,6 +20,7 @@ const (
 	applicationID   = 1111573326
 	userVersion     = 1
 	sqliteBusy      = 5
+	maxLedgerBytes  = 4 << 20
 	ownershipSchema = `CREATE TABLE ownership (token BLOB PRIMARY KEY CHECK(length(token) = 16), remote_path TEXT UNIQUE CHECK(length(CAST(remote_path AS BLOB)) BETWEEN 1 AND 1024), version INTEGER NOT NULL CHECK(version = 1), profile TEXT NOT NULL CHECK(length(profile) BETWEEN 1 AND 64), target_digest BLOB NOT NULL CHECK(length(target_digest) = 32), created_at TEXT NOT NULL CHECK(length(created_at) = 20))`
 )
 
@@ -48,8 +49,32 @@ type verificationResult struct {
 	outcome verificationOutcome
 }
 
-var runLedgerIntegrityVerifier = func(context.Context, *sql.DB) verificationResult {
-	return verificationResult{outcome: verificationPassed}
+var runLedgerIntegrityVerifier = verifyLedgerIntegrity
+
+func verifyLedgerIntegrity(parent context.Context, db *sql.DB) verificationResult {
+	ctx, cancel := context.WithTimeout(parent, time.Second)
+	defer cancel()
+	var result string
+	if db.QueryRowContext(ctx, "PRAGMA quick_check(1)").Scan(&result) != nil {
+		return verificationResult{stage: verificationQuickCheck, outcome: verificationInconclusive}
+	}
+	if result != "ok" {
+		return verificationResult{stage: verificationQuickCheck, outcome: verificationCorrupt}
+	}
+	var pages, pageSize int64
+	if db.QueryRowContext(ctx, "PRAGMA page_count").Scan(&pages) != nil || db.QueryRowContext(ctx, "PRAGMA page_size").Scan(&pageSize) != nil {
+		return verificationResult{stage: verificationQuickCheck, outcome: verificationInconclusive}
+	}
+	if pages < 0 || pageSize <= 0 || pages > maxLedgerBytes/pageSize {
+		return verificationResult{stage: verificationQuickCheck, outcome: verificationBoundExceeded}
+	}
+	if db.QueryRowContext(ctx, "PRAGMA integrity_check(1)").Scan(&result) != nil {
+		return verificationResult{stage: verificationIntegrityCheck, outcome: verificationInconclusive}
+	}
+	if result != "ok" {
+		return verificationResult{stage: verificationIntegrityCheck, outcome: verificationCorrupt}
+	}
+	return verificationResult{stage: verificationIntegrityCheck, outcome: verificationPassed}
 }
 
 type Ledger struct{ db *sql.DB }
