@@ -12,9 +12,10 @@
 - [x] 2.16 — acquisition fixture refactor and final evidence.
 - [x] 2.17a — bounded recovery-list RED contract and row-65 overflow evidence.
 - [x] 2.17b — bounded SQLite recovery-list GREEN boundary and malformed-row fail-closed evidence.
-- [ ] 2.17c and later — recovery coordination and remaining product scope.
+- [x] 2.17c.1 — authorized initial source recovery seam compile RED.
+- [ ] 2.17c.2 and later — recovery coordination and remaining product scope.
 
-Task count: 27/42 complete.
+Task count: 28/42 complete.
 
 ## Strict TDD Cycle Evidence
 | Task / microcycle | Test file / layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
@@ -25,6 +26,7 @@ Task count: 27/42 complete.
 | 2.16 acquisition fixture refactor | `internal/source/acquire_test.go`, package-local approval tests | GHA CI 32425042252 passed before the refactor; WDAC blocked local test execution. | Existing 2.14/2.15 approval tests were retained unchanged; no behavior change was specified or introduced. | GHA CI 32425625908 passed `go test -count=1 ./...` and `go vet ./...` on the refactor commit. | Existing independent acquisition, ordering, cleanup, and uncertain-cleanup cases retain distinct request/cleanup fixture state. | Replaced repeated default request/cleanup/ledger construction with one explicit fixture constructor; CI remained green. |
 | 2.17a bounded recovery list RED | `internal/ownership/sqlite/ledger_recovery_test.go`, package-private SQLite boundary | New test file; prior GHA CI 32425813926 was green on the preceding 3B.2 head; WDAC blocks local test execution. | GHA CI 32428048429 and the evidence-commit CI 32428236175 compiled the suite and failed only both new subtests because `Ledger does not implement bounded recovery listing`. | Not assigned — task 2.17b is the paired GREEN. | Exact valid rows in creation order and row 65 overflow are independent RED scenarios. | Not assigned — RED-only task; no production code changed. |
 | 2.17b bounded recovery list GREEN | `internal/ownership/sqlite/ledger_recovery_test.go`, package-private SQLite/temporary-DB boundary | The 2.17a RED evidence provides the pre-production baseline: GHA CI 32428355060 failed only the absent-boundary subtests; WDAC blocks local Go test execution. | 2.17a supplied the original exact-order and row-65 RED; a malformed canonical-time row was added before production code and compile-checked locally without running a test binary. | GHA CI 32429026447 passed `go test -count=1 ./...` and `go vet ./...` on `464bfac67666e9d5ff6abb571baf356e123143df`. | Exact ordered rows, row 65 overflow, and malformed-row no-partial-result cases exercise distinct success and fail-closed paths. | None needed — the minimum package-private query/row mapping is clear and independently bounded. |
+| 2.17c.1 initial source recovery seam compile RED | `internal/source/ownership_recovery_test.go`, package-local compiler boundary | N/A (new test file); WDAC blocks local Go test execution. | GHA CI 32430525136 ran the test first on `1ed0b167a05e7321808a46fa9983acc99c9eab80` and failed only `internal/source/ownership_recovery_test.go:18:12: undefined: guardRecoveryRecord`. | N/A — authorized RED-only work unit; 2.17c.2 owns the minimal production seam. | N/A — one canonical exact record establishes the first absent seam; malformed/unavailable behavior belongs to 2.17c.2. | N/A — no production code exists to refactor. |
 
 ## Work Unit Evidence: 3B.2 task 2.14
 | Evidence | Result |
@@ -65,13 +67,23 @@ Task count: 27/42 complete.
 | Static / builds | Local `gofmt -d internal/ownership/sqlite/ledger.go internal/ownership/sqlite/ledger_recovery_test.go`, `go vet ./...`, `go test -c -o NUL ./internal/ownership/sqlite`, and `git diff --check` exited 0. The compile check did not execute a local Go test binary. |
 | Rollback boundary | Revert `464bfac` to remove only the package-private `Ledger.listRecovery` boundary and its malformed-row triangulation test; source recovery coordination, credentials, target/pin validation, remote cleanup, historical discovery, and later recovery tasks remain absent. |
 
+## Work Unit Evidence: 3B.3 task 2.17c.1 RED
+| Evidence | Result |
+|---|---|
+| Focused test command | GHA CI 32430525136 ran `go test -count=1 ./...` on `1ed0b167a05e7321808a46fa9983acc99c9eab80` with exit 1. Its only compiler error was `internal/source/ownership_recovery_test.go:18:12: undefined: guardRecoveryRecord`; `internal/ownership/sqlite` passed and the unrelated `cmd/catalogspike`, `internal/catalog`, `internal/credential`, `internal/mapepire`, `internal/profile`, `internal/remote`, and `internal/strictjson` packages compiled/passed. |
+| Runtime harness | GHA Ubuntu exercised the repository Go compiler/package harness. The intentional missing symbol prevents an `internal/source` test binary by design; no runtime boundary exists before 2.17c.2. No live IBM i boundary exists, and WDAC blocked local Go test binaries without bypass. |
+| Static / builds | Local `gofmt -d internal/source/ownership_recovery_test.go` and `git diff --check` exited 0. Compile-only `go test -c -o NUL ./internal/source` exited 1 only with `undefined: guardRecoveryRecord`; no local Go test binary ran. |
+| Rollback boundary | Revert `1ed0b16` and this evidence commit to remove only `internal/source/ownership_recovery_test.go`, the 2.17c microcycle planning correction, and this progress evidence. No source guard, profile/credential/binding/pin/remote logic, cleanup, or production behavior exists. |
+
 ## Delivery / exclusions
 - Draft PR #40 is stacked-to-main → `main`, open and draft; issue #39 is approved and linked.
 - Maintainer-selected review ceiling: 800 authored additions + deletions. The RED code/planning commit is 116 additions + 3 deletions = 119, under the ceiling; it remains a ceiling, not permission for unrelated scope. Delivery remains `ask-on-risk` resolved as `stacked-to-main`.
-- Excluded: task 2.17c and later; source recovery coordination, credential/pin/remote behavior, historical `/tmp` behavior, acquisition/rescope/reset/settle, and merge.
+- The 2.17c.1 code/planning commit is an authorized one-time absent-symbol compile RED; the final evidence commit remains under the 800-line ceiling. Delivery remains `ask-on-risk` resolved as `stacked-to-main`.
+- Excluded: 2.17c.2 and later; source recovery coordination, credential/pin/remote behavior, historical `/tmp` behavior, acquisition/rescope/reset/settle, and merge.
 
 ## Settlement Handoff
 - Authorized attempt token: `sha256:54c4e688316ff4f75bd6ec17380c343246bb2a3fcf57053866d018c11d02d3e5`.
 - Passing settlement obligation retained by parent: `--remediates-evidence-revision sha256:5a12bd8fbdc02a10b6be03dd4e084704e7310e3a109dbad9002bd91ec5a09b38`.
 - The distinct passing evidence revision and final-head GHA receipt are returned to the parent after the artifact-evidence commit completes; this executor does not acquire, rescope, reset, settle, or merge.
 - The parent/orchestrator retains acquire, rescope, reset, settle, recovery, and merge authority.
+- Native attempt state remains `proceed`; this executor did not invoke native attempt operations. Authorized token: `sha256:ae920c69023cb620b3380c714bff543c5e212ccb1d4c8b736acc9efb7191f9be`. Work unit: `3B.3-2.17c.1-initial-seam-compile-red`.
