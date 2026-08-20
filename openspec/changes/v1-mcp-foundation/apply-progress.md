@@ -34,7 +34,7 @@ Task count: 22/42 complete.
 | Focused test command and exact result | GHA run 32419431344: `go test -count=1 ./...` exit 0; `internal/ownership/sqlite` and all packages passed. `go vet ./...` exit 0. Final evidence-artifact CI 32419671217 repeated green. |
 | Runtime harness command/scenario and exact result | GHA Ubuntu temporary SQLite exercised the approval suite: initialized/existing ledger verifier ordering, `Open` passed/non-success mapping, real quick/full integrity verification, real corruption, cancellation, size bound, and injected bounded-query edge cases. No live IBM i boundary exists. |
 | Static and build evidence | Local `gofmt -d internal/ownership/sqlite/ledger_integrity_red_test.go`, `go vet ./...`, compile-only `go test -c -o %TEMP%/bac-nexus-integrity-refactor.test.exe ./internal/ownership/sqlite`, and all six `CGO_ENABLED=0 GOOS={windows,darwin,linux} GOARCH={amd64,arm64} go build ./...` commands exited 0. No local test binary executed; the compile output was removed. |
-| Rollback boundary | Revert `52f7ee3` to remove only integrity test fixture lifecycle/seam helpers. Revert `7841480` to restore task/progress context; verifier behavior, transaction behavior, filesystem policy, remote acquisition, and recovery remain unchanged. |
+| Rollback boundary | Revert `52f7ee3` to remove only integrity test fixture lifecycle/seam helpers. Revert `7841480` and `d9c6b2f` to restore task/progress context; verifier behavior, transaction behavior, filesystem policy, remote acquisition, and recovery remain unchanged. |
 
 ## Boundary and Delivery
 
