@@ -23,6 +23,9 @@ type acquisitionRemote struct {
 	events                 *[]string
 	removeContextErr       error
 	copyPath               string
+	home                   string
+	prepared               string
+	prepareErr             error
 }
 
 func (r *acquisitionRemote) CopyToUTF8(ctx context.Context, _, path string) error {
@@ -58,6 +61,13 @@ func (r *acquisitionRemote) Remove(ctx context.Context, _ string) error {
 	r.removed = true
 	return r.removeErr
 }
+func (r *acquisitionRemote) AuthenticatedHome(context.Context) (string, error) { return r.home, nil }
+func (r *acquisitionRemote) PreparePrivateDirectory(_ context.Context, directory string) error {
+	r.prepared = directory
+	return r.prepareErr
+}
+func (r *acquisitionRemote) Lstat(context.Context, string) (os.FileInfo, error) { return r.info, nil }
+func (r *acquisitionRemote) CreateExclusive(context.Context, string) error      { return nil }
 
 type readCloser struct {
 	io.Reader
@@ -113,6 +123,14 @@ func TestPrivateDirectoryRequiresAuthenticatedAbsoluteHome(t *testing.T) {
 				t.Fatalf("privateDirectory(%q) succeeded", home)
 			}
 		})
+	}
+}
+
+func TestPreparePrivateDirectoryCreatesAndVerifies0700(t *testing.T) {
+	remote := &acquisitionRemote{home: "/home/nexus", info: acquisitionInfo{mode: os.ModeDir | 0o700}}
+	directory, err := preparePrivateDirectory(context.Background(), remote)
+	if err != nil || directory != "/home/nexus/.bac-nexus/tmp" || remote.prepared != directory {
+		t.Fatalf("preparePrivateDirectory() = %q, %v; prepared %q", directory, err, remote.prepared)
 	}
 }
 
