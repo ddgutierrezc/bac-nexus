@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -196,6 +197,47 @@ func TestLedgerIntegrityVerifierRejectsOversizedLedger(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result := verifyLedgerIntegrity(context.Background(), ledger.db); result.outcome != verificationBoundExceeded {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestLedgerIntegrityVerifierClassifiesRealCorruption(t *testing.T) {
+	root := t.TempDir()
+	ledger, err := testOpen(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "ownership.db"), []byte("not a sqlite database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(root, "ownership.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if result := verifyLedgerIntegrity(context.Background(), db); result.outcome != verificationCorrupt {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestLedgerIntegrityVerifierCancellationReleasesBlockingQuery(t *testing.T) {
+	original := queryLedgerIntegrity
+	t.Cleanup(func() { queryLedgerIntegrity = original })
+	started := make(chan struct{})
+	queryLedgerIntegrity = func(ctx context.Context, _ *sql.DB, _ string) ([]string, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	results := make(chan verificationResult, 1)
+	go func() { results <- verifyLedgerIntegrity(ctx, nil) }()
+	<-started
+	cancel()
+	if result := <-results; result.outcome != verificationInconclusive {
 		t.Fatalf("result = %#v", result)
 	}
 }
