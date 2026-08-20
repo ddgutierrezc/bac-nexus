@@ -75,13 +75,14 @@ func (a Acquirer) Acquire(ctx context.Context, candidate catalog.Candidate) (sna
 		createdAt = a.Now()
 	}
 	path := path.Join(directory, hex.EncodeToString(token)+".utf8")
-	if err := a.Ownership.Admit(ctx, OwnershipRecord{Token: token, RemotePath: path, Profile: a.Profile, TargetDigest: append([]byte(nil), a.TargetDigest...), CreatedAt: createdAt}); err != nil {
+	record := OwnershipRecord{Token: token, RemotePath: path, Profile: a.Profile, TargetDigest: append([]byte(nil), a.TargetDigest...), CreatedAt: createdAt}
+	if err := a.Ownership.Admit(ctx, record); err != nil {
 		return nil, fmt.Errorf("admit remote temporary ownership: %w", err)
 	}
 	owned := false
 	defer func() {
 		if owned {
-			if cleanupErr := a.cleanup(ctx, path); cleanupErr != nil {
+			if cleanupErr := a.cleanup(ctx, record); cleanupErr != nil {
 				snap = nil
 				err = errors.Join(err, cleanupErr)
 			}
@@ -129,7 +130,7 @@ func (a Acquirer) Acquire(ctx context.Context, candidate catalog.Candidate) (sna
 	return snap, err
 }
 
-func (a Acquirer) cleanup(ctx context.Context, path string) (err error) {
+func (a Acquirer) cleanup(ctx context.Context, record OwnershipRecord) (err error) {
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
 	defer cancel()
 	remote, closeRemote, err := a.Open(cleanupCtx)
@@ -141,7 +142,13 @@ func (a Acquirer) cleanup(ctx context.Context, path string) (err error) {
 			err = errors.Join(err, fmt.Errorf("close cleanup connection: %w", closeErr))
 		}
 	}()
-	return removeConfirmed(cleanupCtx, remote, path)
+	if err := removeConfirmed(cleanupCtx, remote, record.RemotePath); err != nil {
+		return err
+	}
+	if err := a.Ownership.Delete(cleanupCtx, record); err != nil {
+		return fmt.Errorf("delete remote temporary ownership: %w", err)
+	}
+	return nil
 }
 
 func removeConfirmed(ctx context.Context, remote AcquisitionRemote, path string) error {

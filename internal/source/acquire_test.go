@@ -18,6 +18,7 @@ type acquisitionRemote struct {
 	downloadErr, removeErr error
 	readErr, closeErr      error
 	removed                bool
+	removeLeavesPath       bool
 	copies, downloads      int
 	removes                int
 	stats                  int
@@ -70,7 +71,7 @@ func (r *acquisitionRemote) Remove(ctx context.Context, _ string) error {
 	r.removes++
 	*r.events = append(*r.events, "remove")
 	r.removeContextErr = ctx.Err()
-	r.removed = true
+	r.removed = !r.removeLeavesPath
 	return r.removeErr
 }
 func (r *acquisitionRemote) AuthenticatedHome(context.Context) (string, error) { return r.home, nil }
@@ -162,7 +163,7 @@ func TestAcquirerAcquiresOneCompleteSnapshotAndConfirmsCleanup(t *testing.T) {
 	if err != nil || snap == nil || opens != 2 || request.copies != 1 || request.downloads != 1 || cleanup.removes != 1 || request.copyPath != "/home/nexus/.bac-nexus/tmp/00000000000000000000000000000000.utf8" {
 		t.Fatalf("Acquire() = %v, %v; opens/copy/download/remove = %d/%d/%d/%d", snap, err, opens, request.copies, request.downloads, cleanup.removes)
 	}
-	if page, err := snap.Page(1, 2); err != nil || strings.Join(page.Lines, ",") != "one,two" || strings.Join(events, ",") != "admit,reserve,copy,download,remove" {
+	if page, err := snap.Page(1, 2); err != nil || strings.Join(page.Lines, ",") != "one,two" || strings.Join(events, ",") != "admit,reserve,copy,download,remove,delete" {
 		t.Fatalf("snapshot/events = %#v, %v / %v", page, err, events)
 	}
 }
@@ -221,7 +222,7 @@ func TestAcquirerAdmitsOwnershipBeforeReserveAndCopy(t *testing.T) {
 	ledger := &acquisitionLedger{events: &events}
 	a := Acquirer{Open: sequentialOpener(request, cleanup), Random: bytes.NewReader(make([]byte, 16)), Ownership: ledger, Profile: "test", TargetDigest: make([]byte, 32), Now: func() time.Time { return time.Unix(0, 0) }}
 	snap, err := a.Acquire(context.Background(), candidate())
-	if err != nil || snap == nil || strings.Join(events, ",") != "admit,reserve,copy,download,remove" || ledger.record.RemotePath != request.created {
+	if err != nil || snap == nil || strings.Join(events, ",") != "admit,reserve,copy,download,remove,delete" || ledger.record.RemotePath != request.created {
 		t.Fatalf("Acquire() = %v, %v; events=%v record=%#v", snap, err, events, ledger.record)
 	}
 }
@@ -236,6 +237,32 @@ func TestAcquirerDeletesExactOwnershipOnlyAfterConfirmedPrivateCleanup(t *testin
 	snap, err := a.Acquire(context.Background(), candidate())
 	if err != nil || snap == nil || cleanup.removes != 1 || cleanup.stats != 1 || ledger.deletes != 1 || ledger.deleted.RemotePath != request.created || strings.Join(events, ",") != "admit,reserve,copy,stat,download,remove,stat,delete" {
 		t.Fatalf("Acquire() = %v, %v; cleanup/delete/events = %d/%d/%v", snap, err, cleanup.removes, ledger.deletes, events)
+	}
+}
+
+func TestAcquirerRetainsOwnershipWhenPrivateCleanupIsUncertain(t *testing.T) {
+	boom := errors.New("boom")
+	for _, tt := range []struct {
+		name string
+		set  func(*acquisitionRemote)
+	}{
+		{"remove fails", func(remote *acquisitionRemote) { remote.removeErr = boom }},
+		{"confirmation fails", func(remote *acquisitionRemote) { remote.statErr = boom }},
+		{"path remains", func(remote *acquisitionRemote) { remote.removeLeavesPath = true }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			events := []string{}
+			request := &acquisitionRemote{data: []byte("ok\n"), info: acquisitionInfo{3, 0o600}, directoryInfo: acquisitionInfo{mode: os.ModeDir | 0o700}, home: "/home/nexus", events: &events}
+			cleanup := &acquisitionRemote{info: acquisitionInfo{3, 0o600}, events: &events}
+			tt.set(cleanup)
+			ledger := &acquisitionLedger{events: &events}
+			a := Acquirer{Open: sequentialOpener(request, cleanup), Random: bytes.NewReader(make([]byte, 16)), Ownership: ledger, Profile: "test", TargetDigest: make([]byte, 32)}
+
+			snap, err := a.Acquire(context.Background(), candidate())
+			if err == nil || snap != nil || ledger.deletes != 0 {
+				t.Fatalf("Acquire() = %v, %v; ownership deletes = %d", snap, err, ledger.deletes)
+			}
+		})
 	}
 }
 
