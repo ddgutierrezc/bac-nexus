@@ -47,7 +47,7 @@ Task count: 25/42 complete.
 
 ## Delivery / exclusions
 - Draft PR #38 remains stacked-to-main → `main`, open and draft; issue #37 remains approved.
-- Maintainer-selected review ceiling: 800 authored additions + deletions. Current PR count is 457 additions + 84 deletions = 541, under the ceiling; it remains a ceiling, not permission for unrelated scope. Delivery remains `ask-on-risk` resolved as `stacked-to-main`.
+- Maintainer-selected review ceiling: 800 authored additions + deletions. Current PR count is 468 additions + 85 deletions = 553, under the ceiling; it remains a ceiling, not permission for unrelated scope. Delivery remains `ask-on-risk` resolved as `stacked-to-main`.
 - Excluded: recovery-loop behavior, acquisition/rescope/reset/settle, and merge.
 
 ## Settlement Handoff
