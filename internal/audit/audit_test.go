@@ -27,6 +27,14 @@ func TestRecorderAcceptsAllowlistedEvent(t *testing.T) {
 	}
 }
 
+func TestValidateEventRejectsUnregisteredPolicyID(t *testing.T) {
+	event := validAuditEvent()
+	event.PolicyID = "profile-name"
+	if err := ValidateEvent(event); !errors.Is(err, ErrPolicyRejected) {
+		t.Fatalf("ValidateEvent error = %v, want ErrPolicyRejected", err)
+	}
+}
+
 // TestRecorderRejectsDisallowedCapability proves that a capability not
 // on the allowlist is rejected deterministically. The recorder must
 // not store rejected events.

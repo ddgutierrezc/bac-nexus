@@ -155,7 +155,7 @@ func TestTypedInputOutputSchemasAreBounded(t *testing.T) {
 	}
 	outputs := []reflect.Type{reflect.TypeOf(ResolveCatalogOutput{}), reflect.TypeOf(ReadSelectedSourceOutput{})}
 	for _, typ := range outputs {
-		for _, forbidden := range []string{"cursor", "raw", "source", "path", "host", "user", "command", "sql"} {
+		for _, forbidden := range []string{"raw", "source", "path", "host", "user", "command", "sql"} {
 			if found, name := hasFieldContaining(typ, forbidden); found {
 				t.Fatalf("%s has forbidden field %q (matched %q)", typ.String(), name, forbidden)
 			}

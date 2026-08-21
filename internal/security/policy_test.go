@@ -236,6 +236,48 @@ func TestPinnedTrustVerifiesExactApprovedPin(t *testing.T) {
 	}
 }
 
+func TestPinnedTrustEnrollsExplicitTOFUAndCopiesEvidence(t *testing.T) {
+	trust := NewPinnedTrust()
+	binding := []byte("approved-target-binding-32-bytes-xx")
+	pin, err := trust.Enroll(context.Background(), "SHA256:enrolled", binding, "operator-approved")
+	if err != nil {
+		t.Fatalf("Enroll error = %v", err)
+	}
+	if pin.Trust != HostKeyTrustTOFU || pin.Fingerprint != "SHA256:enrolled" || pin.Provenance != "operator-approved" {
+		t.Fatalf("pin = %+v, want explicit TOFU provenance", pin)
+	}
+	binding[0] = 'x'
+	if err := trust.Verify(context.Background(), pin, "SHA256:enrolled", []byte("approved-target-binding-32-bytes-xx")); err != nil {
+		t.Fatalf("Verify enrolled pin error = %v", err)
+	}
+}
+
+func TestPinnedTrustEnrollFailsClosedOnMissingEvidenceOrCancellation(t *testing.T) {
+	trust := NewPinnedTrust()
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	tests := []struct {
+		name string
+		ctx  context.Context
+		fp   string
+		key  []byte
+		prov string
+		want error
+	}{
+		{name: "missing provenance", ctx: context.Background(), fp: "SHA256:key", key: []byte("binding"), want: ErrTrustEvidenceMissing},
+		{name: "missing fingerprint", ctx: context.Background(), key: []byte("binding"), prov: "operator", want: ErrTrustEvidenceMissing},
+		{name: "cancelled", ctx: cancelled, fp: "SHA256:key", key: []byte("binding"), prov: "operator", want: context.Canceled},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := trust.Enroll(tt.ctx, tt.fp, tt.key, tt.prov)
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("Enroll error = %v, want %v", err, tt.want)
+			}
+		})
+	}
+}
+
 // TestPinnedTrustFailsClosedOnFingerprintChange proves the pinned TOFU
 // seam fails closed with a deterministic error when the observed
 // fingerprint differs from the pinned fingerprint.
