@@ -4,9 +4,9 @@
 
 | Field | Value |
 |---|---|
-| Estimated changed lines | 2,970–3,750 authored; remaining recovery slices are independently bounded to ≤800 lines |
+| Estimated changed lines | 2,970–3,750 authored; active remaining slices are independently bounded to ≤1000 lines |
 | 400-line budget risk | High |
-| Maintainer-selected active PR review ceiling | 800 authored additions + deletions; a ceiling, not permission for unrelated scope |
+| Maintainer-selected active PR review ceiling | 1000 authored additions + deletions; a ceiling, not permission for unrelated scope |
 | Suggested split | 1→2→3A→3B.1a→3B.1b→3B.1c-T→3B.1c-I→3B.2→3B.3→5A→5B→6→7→8 to `main` |
 | Delivery strategy | ask-on-risk (resolved: stacked-to-main) |
 | Chain strategy | stacked-to-main |
@@ -87,9 +87,9 @@ Only canonical parent tasks use checkboxes: native count is 42, with 29 complete
 - [x] 3.1 **GATE (PR 5A)**: Verify PoC-exception `github.com/zalando/go-keyring` v0.2.8 (declares Go 1.18): exact module graph/SBOM, checksums, licenses/transitives, `govulncheck`/known vulnerabilities, no DLL/runtime download, platform compile/tests, endpoint policy. Failure blocks 5A.
   - **Historical failed attempt:** GHA Keyring Dependency Gate run `32441478559` on `6c878d88e465c325fffe39144abf26aeef6589b8` passed module verification and six `CGO_ENABLED=0` compile targets on all three runners; native upstream tests passed on macOS and Windows but failed on Ubuntu because `org.freedesktop.secrets` was unavailable.
   - **Successful precursor after maintainer scope decision:** GHA Keyring Dependency Gate run `32442432657` on `f1e15be5db0bed150fcc9a60d6b50981fc1e502f` installed GNOME Keyring in an isolated `dbus-run-session`, activated `org.freedesktop.secrets`, and passed upstream native `TestSet`, `TestGet`, and `TestDelete` behavior on Ubuntu. The Windows/macOS matrix, six compile targets, graph/checksum verification, and `govulncheck` all passed. This final-artifact candidate requires a new exact-head gate run before settlement. Corporate endpoint-policy approval remains deferred and unproven rollout evidence, not task 3.1 completion evidence. Tasks 3.2–3.4 remain untouched.
-- [ ] 3.2 **RED (PR 5A)**: Test `internal/credential/*_test.go` only exact Get/Set/Delete, grammar/1–4096 bounds, redaction/zeroing, unavailable-before-remote, fixed macOS stdin/no argv-env, and Windows/Linux deterministic failures.
-- [ ] 3.3 **GREEN (PR 5A)**: Add `CredentialStore`/keyring adapter: Credential Manager, fixed `/usr/bin/security`, Secret Service D-Bus; explicit vault write/readback/zero/delete migration, retaining vault when native storage fails.
-- [ ] 3.4 **REFACTOR (PR 5A)**: Isolate consumer and per-platform tests; preserve available-runner-only evidence.
+- [x] 3.2 **RED (PR 5A)**: Test `internal/credential/*_test.go` only exact Get/Set/Delete, grammar/1–4096 bounds, redaction/zeroing, unavailable-before-remote, fixed macOS stdin/no argv-env, and Windows/Linux deterministic failures.
+- [x] 3.3 **GREEN (PR 5A)**: Add `CredentialStore`/keyring adapter: Credential Manager, fixed `/usr/bin/security`, Secret Service D-Bus; explicit vault write/readback/zero/delete migration, retaining vault when native storage fails.
+- [x] 3.4 **REFACTOR (PR 5A)**: Isolate consumer and per-platform tests; preserve available-runner-only evidence.
 - [ ] 3.5 **RED (PR 5B)**: Test `internal/{security,audit}/*_test.go` selector and spoofed `clientInfo`, TOFU changes, allowlisted audit redaction, and no remote/generic path operations.
 - [ ] 3.6 **GREEN (PR 5B)**: Add `internal/security/policy.go` and `internal/audit/audit.go` pinned trust and sanitized outcomes, depending on 5A credentials.
 - [ ] 3.7 **REFACTOR (PR 5B)**: Table-drive policy/audit fakes and rerun both package commands.
