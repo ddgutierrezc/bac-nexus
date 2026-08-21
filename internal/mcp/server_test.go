@@ -33,28 +33,24 @@ func (f *fakeService) ResolveCatalog(ctx context.Context, query catalog.Query, s
 	f.resolveCalls++
 	f.lastQuery = query
 	f.lastSelector = selector
-	if f.resolveFn == nil {
-		return nil, nil
+	if f.resolveFn != nil {
+		return f.resolveFn(ctx, query, selector)
 	}
-	return f.resolveFn(ctx, query, selector)
+	return nil, nil
 }
 
 func (f *fakeService) ReadSelectedSource(ctx context.Context, cursor string, page source.Range) (source.Page, error) {
 	f.readCalls++
 	f.lastCursor = cursor
 	f.lastRange = page
-	if f.readFn == nil {
-		return source.Page{}, nil
+	if f.readFn != nil {
+		return f.readFn(ctx, cursor, page)
 	}
-	return f.readFn(ctx, cursor, page)
+	return source.Page{}, nil
 }
 
 func validCandidate() catalog.Candidate {
-	return catalog.Candidate{
-		Item: "PISA061", SourceLibrary: "QRPGLESRC", SourceFileBase: "QRPGLESRC",
-		ObjectType: "RPGLE", SourceType: "RPG", Application: "APP", Version: "V1",
-		ProductionLibrary: "PRODLIB", Description: "test program",
-	}
+	return catalog.Candidate{Item: "PISA061", SourceLibrary: "QRPGLESRC", SourceFileBase: "QRPGLESRC", ObjectType: "RPGLE", SourceType: "RPG", Application: "APP", Version: "V1", ProductionLibrary: "PRODLIB", Description: "test"}
 }
 
 func validConfig() (Config, *fakeService) {
@@ -62,18 +58,9 @@ func validConfig() (Config, *fakeService) {
 	return Config{Info: Info{Name: "bac-nexus", Version: "v0.0.0"}, Service: svc}, svc
 }
 
-func validBuildInput() ResolveCatalogInput {
-	return ResolveCatalogInput{Statement: "SELECT * FROM catalog", Parameters: []string{"%PISA061%"}}
-}
-
-func validReadInput() ReadSelectedSourceInput {
-	return ReadSelectedSourceInput{Cursor: "opaque-cursor-token", StartLine: 1, MaxLines: 50}
-}
-
-var forbiddenSurfaceSubstrings = []string{
-	"path", "command", "shell", "exec", "sql", "ssh",
-	"dial", "connect", "remote", "clientinfo", "parent",
-}
+// forbiddenSurfaceSubstrings is the structural guard list. Adding
+// an entry requires an explicit decision and a matching red test.
+var forbiddenSurfaceSubstrings = []string{"path", "command", "shell", "exec", "sql", "ssh", "dial", "connect", "remote", "clientinfo", "parent"}
 
 func hasFieldContaining(typ reflect.Type, substring string) (bool, string) {
 	return fieldContains(typ, substring, map[reflect.Type]bool{})
@@ -125,14 +112,10 @@ func TestServerRejectsNilService(t *testing.T) {
 
 func TestServerSurfaceHasNoRemotePathOrShellCommands(t *testing.T) {
 	checks := []reflect.Type{
-		reflect.TypeOf((*Server)(nil)),
-		reflect.TypeOf((*Service)(nil)).Elem(),
-		reflect.TypeOf((*Config)(nil)),
-		reflect.TypeOf(Info{}),
-		reflect.TypeOf(ResolveCatalogInput{}),
-		reflect.TypeOf(ResolveCatalogOutput{}),
-		reflect.TypeOf(ReadSelectedSourceInput{}),
-		reflect.TypeOf(ReadSelectedSourceOutput{}),
+		reflect.TypeOf((*Server)(nil)), reflect.TypeOf((*Service)(nil)).Elem(),
+		reflect.TypeOf((*Config)(nil)), reflect.TypeOf(Info{}),
+		reflect.TypeOf(ResolveCatalogInput{}), reflect.TypeOf(ResolveCatalogOutput{}),
+		reflect.TypeOf(ReadSelectedSourceInput{}), reflect.TypeOf(ReadSelectedSourceOutput{}),
 	}
 	for _, typ := range checks {
 		for _, forbidden := range forbiddenSurfaceSubstrings {
@@ -162,160 +145,193 @@ func TestTypedInputOutputSchemasAreBounded(t *testing.T) {
 	}
 }
 
-func TestResolveCatalogHandlerReturnsServiceResult(t *testing.T) {
-	cfg, svc := validConfig()
-	srv, err := New(cfg)
-	if err != nil {
-		t.Fatalf("New error = %v", err)
-	}
-	expected := []catalog.Candidate{validCandidate(), validCandidate()}
-	svc.resolveFn = func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) {
-		return expected, nil
-	}
-	_, out, err := callResolveCatalog(t, srv, validBuildInput())
-	if err != nil {
-		t.Fatalf("resolveCatalog error = %v", err)
-	}
-	if len(out.Candidates) != len(expected) {
-		t.Fatalf("Candidates len = %d, want %d", len(out.Candidates), len(expected))
-	}
-	if svc.resolveCalls != 1 {
-		t.Fatalf("ResolveCatalog calls = %d, want 1", svc.resolveCalls)
-	}
-}
-
-func TestResolveCatalogHandlerForwardsSelectorAndQuery(t *testing.T) {
-	cfg, svc := validConfig()
-	srv, err := New(cfg)
-	if err != nil {
-		t.Fatalf("New error = %v", err)
-	}
-	input := validBuildInput()
-	input.Parameters = []string{"%PISA%"}
-	if _, _, err := callResolveCatalog(t, srv, input); err != nil {
-		t.Fatalf("resolveCatalog error = %v", err)
-	}
-	if svc.lastSelector != security.SelectorResolveCatalog {
-		t.Fatalf("selector = %q, want resolve_catalog_candidates", svc.lastSelector)
-	}
-	if svc.lastQuery.Statement != input.Statement {
-		t.Fatalf("statement = %q, want %q", svc.lastQuery.Statement, input.Statement)
-	}
-	if !slices.Equal(svc.lastQuery.Parameters, input.Parameters) {
-		t.Fatalf("parameters = %v, want %v", svc.lastQuery.Parameters, input.Parameters)
-	}
-}
-
-func TestResolveCatalogHandlerErrorMapping(t *testing.T) {
+func TestResolveCatalogHandlerBehavior(t *testing.T) {
+	candidate := validCandidate()
 	tests := []struct {
-		name string
-		err  error
+		name      string
+		resolveFn func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error)
+		input     ResolveCatalogInput
+		check     func(t *testing.T, out ResolveCatalogOutput, svc *fakeService, err error)
 	}{
-		{"context cancelled", context.Canceled},
-		{"credentials unavailable", credential.ErrCredentialsUnavailable},
-		{"unauthorized", security.ErrUnauthorized},
+		{
+			name: "returns service result",
+			resolveFn: func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) {
+				return []catalog.Candidate{candidate, candidate}, nil
+			},
+			input: ResolveCatalogInput{Statement: "SELECT 1", Parameters: []string{"%PISA%"}},
+			check: func(t *testing.T, out ResolveCatalogOutput, svc *fakeService, err error) {
+				if err != nil {
+					t.Fatalf("error = %v", err)
+				}
+				if len(out.Candidates) != 2 {
+					t.Fatalf("Candidates len = %d, want 2", len(out.Candidates))
+				}
+				if svc.resolveCalls != 1 {
+					t.Fatalf("resolveCalls = %d, want 1", svc.resolveCalls)
+				}
+			},
+		},
+		{
+			name: "forwards selector and parameters",
+			resolveFn: func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) {
+				return nil, nil
+			},
+			input: ResolveCatalogInput{Statement: "SELECT 1", Parameters: []string{"%PISA%"}},
+			check: func(t *testing.T, out ResolveCatalogOutput, svc *fakeService, err error) {
+				if err != nil {
+					t.Fatalf("error = %v", err)
+				}
+				if svc.lastSelector != security.SelectorResolveCatalog {
+					t.Fatalf("selector = %q, want resolve_catalog_candidates", svc.lastSelector)
+				}
+				if svc.lastQuery.Statement != "SELECT 1" {
+					t.Fatalf("statement = %q, want %q", svc.lastQuery.Statement, "SELECT 1")
+				}
+				if !slices.Equal(svc.lastQuery.Parameters, []string{"%PISA%"}) {
+					t.Fatalf("parameters = %v, want [%%PISA%%]", svc.lastQuery.Parameters)
+				}
+			},
+		},
+		{
+			name:      "maps context cancelled",
+			resolveFn: func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) { return nil, context.Canceled },
+			input:     ResolveCatalogInput{Statement: "SELECT 1"},
+			check: func(t *testing.T, out ResolveCatalogOutput, svc *fakeService, err error) {
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("error = %v, want context.Canceled", err)
+				}
+			},
+		},
+		{
+			name:      "maps credentials unavailable",
+			resolveFn: func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) { return nil, credential.ErrCredentialsUnavailable },
+			input:     ResolveCatalogInput{Statement: "SELECT 1"},
+			check: func(t *testing.T, out ResolveCatalogOutput, svc *fakeService, err error) {
+				if !errors.Is(err, credential.ErrCredentialsUnavailable) {
+					t.Fatalf("error = %v, want ErrCredentialsUnavailable", err)
+				}
+			},
+		},
+		{
+			name:      "maps unauthorized",
+			resolveFn: func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) { return nil, security.ErrUnauthorized },
+			input:     ResolveCatalogInput{Statement: "SELECT 1"},
+			check: func(t *testing.T, out ResolveCatalogOutput, svc *fakeService, err error) {
+				if !errors.Is(err, security.ErrUnauthorized) {
+					t.Fatalf("error = %v, want ErrUnauthorized", err)
+				}
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg, svc := validConfig()
-			svc.resolveFn = func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) {
-				return nil, tt.err
-			}
+			svc.resolveFn = tt.resolveFn
 			srv, err := New(cfg)
 			if err != nil {
 				t.Fatalf("New error = %v", err)
 			}
-			_, _, err = callResolveCatalog(t, srv, validBuildInput())
-			if !errors.Is(err, tt.err) {
-				t.Fatalf("resolveCatalog error = %v, want %v", err, tt.err)
-			}
+			_, out, err := callResolveCatalog(t, srv, tt.input)
+			tt.check(t, out, svc, err)
 		})
 	}
 }
 
 func TestResolveCatalogHandlerHonorsContextCancellation(t *testing.T) {
-	cfg, svc := validConfig()
-	svc.resolveFn = func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) {
-		return nil, ctx.Err()
-	}
+	cfg, _ := validConfig()
 	srv, err := New(cfg)
 	if err != nil {
 		t.Fatalf("New error = %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, _, err = callResolveCatalogWithContext(t, srv, ctx, validBuildInput())
+	_, _, err = callResolveCatalogWithContext(t, srv, ctx, ResolveCatalogInput{Statement: "SELECT 1"})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("resolveCatalog error = %v, want context.Canceled", err)
 	}
 }
 
-func TestReadSelectedSourceHandlerReturnsServiceResult(t *testing.T) {
-	cfg, svc := validConfig()
-	srv, err := New(cfg)
-	if err != nil {
-		t.Fatalf("New error = %v", err)
-	}
-	expected := source.Page{StartLine: 1, LineCount: 2, Lines: []string{"line-one", "line-two"}, EOF: false, NextStartLine: 3}
-	svc.readFn = func(ctx context.Context, cursor string, page source.Range) (source.Page, error) {
-		return expected, nil
-	}
-	_, out, err := callReadSelectedSource(t, srv, validReadInput())
-	if err != nil {
-		t.Fatalf("readSelectedSource error = %v", err)
-	}
-	if !reflect.DeepEqual(out.Page, expected) {
-		t.Fatalf("Page = %+v, want %+v", out.Page, expected)
-	}
-	if svc.readCalls != 1 {
-		t.Fatalf("ReadSelectedSource calls = %d, want 1", svc.readCalls)
-	}
-}
-
-func TestReadSelectedSourceHandlerForwardsCursorAndRange(t *testing.T) {
-	cfg, svc := validConfig()
-	srv, err := New(cfg)
-	if err != nil {
-		t.Fatalf("New error = %v", err)
-	}
-	input := validReadInput()
-	input.StartLine = 5
-	input.MaxLines = 25
-	if _, _, err := callReadSelectedSource(t, srv, input); err != nil {
-		t.Fatalf("readSelectedSource error = %v", err)
-	}
-	if svc.lastCursor != input.Cursor {
-		t.Fatalf("cursor = %q, want %q", svc.lastCursor, input.Cursor)
-	}
-	if svc.lastRange.StartLine != 5 || svc.lastRange.MaxLines != 25 {
-		t.Fatalf("range = %+v, want start=5 max=25", svc.lastRange)
-	}
-}
-
-func TestReadSelectedSourceHandlerErrorMapping(t *testing.T) {
+func TestReadSelectedSourceHandlerBehavior(t *testing.T) {
+	page := source.Page{StartLine: 1, LineCount: 2, Lines: []string{"line-one", "line-two"}, EOF: false, NextStartLine: 3}
 	tests := []struct {
-		name string
-		err  error
+		name   string
+		readFn func(ctx context.Context, cursor string, page source.Range) (source.Page, error)
+		input  ReadSelectedSourceInput
+		check  func(t *testing.T, out ReadSelectedSourceOutput, svc *fakeService, err error)
 	}{
-		{"context cancelled", context.Canceled},
-		{"stale coordinate", source.ErrStaleCoordinate},
-		{"invalid request", source.ErrInvalidRequest},
-		{"credentials unavailable", credential.ErrCredentialsUnavailable},
+		{
+			name:   "returns service result",
+			readFn: func(ctx context.Context, cursor string, _ source.Range) (source.Page, error) { return page, nil },
+			input:  ReadSelectedSourceInput{Cursor: "opaque-cursor", StartLine: 1, MaxLines: 50},
+			check: func(t *testing.T, out ReadSelectedSourceOutput, svc *fakeService, err error) {
+				if err != nil {
+					t.Fatalf("error = %v", err)
+				}
+				if !reflect.DeepEqual(out.Page, page) {
+					t.Fatalf("Page = %+v, want %+v", out.Page, page)
+				}
+				if svc.readCalls != 1 {
+					t.Fatalf("readCalls = %d, want 1", svc.readCalls)
+				}
+			},
+		},
+		{
+			name:   "forwards cursor and range",
+			readFn: func(ctx context.Context, cursor string, _ source.Range) (source.Page, error) { return source.Page{}, nil },
+			input:  ReadSelectedSourceInput{Cursor: "opaque-cursor", StartLine: 5, MaxLines: 25},
+			check: func(t *testing.T, out ReadSelectedSourceOutput, svc *fakeService, err error) {
+				if err != nil {
+					t.Fatalf("error = %v", err)
+				}
+				if svc.lastCursor != "opaque-cursor" {
+					t.Fatalf("cursor = %q, want %q", svc.lastCursor, "opaque-cursor")
+				}
+				if svc.lastRange.StartLine != 5 || svc.lastRange.MaxLines != 25 {
+					t.Fatalf("range = %+v, want start=5 max=25", svc.lastRange)
+				}
+			},
+		},
+		{
+			name:   "maps context cancelled",
+			readFn: func(ctx context.Context, cursor string, page source.Range) (source.Page, error) { return source.Page{}, context.Canceled },
+			input:  ReadSelectedSourceInput{Cursor: "opaque-cursor", StartLine: 1, MaxLines: 50},
+			check: func(t *testing.T, out ReadSelectedSourceOutput, svc *fakeService, err error) {
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("error = %v, want context.Canceled", err)
+				}
+			},
+		},
+		{
+			name:   "maps stale coordinate",
+			readFn: func(ctx context.Context, cursor string, page source.Range) (source.Page, error) { return source.Page{}, source.ErrStaleCoordinate },
+			input:  ReadSelectedSourceInput{Cursor: "opaque-cursor", StartLine: 1, MaxLines: 50},
+			check: func(t *testing.T, out ReadSelectedSourceOutput, svc *fakeService, err error) {
+				if !errors.Is(err, source.ErrStaleCoordinate) {
+					t.Fatalf("error = %v, want ErrStaleCoordinate", err)
+				}
+			},
+		},
+		{
+			name:   "maps invalid request",
+			readFn: func(ctx context.Context, cursor string, page source.Range) (source.Page, error) { return source.Page{}, source.ErrInvalidRequest },
+			input:  ReadSelectedSourceInput{Cursor: "opaque-cursor", StartLine: 1, MaxLines: 50},
+			check: func(t *testing.T, out ReadSelectedSourceOutput, svc *fakeService, err error) {
+				if !errors.Is(err, source.ErrInvalidRequest) {
+					t.Fatalf("error = %v, want ErrInvalidRequest", err)
+				}
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg, svc := validConfig()
-			svc.readFn = func(ctx context.Context, cursor string, page source.Range) (source.Page, error) {
-				return source.Page{}, tt.err
-			}
+			svc.readFn = tt.readFn
 			srv, err := New(cfg)
 			if err != nil {
 				t.Fatalf("New error = %v", err)
 			}
-			_, _, err = callReadSelectedSource(t, srv, validReadInput())
-			if !errors.Is(err, tt.err) {
-				t.Fatalf("readSelectedSource error = %v, want %v", err, tt.err)
-			}
+			_, out, err := callReadSelectedSource(t, srv, tt.input)
+			tt.check(t, out, svc, err)
 		})
 	}
 }
