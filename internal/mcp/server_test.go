@@ -61,30 +61,15 @@ func validConfig() (Config, *fakeService) {
 var forbiddenSurfaceSubstrings = []string{"path", "command", "shell", "exec", "sql", "ssh", "dial", "connect", "remote", "clientinfo", "parent"}
 
 func hasFieldContaining(typ reflect.Type, substring string) (bool, string) {
-	return fieldContains(typ, substring, map[reflect.Type]bool{})
-}
-
-func fieldContains(typ reflect.Type, substring string, visited map[reflect.Type]bool) (bool, string) {
-	if typ == nil || visited[typ] {
-		return false, ""
-	}
-	visited[typ] = true
-	if typ.Kind() == reflect.Ptr {
+	for typ.Kind() == reflect.Ptr {
 		typ = typ.Elem()
 	}
 	if typ.Kind() != reflect.Struct {
 		return false, ""
 	}
 	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		if field.Anonymous {
-			if found, name := fieldContains(field.Type, substring, visited); found {
-				return true, name
-			}
-			continue
-		}
-		if strings.Contains(strings.ToLower(field.Name), substring) {
-			return true, field.Name
+		if strings.Contains(strings.ToLower(typ.Field(i).Name), substring) {
+			return true, typ.Field(i).Name
 		}
 	}
 	return false, ""
