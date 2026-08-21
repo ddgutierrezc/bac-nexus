@@ -124,7 +124,7 @@ func (f *fakeRecoveryCoordinator) Recover(ctx context.Context) error {
 }
 
 // newServiceTestInput builds a canonical valid input set for service tests.
-func newServiceTestInput() (Service, *fakeCredentialStore, *fakeAuthorizer, *fakeAuditor, *fakeCatalogResolver, *fakeAcquirer, *fakeRecoveryCoordinator) {
+func newServiceTestInput() (*Service, *fakeCredentialStore, *fakeAuthorizer, *fakeAuditor, *fakeCatalogResolver, *fakeAcquirer, *fakeRecoveryCoordinator) {
 	creds := &fakeCredentialStore{secret: []byte("test-secret")}
 	authz := &fakeAuthorizer{decision: security.Decision_{
 		Selector: security.SelectorResolveCatalog,
@@ -366,8 +366,10 @@ func TestServiceReadSelectedSourceReturnsStaleCoordinateOnCoordinateChange(t *te
 		ProductionLibrary: "PRODLIB",
 		Description:       "test program",
 	}
+	// The catalog now reports a different production library, which
+	// is a coordinate change the freshness check must detect.
 	changed := original
-	changed.Version = "V2"
+	changed.ProductionLibrary = "PRODLIB2"
 
 	lease := source.NewLeaseStoreForTest(time.Now, nil)
 	snap, err := source.NewSnapshot([]byte("line1\nline2\n"))
@@ -379,13 +381,15 @@ func TestServiceReadSelectedSourceReturnsStaleCoordinateOnCoordinateChange(t *te
 		t.Fatalf("Acquire error = %v", err)
 	}
 
-	// Inject the lease and a coordinate change into the service.
-	leases := &fakeLeaseStore{store: lease, current: changed}
+	// The Resolver simulates the current catalog state: the original
+	// candidate is gone, replaced by the changed one. The service must
+	// detect the missing original and return ErrStaleCoordinate.
+	leases := &fakeLeaseStore{store: lease}
 	svc2 := NewService(ServiceDeps{
 		Credentials: &fakeCredentialStore{secret: []byte("test")},
 		Authorizer:  &fakeAuthorizer{decision: security.Decision_{Selector: security.SelectorReadSource, Class: security.CapabilitySourceRead, Target: security.TargetIBMiSource, Decision: security.DecisionAllow, Reason: "allowlisted"}},
 		Auditor:     &fakeAuditor{},
-		Resolver:    &fakeCatalogResolver{candidates: []catalog.Candidate{original, changed}},
+		Resolver:    &fakeCatalogResolver{candidates: []catalog.Candidate{changed}},
 		Acquirer:    &fakeAcquirer{},
 		Recovery:    &fakeRecoveryCoordinator{},
 		Leases:      leases,
@@ -425,13 +429,15 @@ func TestServiceReadSelectedSourceHonorsPageByteBound(t *testing.T) {
 	candidate := catalog.Candidate{
 		Item: "PISA061", SourceLibrary: "QRPGLESRC", SourceFileBase: "QRPGLESRC",
 		ObjectType: "RPGLE", SourceType: "RPG",
+		Application: "APP", Version: "V1", ProductionLibrary: "PRODLIB",
+		Description: "test program",
 	}
 	cursor, err := lease.Acquire(snap, candidate, source.ClientPolicy("test"))
 	if err != nil {
 		t.Fatalf("Acquire error = %v", err)
 	}
 
-	leases := &fakeLeaseStore{store: lease, current: candidate}
+	leases := &fakeLeaseStore{store: lease}
 	svc2 := NewService(ServiceDeps{
 		Credentials: &fakeCredentialStore{secret: []byte("test")},
 		Authorizer:  &fakeAuthorizer{decision: security.Decision_{Selector: security.SelectorReadSource, Class: security.CapabilitySourceRead, Target: security.TargetIBMiSource, Decision: security.DecisionAllow, Reason: "allowlisted"}},
@@ -558,19 +564,23 @@ func TestServiceRejectsContextCancellationOnResolveCatalog(t *testing.T) {
 }
 
 // fakeLeaseStore is a consumer-owned lease store that wraps a real
-// source.LeaseStore and supplies the current canonical coordinate so the
-// service can perform its per-page freshness check.
+// source.LeaseStore. The freshness check is performed by the service
+// using the Resolver, so the fake only needs to delegate to the real
+// store.
 type fakeLeaseStore struct {
-	store   *source.LeaseStore
-	current catalog.Candidate
+	store *source.LeaseStore
 }
 
 func (f *fakeLeaseStore) OpenReader(cursor source.Cursor, selection catalog.Candidate, policy source.ClientPolicy) (*source.LeaseReader, error) {
-	return f.store.OpenReader(cursor, f.current, policy)
+	return f.store.OpenReader(cursor, selection, policy)
 }
 
 func (f *fakeLeaseStore) Acquire(snap *source.Snapshot, selection catalog.Candidate, policy source.ClientPolicy) (source.Cursor, error) {
 	return f.store.Acquire(snap, selection, policy)
+}
+
+func (f *fakeLeaseStore) Lookup(cursor source.Cursor) (catalog.Candidate, error) {
+	return f.store.Lookup(cursor)
 }
 
 // ---------------------------------------------------------------------------
