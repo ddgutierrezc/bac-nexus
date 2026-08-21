@@ -498,3 +498,43 @@ and `not_validated_on_ibmi`.
 | Native finalization | Token acquired for `final-correction-accounting-and-merge`, max attempts 1, max changed lines 120, no remediates obligation; settlement is performed exactly once with a distinct request ID and evidence revision |
 | IBM i status | `ready_for_controlled_ibmi_validation`; `not_validated_on_ibmi` |
 | Runtime authority | WDAC blocks local Go runtime; GitHub Actions is the authoritative runtime evidence. No local tests or live IBM i validation are claimed. |
+
+## Native Bounded Remediation — final-five-scenario-remediation
+
+This is the sole bounded remediation for failed evidence revision
+`sha256:f22b56746130700156d316e634357dcdd613c36d27a8a9a389132e76f51843f3`.
+It remains one PR under the normal 1000-line budget, with no size exception.
+Issue #61 owns the four blockers; PR #62 is `fix/final-five-scenario-remediation`
+targeting `main`. Canonical tasks remain 42/42 complete; this section records
+remediation evidence only and does not alter the canonical verify report.
+
+### Strict TDD Cycle Evidence
+
+| Task / scenario | Test file / layer | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|
+| First-page cursor and continuation | `internal/app/service_test.go`, GHA package/runtime | GHA `32527346306` failed because `source.Page.Cursor` was intentionally absent | GHA `32527536024` passed first-page cursor publication and continuation to EOF | Non-EOF first page publishes cursor; final continuation omits cursor and returns the second line | Cursor is attached only to non-EOF pages; source snapshot remains immutable |
+| Deterministic unauthorized classification | `internal/app/service_test.go`, GHA package/runtime | GHA `32527346306` compiled the new assertions while existing denial behavior was not yet compliant | GHA `32527536024` passed `errors.Is(err, security.ErrUnauthorized)` for catalog denial and production audit denial | Catalog and source denial paths both prove no remote/acquisition work and the same sentinel | Centralized `errReason` to the security sentinel without exposing policy detail |
+| Explicit TOFU enrollment | `internal/security/policy_test.go`, GHA package/runtime | GHA `32527346306` compiled enrollment tests against the existing explicit seam and required runtime proof | GHA `32527536024` passed explicit enrollment, defensive binding copy, missing evidence, and cancellation cases | Valid enrollment and three fail-closed evidence/context cases exercise distinct paths | No trust semantics were weakened; `Verify` still rejects missing pins and never enrolls implicitly |
+| Production audit validation and PolicyID | `internal/app/service_test.go`, `internal/audit/audit_test.go`, GHA package/runtime | GHA `32527346306` failed on the intentionally absent `ErrPolicyRejected` and registered PolicyID contract | GHA `32527536024` passed production `audit.Recorder` allow/deny events and PolicyID rejection | Successful and denied app operations both validate through the real recorder; unregistered IDs fail closed | App now emits fixed allowlisted `verified-readonly` metadata rather than profile names |
+
+### Work Unit Evidence: final-five-scenario-remediation
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | GHA Go Verification `32527536024` on exact code head `7cab63fd334cbdea412f0602189eca4a23a907c0`: `go test -count=1 ./...` exited 0; `go vet ./...`, formatting, operator-contract, six-target packaging, manifest checks, and upload also exited 0. |
+| Runtime harness command/scenario and exact result | GHA Ubuntu executed the real Go test binaries and production app/audit/security paths. It proved first-page/continuation, deterministic unauthorized denial, explicit TOFU enrollment/fail-closed cases, and allowlisted PolicyID audit records. No live IBM i boundary exists in CI; IBM i remains external and unvalidated. |
+| Rollback boundary | Revert commits `369c590`, `d7ce79a`, and `7cab63f` to remove only this remediation's focused tests, cursor output, deterministic denial mapping, PolicyID enforcement, and production audit metadata change. |
+
+### Delivery and Settlement Evidence
+
+| Field | Value |
+|---|---|
+| Issue | #61, focused remediation issue with `status:approved` |
+| Pull request | #62, draft, `fix/final-five-scenario-remediation` → `main`, exactly one `type:chore` label |
+| Commits | `369c590` RED; `d7ce79a` GREEN; `7cab63f` test correction after first GREEN run |
+| Changed lines | 166 total PR additions + deletions (126 behavior/test lines plus 40 evidence lines), below the 1000-line budget; no size exception |
+| Native token | `sha256:c01fc86aff0393b037be65bf8a30020a2c093a53606fac04f359ee2cd2291352` (acquired; not reacquired) |
+| Remediated revision | `sha256:f22b56746130700156d316e634357dcdd613c36d27a8a9a389132e76f51843f3` |
+| Exact-head final GHA | Go Verification `32527789878`, exact head `351bcf9`, passed `go test -count=1 ./...`, vet, formatting, packaging, manifest checks, and artifact upload; log evidence revision `sha256:39eee15adf65ca7d1967d40713a165c31d6002f14cd16c3104fb059625957dd3` |
+| Settlement | Passed exactly once with request ID `final-five-scenario-remediation-20260821`; remediates failed revision `sha256:f22b56746130700156d316e634357dcdd613c36d27a8a9a389132e76f51843f3`; native state is complete |
+| IBM i | `ready_for_controlled_ibmi_validation`; `not_validated_on_ibmi`; no live validation claimed |

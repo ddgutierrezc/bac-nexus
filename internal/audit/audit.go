@@ -22,6 +22,7 @@ var (
 	ErrCapabilityRejected = errors.New("audit: capability not allowlisted")
 	ErrConnectorRejected  = errors.New("audit: connector not allowlisted")
 	ErrTargetRejected     = errors.New("audit: target class not allowlisted")
+	ErrPolicyRejected     = errors.New("audit: policy identifier not allowlisted")
 	ErrResultRejected     = errors.New("audit: result class not allowlisted")
 	ErrReasonRejected     = errors.New("audit: reason not allowlisted")
 	ErrCountRejected      = errors.New("audit: count fields must be non-negative")
@@ -60,6 +61,8 @@ const (
 // identifier. It is a short, pre-registered identifier; it is never a
 // raw path, host, user, or clientInfo value.
 type PolicyID string
+
+const PolicyIDVerifiedReadOnly PolicyID = "verified-readonly"
 
 // ResultClass is the deterministic outcome classification. The
 // allowlist is closed: only allow/deny/error are accepted.
@@ -152,6 +155,9 @@ func ValidateEvent(event Event) error {
 	}
 	if event.Connector != ConnectorIBMi {
 		return ErrConnectorRejected
+	}
+	if event.PolicyID != PolicyIDVerifiedReadOnly {
+		return ErrPolicyRejected
 	}
 	switch event.TargetClass {
 	case TargetClassIBMiCatalog, TargetClassIBMiSource:

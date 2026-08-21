@@ -489,8 +489,8 @@ func TestServiceResolveCatalogRejectsPolicyDenial(t *testing.T) {
 		t.Fatalf("BuildQuery error = %v", err)
 	}
 	_, err = in.svc.ResolveCatalog(context.Background(), query, security.Selector("rogue"))
-	if err == nil {
-		t.Fatal("ResolveCatalog error = nil, want denial")
+	if !errors.Is(err, security.ErrUnauthorized) {
+		t.Fatalf("ResolveCatalog error = %v, want ErrUnauthorized", err)
 	}
 	if in.resolver.queries != 0 {
 		t.Fatalf("resolver was called %d times after policy denial, want 0", in.resolver.queries)
@@ -532,8 +532,15 @@ func TestServiceReadSelectedSourceAcquiresFirstPageWithoutCursor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first page error = %v", err)
 	}
-	if page.LineCount != 1 || page.NextStartLine != 2 || in.acquirer.calls != 1 {
+	if page.LineCount != 1 || page.NextStartLine != 2 || page.Cursor == "" || in.acquirer.calls != 1 {
 		t.Fatalf("page=%+v acquireCalls=%d", page, in.acquirer.calls)
+	}
+	continuation, err := in.svc.ReadSelectedSource(context.Background(), candidate, page.Cursor, source.Range{StartLine: 2, MaxLines: 1})
+	if err != nil {
+		t.Fatalf("continuation error = %v", err)
+	}
+	if continuation.Cursor != "" || len(continuation.Lines) != 1 || continuation.Lines[0] != "second" || !continuation.EOF {
+		t.Fatalf("continuation=%+v, want final page on original cursor", continuation)
 	}
 }
 
@@ -574,8 +581,8 @@ func TestServiceReadSelectedSourceRejectsPolicyDenial(t *testing.T) {
 	in.authz.decision = security.Decision_{Decision: security.DecisionDeny, Reason: "selector not allowlisted"}
 
 	_, err := in.svc.ReadSelectedSource(context.Background(), freshCandidate(), "cursor", source.Range{StartLine: 1, MaxLines: 10})
-	if err == nil {
-		t.Fatal("ReadSelectedSource error = nil, want denial")
+	if !errors.Is(err, security.ErrUnauthorized) {
+		t.Fatalf("ReadSelectedSource error = %v, want ErrUnauthorized", err)
 	}
 	if in.acquirer.calls != 0 {
 		t.Fatalf("acquirer was called %d times after policy denial, want 0", in.acquirer.calls)
@@ -699,5 +706,43 @@ func TestServiceAuditsCatalogResolution(t *testing.T) {
 				t.Fatalf("event returned = %d, want %d", last.Returned, tt.wantReturned)
 			}
 		})
+	}
+}
+
+func TestServiceAuditsThroughProductionRecorderWithAllowlistedPolicyID(t *testing.T) {
+	candidate := freshCandidate()
+	recorder := audit.NewRecorder()
+	resolver := &fakeCatalogResolver{candidates: []catalog.Candidate{candidate}}
+	authorizer := &fakeAuthorizer{decision: allowCatalogDecision()}
+	service := NewService(ServiceDeps{
+		Credentials: &fakeCredentialStore{secret: []byte("test")},
+		Authorizer:  authorizer,
+		Auditor:     recorder,
+		Resolver:    resolver,
+		Recovery:    &fakeRecoveryCoordinator{},
+		Profile:     "untrusted-profile-name",
+		Now:         fixedClock(),
+	})
+	if err := service.Startup(context.Background()); err != nil {
+		t.Fatalf("Startup error = %v", err)
+	}
+	query, err := catalog.BuildQuery(candidate.Item, candidate.ProductionLibrary)
+	if err != nil {
+		t.Fatalf("BuildQuery error = %v", err)
+	}
+	if _, err := service.ResolveCatalog(context.Background(), query, security.SelectorResolveCatalog); err != nil {
+		t.Fatalf("authorized ResolveCatalog error = %v", err)
+	}
+	events := recorder.Events()
+	if len(events) != 1 || events[0].PolicyID != audit.PolicyIDVerifiedReadOnly || events[0].Result != audit.ResultClassAllow {
+		t.Fatalf("authorized audit events = %+v", events)
+	}
+	authorizer.decision = security.Decision_{Decision: security.DecisionDeny, Reason: "selector not allowlisted"}
+	if _, err := service.ResolveCatalog(context.Background(), query, security.Selector("rogue")); !errors.Is(err, security.ErrUnauthorized) {
+		t.Fatalf("denied ResolveCatalog error = %v, want ErrUnauthorized", err)
+	}
+	events = recorder.Events()
+	if len(events) != 2 || events[1].PolicyID != audit.PolicyIDVerifiedReadOnly || events[1].Result != audit.ResultClassDeny {
+		t.Fatalf("denied audit events = %+v", events)
 	}
 }
