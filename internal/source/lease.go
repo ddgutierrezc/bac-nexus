@@ -2,6 +2,7 @@ package source
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"io"
@@ -10,6 +11,10 @@ import (
 
 	"bac-nexus/internal/catalog"
 )
+
+// randReader is the process-wide entropy source used by test
+// constructors when no explicit reader is supplied.
+var randReader io.Reader = rand.Reader
 
 // Cursor and epoch byte widths plus the default resident quota and idle TTL.
 const (
@@ -86,16 +91,23 @@ func NewLeaseStore(clock func() time.Time, random io.Reader) *LeaseStore {
 // NewLeaseStoreForTest creates a lease store with a deterministic epoch
 // derived from the clock. It is intended only for service-level tests
 // that need to mint and read back cursors; production code uses
-// NewLeaseStore.
+// NewLeaseStore. When random is nil, the constructor uses
+// crypto/rand.Reader so the lease store can mint capabilities.
 func NewLeaseStoreForTest(clock func() time.Time, random io.Reader) *LeaseStore {
 	epoch := make([]byte, EpochBytes)
 	for i := range epoch {
 		epoch[i] = byte(0xA5 ^ i)
 	}
 	if random == nil {
-		random = bytes.NewReader(nil)
+		random = defaultRandom()
 	}
 	return newLeaseStoreWithEpoch(epoch, clock, random, DefaultResidentCapacity, DefaultIdleTTL)
+}
+
+// defaultRandom returns a process-wide entropy source for test
+// constructors. Production callers should always supply their own.
+func defaultRandom() io.Reader {
+	return randReader
 }
 
 // newLeaseStoreWithEpoch builds the store with pre-supplied epoch, clock, and
