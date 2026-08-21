@@ -28,36 +28,54 @@ import (
 // filesystem, no real keyring, and no real SSH is ever involved.
 // ---------------------------------------------------------------------------
 
-// startableService is the package-local Service double used by every
-// main test. It records whether Startup was invoked and whether Run
-// was invoked, and returns the configured errors.
-type startableService struct {
-	startupErr error
-	startCalls int
-	runErr     error
-	runCalls   int
-	runCtx     context.Context
+// runnerStub is the package-local runner double used by every main
+// test. It records the Run call and returns the configured error.
+type runnerStub struct {
+	runErr   error
+	runCalls int
+	gotCtx   context.Context
 }
 
-func (s *startableService) Startup(ctx context.Context) error {
-	s.startCalls++
+func (r *runnerStub) Run(ctx context.Context) error {
+	r.runCalls++
+	r.gotCtx = ctx
+	return r.runErr
+}
+
+// failingRecovery is a RecoveryCoordinator that returns the
+// configured error. The main package test uses it to prove the
+// composition root fails closed when pre-acquire recovery fails.
+type failingRecovery struct {
+	err   error
+	calls int
+}
+
+func (f *failingRecovery) Recover(ctx context.Context) error {
+	f.calls++
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return s.startupErr
+	return f.err
 }
 
-func (s *startableService) Run(ctx context.Context) error {
-	s.runCalls++
-	s.runCtx = ctx
-	return s.runErr
+// successfulRecovery is a RecoveryCoordinator that records its
+// call and returns nil. The main package test uses it to prove
+// the composition root performs recovery before running the MCP
+// server.
+type successfulRecovery struct {
+	calls int
+}
+
+func (s *successfulRecovery) Recover(ctx context.Context) error {
+	s.calls++
+	return ctx.Err()
 }
 
 // fakeCredentialStore is a minimal CredentialStore used to satisfy
 // the app.Service contract.
 type fakeCredentialStore struct{}
 
-func (fakeCredentialStore) Get(profile string) ([]byte, error) { return []byte("test"), nil }
+func (fakeCredentialStore) Get(profile string) ([]byte, error)      { return []byte("test"), nil }
 func (fakeCredentialStore) Set(profile string, secret []byte) error { return nil }
 func (fakeCredentialStore) Delete(profile string) error             { return nil }
 
@@ -88,17 +106,6 @@ type fakeAcquirer struct{}
 
 func (fakeAcquirer) Acquire(ctx context.Context, candidate catalog.Candidate) (*source.Snapshot, error) {
 	return nil, errors.New("acquirer not used by main tests")
-}
-
-// fakeRecovery is a minimal RecoveryCoordinator that records its
-// call and succeeds.
-type fakeRecovery struct {
-	calls int
-}
-
-func (f *fakeRecovery) Recover(ctx context.Context) error {
-	f.calls++
-	return nil
 }
 
 // fakeLeaseStore is a minimal LeaseStore; main tests do not exercise
@@ -133,89 +140,68 @@ func candidateFixture() catalog.Candidate {
 // fixedClock returns a deterministic clock used by main tests.
 func fixedClock() func() time.Time { return func() time.Time { return time.Unix(0, 0).UTC() } }
 
+// validDeps returns a mainDeps struct with a successful recovery
+// and a runner stub. Tests can override individual fields before
+// invoking runWithDeps.
+func validDeps() (mainDeps, *runnerStub, *successfulRecovery) {
+	rec := &successfulRecovery{}
+	r := &runnerStub{}
+	deps := mainDeps{
+		Profile:       "test-profile",
+		Credentials:   fakeCredentialStore{},
+		Authorizer:    fakeAuthorizer{},
+		Auditor:       audit.NewRecorder(),
+		Resolver:      fakeResolver{},
+		Acquirer:      fakeAcquirer{},
+		Recovery:      rec,
+		Leases:        fakeLeaseStore{},
+		ServerFactory: func(s *service) (runner, error) { return r, nil },
+		Now:           fixedClock(),
+	}
+	return deps, r, rec
+}
+
 // ---------------------------------------------------------------------------
 // Composition tests
 // ---------------------------------------------------------------------------
 
-// TestBuildServiceInvokesStartupBeforeRun proves the composition
-// root performs the pre-acquire recovery gate (Service.Startup) before
-// exposing the MCP server to clients. A failed startup must abort
-// the lifecycle before the server runs.
-func TestBuildServiceInvokesStartupBeforeRun(t *testing.T) {
-	svc := &startableService{}
-	rec := &fakeRecovery{}
-	deps := mainDeps{
-		Profile:         "test-profile",
-		Credentials:     fakeCredentialStore{},
-		Authorizer:      fakeAuthorizer{},
-		Auditor:         audit.NewRecorder(),
-		Resolver:        fakeResolver{},
-		Acquirer:        fakeAcquirer{},
-		Recovery:        rec,
-		Leases:          fakeLeaseStore{},
-		ServerFactory:   func(s *service) (runner, error) { return svc, nil },
-		Now:             fixedClock(),
-	}
+// TestRunWithDepsInvokesRecoveryBeforeRun proves the composition
+// root performs the pre-acquire recovery gate (via
+// RecoveryCoordinator.Recover during app.Service.Startup) before
+// running the MCP server. The recovery counter is the canonical
+// proof that Startup succeeded.
+func TestRunWithDepsInvokesRecoveryBeforeRun(t *testing.T) {
+	deps, r, rec := validDeps()
 	if err := runWithDeps(context.Background(), deps); err != nil {
 		t.Fatalf("runWithDeps error = %v", err)
 	}
-	if svc.startCalls != 1 {
-		t.Fatalf("Startup calls = %d, want 1", svc.startCalls)
-	}
 	if rec.calls != 1 {
 		t.Fatalf("Recovery calls = %d, want 1", rec.calls)
 	}
-	if svc.runCalls != 1 {
-		t.Fatalf("Run calls = %d, want 1", svc.runCalls)
+	if r.runCalls != 1 {
+		t.Fatalf("Run calls = %d, want 1", r.runCalls)
 	}
 }
 
-// TestBuildServiceFailsClosedOnStartupError proves a failed startup
-// returns the underlying error and never invokes the MCP server Run.
-func TestBuildServiceFailsClosedOnStartupError(t *testing.T) {
-	svc := &startableService{startupErr: errors.New("simulated recovery failure")}
-	rec := &fakeRecovery{}
-	deps := mainDeps{
-		Profile:       "test-profile",
-		Credentials:   fakeCredentialStore{},
-		Authorizer:    fakeAuthorizer{},
-		Auditor:       audit.NewRecorder(),
-		Resolver:      fakeResolver{},
-		Acquirer:      fakeAcquirer{},
-		Recovery:      rec,
-		Leases:        fakeLeaseStore{},
-		ServerFactory: func(s *service) (runner, error) { return svc, nil },
-		Now:           fixedClock(),
-	}
+// TestRunWithDepsFailsClosedOnRecoveryError proves a failed
+// pre-acquire recovery aborts the lifecycle before the MCP server
+// runs. The runner must never be invoked.
+func TestRunWithDepsFailsClosedOnRecoveryError(t *testing.T) {
+	deps, r, _ := validDeps()
+	deps.Recovery = &failingRecovery{err: errors.New("simulated recovery failure")}
 	if err := runWithDeps(context.Background(), deps); err == nil {
-		t.Fatal("runWithDeps error = nil, want startup failure")
+		t.Fatal("runWithDeps error = nil, want recovery failure")
 	}
-	if rec.calls != 1 {
-		t.Fatalf("Recovery calls = %d, want 1", rec.calls)
-	}
-	if svc.runCalls != 0 {
-		t.Fatalf("Run calls = %d, want 0 after startup failure", svc.runCalls)
+	if r.runCalls != 0 {
+		t.Fatalf("Run calls = %d, want 0 after recovery failure", r.runCalls)
 	}
 }
 
-// TestBuildServiceHonorsContextCancellation proves a pre-cancelled
-// context aborts before Startup is invoked and the MCP server never
-// runs.
-func TestBuildServiceHonorsContextCancellation(t *testing.T) {
-	svc := &startableService{}
-	rec := &fakeRecovery{}
-	deps := mainDeps{
-		Profile:       "test-profile",
-		Credentials:   fakeCredentialStore{},
-		Authorizer:    fakeAuthorizer{},
-		Auditor:       audit.NewRecorder(),
-		Resolver:      fakeResolver{},
-		Acquirer:      fakeAcquirer{},
-		Recovery:      rec,
-		Leases:        fakeLeaseStore{},
-		ServerFactory: func(s *service) (runner, error) { return svc, nil },
-		Now:           fixedClock(),
-	}
+// TestRunWithDepsHonorsContextCancellation proves a pre-cancelled
+// context aborts before Recovery is invoked and the MCP server
+// never runs.
+func TestRunWithDepsHonorsContextCancellation(t *testing.T) {
+	deps, r, rec := validDeps()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	err := runWithDeps(ctx, deps)
@@ -225,32 +211,37 @@ func TestBuildServiceHonorsContextCancellation(t *testing.T) {
 	if rec.calls != 0 {
 		t.Fatalf("Recovery calls = %d after cancellation, want 0", rec.calls)
 	}
-	if svc.startCalls != 0 {
-		t.Fatalf("Startup calls = %d after cancellation, want 0", svc.startCalls)
-	}
-	if svc.runCalls != 0 {
-		t.Fatalf("Run calls = %d after cancellation, want 0", svc.runCalls)
+	if r.runCalls != 0 {
+		t.Fatalf("Run calls = %d after cancellation, want 0", r.runCalls)
 	}
 }
 
-// TestBuildServiceRequiresProfile proves the composition root
+// TestRunWithDepsRequiresProfile proves the composition root
 // refuses an empty profile because every audit record is bound to
 // the policy identifier and every credential call needs a profile.
-func TestBuildServiceRequiresProfile(t *testing.T) {
-	deps := mainDeps{
-		Profile:       "",
-		Credentials:   fakeCredentialStore{},
-		Authorizer:    fakeAuthorizer{},
-		Auditor:       audit.NewRecorder(),
-		Resolver:      fakeResolver{},
-		Acquirer:      fakeAcquirer{},
-		Recovery:      &fakeRecovery{},
-		Leases:        fakeLeaseStore{},
-		ServerFactory: func(s *service) (runner, error) { return &startableService{}, nil },
-		Now:           fixedClock(),
-	}
-	if err := runWithDeps(context.Background(), deps); err == nil {
+func TestRunWithDepsRequiresProfile(t *testing.T) {
+	deps, r, rec := validDeps()
+	deps.Profile = ""
+	err := runWithDeps(context.Background(), deps)
+	if err == nil {
 		t.Fatal("runWithDeps error = nil, want empty profile rejection")
+	}
+	if rec.calls != 0 {
+		t.Fatalf("Recovery calls = %d with empty profile, want 0", rec.calls)
+	}
+	if r.runCalls != 0 {
+		t.Fatalf("Run calls = %d with empty profile, want 0", r.runCalls)
+	}
+}
+
+// TestRunWithDepsRejectsWhitespaceProfile proves the profile
+// validation also rejects whitespace-only inputs, because the
+// profile name is used as an audit policy identifier.
+func TestRunWithDepsRejectsWhitespaceProfile(t *testing.T) {
+	deps, _, _ := validDeps()
+	deps.Profile = "   \t  "
+	if err := runWithDeps(context.Background(), deps); err == nil {
+		t.Fatal("runWithDeps error = nil, want whitespace profile rejection")
 	}
 }
 
@@ -310,15 +301,23 @@ func TestRunCommandServeRejectsMissingProfile(t *testing.T) {
 	}
 }
 
+// TestRunCommandServeHelpReturnsFlagHelp proves the serve
+// subcommand help text is reachable through `nexus help serve`.
+func TestRunCommandServeHelpReturnsFlagHelp(t *testing.T) {
+	if err := runCommand([]string{"help", "serve"}, io.Discard); err != flag.ErrHelp {
+		t.Fatalf("runCommand(help serve) error = %v, want flag.ErrHelp", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Structural surface guard
 // ---------------------------------------------------------------------------
 
 // TestMainPackageHasNoRemotePathOrShellSurface is a structural
-// reflection test: every public type and function in the main
-// package must never expose generic remote, path, shell, SQL, or
-// SSH capabilities. The test enumerates a curated set of
-// identifier substrings that the design and security model forbid.
+// reflection test: every public type in the main package must
+// never expose generic remote, path, shell, SQL, or SSH
+// capabilities. The test enumerates a curated set of identifier
+// substrings that the design and security model forbid.
 func TestMainPackageHasNoRemotePathOrShellSurface(t *testing.T) {
 	checks := []struct {
 		typ   reflect.Type
@@ -354,10 +353,10 @@ var forbiddenMainSubstrings = []string{
 	"argv",
 }
 
-// fieldContains is duplicated here to keep the main package's test
-// surface self-contained. It returns whether the supplied struct
-// type exposes a field whose lower-cased name contains the supplied
-// substring, recursing into anonymous embedded structs.
+// fieldContains returns whether the supplied struct type exposes a
+// field whose lower-cased name contains the supplied substring,
+// recursing into anonymous embedded structs. It is duplicated
+// here to keep the main package's test surface self-contained.
 func fieldContains(typ reflect.Type, substring string) (bool, string) {
 	return fieldContainsVisited(typ, substring, map[reflect.Type]bool{})
 }
@@ -388,23 +387,15 @@ func fieldContainsVisited(typ reflect.Type, substring string, visited map[reflec
 	return false, ""
 }
 
+// ---------------------------------------------------------------------------
+// Help-text contract
+// ---------------------------------------------------------------------------
+
 // TestRunCommandServeDescriptionMentionsNoGenericTool proves the
 // serve subcommand's help text never advertises a generic remote,
 // shell, SQL, or path tool. A textual contract catches accidental
 // help-text drift that the structural reflection test would miss.
 func TestRunCommandServeDescriptionMentionsNoGenericTool(t *testing.T) {
-	deps := mainDeps{
-		Profile:       "test-profile",
-		Credentials:   fakeCredentialStore{},
-		Authorizer:    fakeAuthorizer{},
-		Auditor:       audit.NewRecorder(),
-		Resolver:      fakeResolver{},
-		Acquirer:      fakeAcquirer{},
-		Recovery:      &fakeRecovery{},
-		Leases:        fakeLeaseStore{},
-		ServerFactory: func(s *service) (runner, error) { return &startableService{}, nil },
-		Now:           fixedClock(),
-	}
 	out := &strings.Builder{}
 	if err := runCommand([]string{"help", "serve"}, out); err != flag.ErrHelp {
 		t.Fatalf("runCommand(help serve) error = %v, want flag.ErrHelp", err)
@@ -415,7 +406,6 @@ func TestRunCommandServeDescriptionMentionsNoGenericTool(t *testing.T) {
 			t.Fatalf("help text mentions forbidden capability %q: %s", forbidden, out.String())
 		}
 	}
-	_ = deps
 }
 
 // TestRunCommandServeSummaryListsTwoTools proves the help text
@@ -434,24 +424,17 @@ func TestRunCommandServeSummaryListsTwoTools(t *testing.T) {
 	}
 }
 
-// TestRunCommandServeFlagsRequireValue proves every string flag on
-// the serve subcommand takes a value, so a missing argument fails
-// fast with a helpful diagnostic. The test is structural: it
-// instantiates the flag set, walks every string flag, and verifies
-// none of them defaults to the empty literal when supplied with a
-// value.
-func TestRunCommandServeFlagsRequireValue(t *testing.T) {
+// TestRegisterServeFlagsExposesProfileFlag proves the canonical
+// flag set exposes the required profile flag. The flag is the
+// only CLI input that controls the audit policy identifier, so
+// every serve invocation must supply it.
+func TestRegisterServeFlagsExposesProfileFlag(t *testing.T) {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	registerServeFlags(fs)
-	fs.VisitAll(func(f *flag.Flag) {
-		if f.DefValue == "" {
-			// Allow string flags to have a default of ""; they
-			// only require a value when explicitly set. The test
-			// here is structural and only asserts that the flag
-			// set registers without error.
-		}
-	})
+	if fs.Lookup("profile") == nil {
+		t.Fatal("serve flag set is missing the required -profile flag")
+	}
 }
 
 // _ keeps the credential import alive when unused in this file.

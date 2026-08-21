@@ -8,7 +8,6 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"reflect"
 	"slices"
@@ -31,8 +30,8 @@ import (
 // by every handler test. It records the last call and returns the
 // configured result.
 type fakeService struct {
-	resolveFn func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error)
-	readFn    func(ctx context.Context, cursor string, page source.Range) (source.Page, error)
+	resolveFn    func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error)
+	readFn       func(ctx context.Context, cursor string, page source.Range) (source.Page, error)
 	resolveCalls int
 	readCalls    int
 	lastQuery    catalog.Query
@@ -112,7 +111,7 @@ func TestServerRegistersExactlyTwoTools(t *testing.T) {
 	if len(names) != 2 {
 		t.Fatalf("ToolNames len = %d, want 2 (%v)", len(names), names)
 	}
-	want := []string{"read_selected_source", "resolve_catalog_candidates"}
+	want := []string{"resolve_catalog_candidates", "read_selected_source"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("ToolNames = %v, want %v", names, want)
 	}
@@ -496,6 +495,9 @@ func TestServerListsOnlyTwoToolsThroughTransport(t *testing.T) {
 	}
 	slices.Sort(names)
 	want := []string{"read_selected_source", "resolve_catalog_candidates"}
+	if len(names) != 2 {
+		t.Fatalf("transport tools = %v, want exactly 2", names)
+	}
 	if !slices.Equal(names, want) {
 		t.Fatalf("transport tools = %v, want %v", names, want)
 	}
@@ -536,7 +538,7 @@ func TestServerResolvesCatalogOverTransport(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("CallTool IsError = true: %+v", result.Content)
 	}
-	if len(svc.resolveCalls) != 1 && svc.resolveCalls != 1 {
+	if svc.resolveCalls != 1 {
 		t.Fatalf("resolve calls = %d, want 1", svc.resolveCalls)
 	}
 }
@@ -556,9 +558,13 @@ func callResolveCatalog(t *testing.T, srv *Server, input ResolveCatalogInput) (*
 
 func callResolveCatalogWithContext(t *testing.T, srv *Server, ctx context.Context, input ResolveCatalogInput) (*mcp.CallToolResult, ResolveCatalogOutput, error) {
 	t.Helper()
-	handler, ok := srv.handlers["resolve_catalog_candidates"]
+	raw, ok := srv.handlers["resolve_catalog_candidates"]
 	if !ok {
 		t.Fatalf("resolve_catalog_candidates handler is not registered")
+	}
+	handler, ok := raw.(resolveCatalogFn)
+	if !ok {
+		t.Fatalf("resolve_catalog_candidates handler has wrong type %T", raw)
 	}
 	return handler(ctx, input)
 }
@@ -572,22 +578,13 @@ func callReadSelectedSource(t *testing.T, srv *Server, input ReadSelectedSourceI
 
 func callReadSelectedSourceWithContext(t *testing.T, srv *Server, ctx context.Context, input ReadSelectedSourceInput) (*mcp.CallToolResult, ReadSelectedSourceOutput, error) {
 	t.Helper()
-	handler, ok := srv.handlers["read_selected_source"]
+	raw, ok := srv.handlers["read_selected_source"]
 	if !ok {
 		t.Fatalf("read_selected_source handler is not registered")
 	}
-	return handler(ctx, input)
-}
-
-// marshalCallReadSelectedSource invokes the read handler and
-// marshals the typed output for sensitive-content assertions. The
-// helper always returns a non-nil raw payload so the test can scan
-// the full JSON for forbidden content.
-func marshalCallReadSelectedSource(t *testing.T, srv *Server, input ReadSelectedSourceInput) ([]byte, error) {
-	t.Helper()
-	_, out, err := callReadSelectedSource(t, srv, input)
-	if err != nil {
-		return nil, err
+	handler, ok := raw.(readSelectedSourceFn)
+	if !ok {
+		t.Fatalf("read_selected_source handler has wrong type %T", raw)
 	}
-	return json.Marshal(out)
+	return handler(ctx, input)
 }
