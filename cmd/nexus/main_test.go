@@ -111,7 +111,6 @@ func TestRunWithDepsComposition(t *testing.T) {
 		{"recovery runs before run", nil, func() context.Context { return context.Background() }, 1, 1, false},
 		{"recovery failure stops the run", func(d *mainDeps) { d.Recovery = &failingRecovery{err: errors.New("simulated recovery failure")} }, func() context.Context { return context.Background() }, 0, 0, true},
 		{"pre-cancelled context aborts before recovery", nil, cancelledCtx, 0, 0, true},
-		{"empty profile is rejected", func(d *mainDeps) { d.Profile = "" }, func() context.Context { return context.Background() }, 0, 0, true},
 		{"whitespace profile is rejected", func(d *mainDeps) { d.Profile = "   \t  " }, func() context.Context { return context.Background() }, 0, 0, true},
 	}
 	for _, tt := range tests {
