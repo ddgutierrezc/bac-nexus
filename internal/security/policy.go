@@ -187,8 +187,12 @@ func NewPinnedTrust() PinnedTrust { return PinnedTrust{} }
 // Enroll is the explicit TOFU operation. It records only non-secret
 // provenance in the returned pin; Verify never calls it implicitly.
 func (PinnedTrust) Enroll(ctx context.Context, fingerprint string, binding []byte, provenance string) (PinnedTarget, error) {
-	if err := ctx.Err(); err != nil { return PinnedTarget{}, err }
-	if fingerprint == "" || len(binding) == 0 || provenance == "" { return PinnedTarget{}, ErrTrustEvidenceMissing }
+	if err := ctx.Err(); err != nil {
+		return PinnedTarget{}, err
+	}
+	if fingerprint == "" || len(binding) == 0 || provenance == "" {
+		return PinnedTarget{}, ErrTrustEvidenceMissing
+	}
 	return PinnedTarget{Trust: HostKeyTrustTOFU, Fingerprint: fingerprint, Binding: append([]byte(nil), binding...), Provenance: provenance}, nil
 }
 
