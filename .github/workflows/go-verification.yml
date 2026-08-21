@@ -33,6 +33,27 @@ jobs:
       - name: Run static analysis
         run: go vet ./...
 
+      - name: Verify formatting and operator contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r file; do
+            diff="$(sed 's/\r$//' "$file" | gofmt -d)"
+            if [[ -n "$diff" ]]; then
+              echo "not gofmt-conforming: $file"
+              exit 1
+            fi
+          done < <(git ls-files '*.go')
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('docs/IBM_I_VALIDATION.md').read_text(encoding='utf-8')
+          required = ['## Prerequisites', '## Binary and manifest verification', '## Manual validation checklist', '## Sanitized external evidence template', '## Abort and rollback', 'ready_for_controlled_ibmi_validation', 'not_validated_on_ibmi']
+          forbidden = ['source text:', 'host/user IDs:', 'raw errors:', 'commands:', 'SQL:', 'cursors:']
+          assert all(marker in text for marker in required)
+          assert not any(marker in text for marker in forbidden)
+          assert 'only exact recorded owned paths' in text
+          PY
+
       - name: Build and verify handoff package
         shell: bash
         env:

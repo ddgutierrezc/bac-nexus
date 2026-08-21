@@ -19,7 +19,7 @@ import (
 // Service is the narrow dependency surface the MCP server requires.
 type Service interface {
 	ResolveCatalog(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error)
-	ReadSelectedSource(ctx context.Context, cursor string, page source.Range) (source.Page, error)
+	ReadSelectedSource(ctx context.Context, selection catalog.Candidate, cursor string, page source.Range) (source.Page, error)
 }
 
 // Info identifies the MCP server to clients.
@@ -47,8 +47,8 @@ type Server struct {
 // ResolveCatalogInput is the typed MCP request for
 // resolve_catalog_candidates.
 type ResolveCatalogInput struct {
-	Statement  string   `json:"statement" jsonschema:"bounded SQL statement to execute"`
-	Parameters []string `json:"parameters,omitempty" jsonschema:"positional query parameters"`
+	Item              string `json:"item" jsonschema:"catalog item name"`
+	ProductionLibrary string `json:"productionLibrary,omitempty" jsonschema:"optional production library name"`
 }
 
 // ResolveCatalogOutput is the typed MCP response for
@@ -62,9 +62,10 @@ type ResolveCatalogOutput struct {
 // read_selected_source. The cursor is the only selection binding;
 // no path, listing, or delete field exists.
 type ReadSelectedSourceInput struct {
-	Cursor    string `json:"cursor" jsonschema:"opaque snapshot cursor"`
-	StartLine int    `json:"startLine" jsonschema:"one-based inclusive start line"`
-	MaxLines  int    `json:"maxLines" jsonschema:"maximum lines in this page"`
+	Selection catalog.Candidate `json:"selection" jsonschema:"exact catalog selection; required only on the first page"`
+	Cursor    string            `json:"cursor,omitempty" jsonschema:"opaque snapshot cursor for later pages"`
+	StartLine int               `json:"startLine" jsonschema:"one-based inclusive start line"`
+	MaxLines  int               `json:"maxLines" jsonschema:"maximum lines in this page"`
 }
 
 // ReadSelectedSourceOutput is the typed MCP response for
@@ -119,11 +120,11 @@ func (s *Server) resolveCatalog(ctx context.Context, _ *mcp.CallToolRequest, inp
 	if err := ctx.Err(); err != nil {
 		return nil, ResolveCatalogOutput{}, err
 	}
-	candidates, err := s.service.ResolveCatalog(ctx, catalog.Query{
-		Statement:  input.Statement,
-		Parameters: append([]string(nil), input.Parameters...),
-		RowLimit:   catalog.MaxCandidates + 1,
-	}, security.SelectorResolveCatalog)
+	query, err := catalog.BuildQuery(input.Item, input.ProductionLibrary)
+	if err != nil {
+		return nil, ResolveCatalogOutput{}, err
+	}
+	candidates, err := s.service.ResolveCatalog(ctx, query, security.SelectorResolveCatalog)
 	if err != nil {
 		return nil, ResolveCatalogOutput{}, err
 	}
@@ -134,7 +135,7 @@ func (s *Server) readSelectedSource(ctx context.Context, _ *mcp.CallToolRequest,
 	if err := ctx.Err(); err != nil {
 		return nil, ReadSelectedSourceOutput{}, err
 	}
-	page, err := s.service.ReadSelectedSource(ctx, input.Cursor, source.Range{StartLine: input.StartLine, MaxLines: input.MaxLines})
+	page, err := s.service.ReadSelectedSource(ctx, input.Selection, input.Cursor, source.Range{StartLine: input.StartLine, MaxLines: input.MaxLines})
 	if err != nil {
 		return nil, ReadSelectedSourceOutput{}, err
 	}

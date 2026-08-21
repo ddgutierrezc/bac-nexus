@@ -416,3 +416,85 @@ Task 4.4 is complete at **42/42**. The final slice preserves the planning correc
 | Rollback boundary | Revert PR8 commits `73601f9`, `ce7bc7c`, `d75ef07`, `f52af09`, `6e793db`, `2246fe9`, `b8ecc08`, `3fc13f6`, `a983448`, `c98142c`, `a2ec93b`, and `cfb0bc3`/`e69fcb6` as applicable to remove only task-4.4 release identity, workflow packaging, runbook, status wording, tests, and planning-artifact updates. |
 
 Generated package paths are `build/v1-mcp-foundation/<version>/<goos>-<goarch>/nexus` (or `nexus.exe`) and the adjacent `nexus.manifest.json`. Completed operator evidence remains outside the repository and release bundle. Release status is `ready_for_controlled_ibmi_validation`; validation status is `not_validated_on_ibmi`.
+
+## Native bounded remediation — final-verification-v1-mcp-foundation
+
+The single authorized correction opportunity is in progress against failed
+evidence revision `sha256:7377ee9ebe6b9d08488ff16f7863c125d545bf8f6ccf7a70293725efdb567313`.
+The candidate changes remove the MCP SQL input, add production first-page
+resolution/acquisition, map empty catalog results to `not_found`, add explicit
+TOFU enrollment, make required audit failures visible, and add GHA runbook and
+format gates. The original findings remain preserved in `verify-report.md`.
+
+| Evidence | Result |
+|---|---|
+| Focused test command | Compile-only `go test -c -o NUL ./internal/app`, `./internal/mcp`, and `./cmd/nexus` exited 0. Local runtime tests are prohibited by WDAC. |
+| Runtime harness | Pending exact-head GHA; it must run repository tests, vet, formatting, package checks, and the runbook contract assertions. Live IBM i is external and N/A. |
+| Rollback boundary | Revert the correction commit to restore only `internal/app`, `internal/mcp`, `internal/security`, their focused tests, the workflow contract gate, security wording, and remediation evidence. |
+
+Strict-TDD correction evidence is limited to focused candidate coverage and
+must not be treated as complete historical 42-task provenance.
+
+The exact-head GHA attempt `32520012678` passed tests and vet but failed its
+formatting gate at `internal/app/service.go`; no passing settlement or new
+evidence revision is recorded yet. The native remediation remains in progress
+until the final candidate receives independent verification. No archive action
+is authorized.
+
+## Maintainer-authorized final correction: format and provenance
+
+This bounded work unit is `final-format-and-tdd-provenance`. It is limited to
+canonical `gofmt` output and truthful cumulative provenance; it introduces no
+behavioral change. The maintainer-authorized correction-objective accounting is
+201 actual changed lines against 150 estimated lines. This overrun applies only
+to the prior correction objective; it does not change the normal PR budget.
+
+### Cumulative Strict-TDD provenance reconciliation
+
+The following table consolidates the existing RED/GREEN/REFACTOR records and
+their authoritative GitHub Actions evidence. A row is grouped only where the
+same merged work unit owns the complete microcycle; no local runtime execution
+is claimed because WDAC blocks generated Go test binaries.
+
+| Tasks | RED evidence | GREEN evidence | REFACTOR / final evidence | Truth status |
+|---|---|---|---|---|
+| 1.1–1.3 | Existing RED commit in PR #9 history | GHA `32284101987` on merged PR #9 | Same exact-head GHA; refactor recorded in prior apply history | Proven |
+| 1.4–1.6 | Existing RED commit in PR #11 history | GHA `32286630091` on merged PR #11 | Same exact-head GHA; refactor recorded in prior apply history | Proven |
+| 2.1–2.4 | Existing RED/green microcycles in PRs #14, #16, and #18 | GHA `32293549022`, `32296338674`, `32303520524` | Each merged exact-head run passed; recovery evidence is retained below | Proven |
+| 2.5–2.7 | Existing ledger RED commit in PR #26 history | GHA `32383533552` | Same exact-head GHA; refactor recorded in the 3B.1a evidence | Proven |
+| 2.8–2.10 | GHA `32395204989` recorded the compact filesystem-policy RED | GHA `32397326959` on merged PR #28 | Final PR #28 verification is the authoritative green/refactor boundary | Proven; the intentional compact RED is retained |
+| 2.11–2.19 | Runs and commits listed in the detailed rows above | Runs listed in the detailed rows above | Recovery slices #40–#43 and run `32440474553` | Proven |
+| 3.1–3.10 | Runs and commits listed in the 5A/5B sections above | `32442432657`, `32499446675`, `32502171330`, `32505436438` | Final exact-head runs listed above | Proven |
+| 4.1–4.3 | Existing RED commits in PR #55 history | GHA `32510069691` | Post-merge GHA `32510283292`; refactor/evidence retained | Proven |
+| 4.4 | GHA `32514453480` on `73601f9` failed only at absent manifest symbols | GHA `32517001781` on `e69fcb6` | Packaging/runbook evidence retained in the PR8 section above | Proven |
+| Final correction | N/A: formatting-only normalization; no behavior test is authored | Pending exact-head GHA | Pending independent verification | Not yet settled |
+
+The earlier report's omission of tasks 1.1–2.10 from its compact table was a
+documentation defect, not an unresolved product behavior. The provenance is
+now reconciled to merged work-unit commits and exact-head GHA runs without
+retroactively claiming tests-first execution where the retained record does
+not support that claim. IBM i remains `ready_for_controlled_ibmi_validation`
+and `not_validated_on_ibmi`.
+
+### Work Unit Evidence: final-format-and-tdd-provenance
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | Exact-head GHA is required: `go test -count=1 ./...`, `go vet ./...`, formatting, packaging, manifest, and runbook checks. No local Go runtime is claimed under WDAC. |
+| Runtime harness command/scenario and exact result | GitHub Actions is the runtime authority; the exact-head workflow must pass tests, six-target packaging, manifest checks, and runbook assertions. Live IBM i is N/A and external. |
+| Rollback boundary | Revert the formatting-only `internal/app/service.go` change and the final provenance sections in these two SDD artifacts; no product behavior or prior evidence is removed. |
+
+### Final maintainer accounting and delivery evidence
+
+| Field | Value |
+|---|---|
+| Correction objective | Final verification formatting/provenance correction only; no behavior, scope, issue, or PR expansion |
+| Authorized correction accounting | 201 actual changed lines / 150 estimated lines; the maintainer authorized this scoped objective overrun |
+| PR-level accounting | PR #60 remains 522 changed lines / 1000-line normal budget; the normal budget is unchanged |
+| PR label decision | No misleading PR-level `size:exception` label applied; the authorization is objective-scoped, not PR-scoped |
+| Exact green head | `b924e2b9bf25c9d3bafbda95d84a82bca19eb32d` |
+| Exact-head GHA | Go Verification `32520980549`, `pull_request`, success; tests, vet, formatting, packaging, manifest, artifact upload, and runbook checks passed |
+| Independent verification | 8/8 original blockers closed; 0 blockers |
+| Native finalization | Token acquired for `final-correction-accounting-and-merge`, max attempts 1, max changed lines 120, no remediates obligation; settlement is performed exactly once with a distinct request ID and evidence revision |
+| IBM i status | `ready_for_controlled_ibmi_validation`; `not_validated_on_ibmi` |
+| Runtime authority | WDAC blocks local Go runtime; GitHub Actions is the authoritative runtime evidence. No local tests or live IBM i validation are claimed. |
