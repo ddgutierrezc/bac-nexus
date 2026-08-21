@@ -22,10 +22,6 @@ import (
 	"bac-nexus/internal/security"
 )
 
-// main is the entry point for the nexus binary. It forwards
-// os.Args[1:] to runCommand, prints a sanitized error to stderr
-// when runCommand returns a real failure, and exits with the
-// appropriate code.
 func main() {
 	err := runCommand(os.Args[1:], os.Stderr)
 	if errors.Is(err, flag.ErrHelp) {
@@ -90,15 +86,9 @@ func runWithDeps(ctx context.Context, deps mainDeps) error {
 		deps.Now = time.Now
 	}
 	svc := app.NewService(app.ServiceDeps{
-		Credentials: deps.Credentials,
-		Authorizer:  deps.Authorizer,
-		Auditor:     deps.Auditor,
-		Resolver:    deps.Resolver,
-		Acquirer:    deps.Acquirer,
-		Leases:      deps.Leases,
-		Recovery:    deps.Recovery,
-		Profile:     deps.Profile,
-		Now:         deps.Now,
+		Credentials: deps.Credentials, Authorizer: deps.Authorizer, Auditor: deps.Auditor,
+		Resolver: deps.Resolver, Acquirer: deps.Acquirer, Leases: deps.Leases,
+		Recovery: deps.Recovery, Profile: deps.Profile, Now: deps.Now,
 	})
 	if err := svc.Startup(ctx); err != nil {
 		return fmt.Errorf("startup: %w", err)
@@ -106,8 +96,7 @@ func runWithDeps(ctx context.Context, deps mainDeps) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	wrapped := &service{app: svc, profile: deps.Profile}
-	r, err := deps.ServerFactory(wrapped)
+	r, err := deps.ServerFactory(&service{app: svc, profile: deps.Profile})
 	if err != nil {
 		return fmt.Errorf("build mcp server: %w", err)
 	}
@@ -128,22 +117,15 @@ func newMCPServer(s *service) (runner, error) {
 	return server, nil
 }
 
-// defaultDeps is the canonical production dependency set. It uses
-// the in-process native credential store, the canonical v1 policy,
-// the in-memory audit recorder, and the real recovery coordinator.
-// The serve subcommand reads flags and supplies the profile; the
-// resolver and acquirer are intentionally nil in v1 MCP because
-// the surface is restricted to the two read-only tools.
+// defaultDeps returns the canonical production dependency set. The
+// serve subcommand supplies the profile from flags; the resolver
+// and acquirer are intentionally nil in v1 MCP because the surface
+// is restricted to the two read-only tools.
 func defaultDeps() mainDeps {
 	return mainDeps{
-		Profile:       "",
 		Credentials:   credential.NewNativeCredentialStore(),
 		Authorizer:    security.NewPolicy(),
 		Auditor:       audit.NewRecorder(),
-		Resolver:      nil,
-		Acquirer:      nil,
-		Recovery:      nil,
-		Leases:        nil,
 		ServerFactory: newMCPServer,
 		Now:           time.Now,
 	}
@@ -179,15 +161,9 @@ func runCommand(args []string, out io.Writer) error {
 	}
 }
 
-// printHelp renders the top-level or subcommand help text. It
-// returns flag.ErrHelp so the caller can distinguish help from a
-// real failure.
 func printHelp(args []string, out io.Writer) error {
-	if len(args) > 0 {
-		switch args[0] {
-		case "serve":
-			return printServeHelp(out)
-		}
+	if len(args) > 0 && args[0] == "serve" {
+		return printServeHelp(out)
 	}
 	fmt.Fprintln(out, "nexus — BAC Nexus v1 MCP stdio server")
 	fmt.Fprintln(out, "")
@@ -199,8 +175,6 @@ func printHelp(args []string, out io.Writer) error {
 	return flag.ErrHelp
 }
 
-// printServeHelp renders the serve subcommand help text. It is
-// invoked by `nexus help serve` and by `nexus serve -h`.
 func printServeHelp(out io.Writer) error {
 	fmt.Fprintln(out, "nexus serve — run the typed stdio MCP server")
 	fmt.Fprintln(out, "")
@@ -217,10 +191,6 @@ func printServeHelp(out io.Writer) error {
 	return flag.ErrHelp
 }
 
-// runServe is the implementation of the serve subcommand. It
-// parses the flag set, builds the production dependency graph, and
-// calls runWithDeps to compose the catalog-context service and
-// the MCP server.
 func runServe(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(out)
@@ -238,10 +208,6 @@ func runServe(args []string, out io.Writer) error {
 	return runWithDeps(context.Background(), deps)
 }
 
-// registerServeFlags wires the canonical flag set onto the
-// supplied FlagSet. The split helper exists so the test
-// `TestRunCommandServeFlagsRequireValue` can introspect the set
-// without going through fs.Parse.
 func registerServeFlags(fs *flag.FlagSet) {
 	fs.String("profile", "", "approved Nexus profile name (required)")
 }
