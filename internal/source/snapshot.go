@@ -24,7 +24,18 @@ var (
 	ErrResponseTooLarge = errors.New("source page response exceeds marshaled size limit")
 	// ErrInvalidSourceEncoding signals the supplied member bytes are not valid UTF-8.
 	ErrInvalidSourceEncoding = errors.New("source is not valid UTF-8")
+	// ErrStaleCoordinate signals the current catalog coordinate has changed
+	// since the cursor was minted; the caller must restart at line 1.
+	ErrStaleCoordinate = errors.New("source cursor coordinate is stale")
 )
+
+// Range is a one-based, inclusive source page request. StartLine and
+// MaxLines are both positive; MaxLines is additionally bounded by
+// MaxPageLines at the snapshot layer.
+type Range struct {
+	StartLine int
+	MaxLines  int
+}
 
 type lineOffset struct {
 	start int

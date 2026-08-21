@@ -93,9 +93,9 @@ Only canonical parent tasks use checkboxes: native count is 42, with 29 complete
 - [x] 3.5 **RED (PR 5B)**: Test `internal/{security,audit}/*_test.go` selector and spoofed `clientInfo`, TOFU changes, allowlisted audit redaction, and no remote/generic path operations.
 - [x] 3.6 **GREEN (PR 5B)**: Add `internal/security/policy.go` and `internal/audit/audit.go` pinned trust and sanitized outcomes, depending on 5A credentials.
 - [x] 3.7 **REFACTOR (PR 5B)**: Table-drive policy/audit fakes and rerun both package commands.
-- [ ] 3.8 **RED (PR 6)**: Test `internal/app/service_test.go` 50-result bound, re-query/stale, page bytes, and credential/policy denial before remote work.
-- [ ] 3.9 **GREEN (PR 6)**: Create deterministic `internal/app/service.go` over 2, 3B.3, and 5B; invoke `source.RecoveryCoordinator.Recover` during real Nexus process startup before service availability, retaining the 3.8 freshness/credential/policy service scope.
-- [ ] 3.10 **REFACTOR (PR 6)**: Consolidate service fakes and freshness cases.
+- [x] 3.8 **RED (PR 6)**: Test `internal/app/service_test.go` 50-result bound, re-query/stale, page bytes, and credential/policy denial before remote work.
+- [x] 3.9 **GREEN (PR 6)**: Create deterministic `internal/app/service.go` over 2, 3B.3, and 5B; invoke `source.RecoveryCoordinator.Recover` during real Nexus process startup before service availability, retaining the 3.8 freshness/credential/policy service scope.
+- [x] 3.10 **REFACTOR (PR 6)**: Consolidate service fakes and freshness cases.
 
 ## Phase 4: MCP and Acceptance
 

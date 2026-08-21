@@ -2,6 +2,7 @@ package source
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"io"
@@ -10,6 +11,10 @@ import (
 
 	"bac-nexus/internal/catalog"
 )
+
+// randReader is the process-wide entropy source used by test
+// constructors when no explicit reader is supplied.
+var randReader io.Reader = rand.Reader
 
 // Cursor and epoch byte widths plus the default resident quota and idle TTL.
 const (
@@ -81,6 +86,28 @@ func NewLeaseStore(clock func() time.Time, random io.Reader) *LeaseStore {
 		}
 	}
 	return newLeaseStoreWithEpoch(epoch, clock, random, DefaultResidentCapacity, DefaultIdleTTL)
+}
+
+// NewLeaseStoreForTest creates a lease store with a deterministic epoch
+// derived from the clock. It is intended only for service-level tests
+// that need to mint and read back cursors; production code uses
+// NewLeaseStore. When random is nil, the constructor uses
+// crypto/rand.Reader so the lease store can mint capabilities.
+func NewLeaseStoreForTest(clock func() time.Time, random io.Reader) *LeaseStore {
+	epoch := make([]byte, EpochBytes)
+	for i := range epoch {
+		epoch[i] = byte(0xA5 ^ i)
+	}
+	if random == nil {
+		random = defaultRandom()
+	}
+	return newLeaseStoreWithEpoch(epoch, clock, random, DefaultResidentCapacity, DefaultIdleTTL)
+}
+
+// defaultRandom returns a process-wide entropy source for test
+// constructors. Production callers should always supply their own.
+func defaultRandom() io.Reader {
+	return randReader
 }
 
 // newLeaseStoreWithEpoch builds the store with pre-supplied epoch, clock, and
@@ -192,6 +219,32 @@ func (s *LeaseStore) OpenReader(cursor Cursor, selection catalog.Candidate, poli
 	ls.expiresAt = s.now().Add(s.ttl)
 	ls.refCount++
 	return &LeaseReader{store: s, lease: ls}, nil
+}
+
+// Lookup returns the canonical selection bound to a valid cursor without
+// opening a reader or refreshing TTL. The caller supplies the cursor;
+// the store resolves its capability and returns the recorded selection
+// when the cursor is well-formed, bound to the current process epoch,
+// and not hidden. An invalid, expired, or hidden cursor returns
+// ErrInvalidCursor or ErrExpiredLease.
+func (s *LeaseStore) Lookup(cursor Cursor) (catalog.Candidate, error) {
+	capability, cursorEpoch, err := decodeCursor(cursor)
+	if err != nil {
+		return catalog.Candidate{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !bytes.Equal(cursorEpoch, s.epoch) {
+		return catalog.Candidate{}, ErrInvalidCursor
+	}
+	ls, ok := s.leases[string(capability)]
+	if !ok || ls.hidden {
+		return catalog.Candidate{}, ErrInvalidCursor
+	}
+	if !s.now().Before(ls.expiresAt) {
+		return catalog.Candidate{}, ErrExpiredLease
+	}
+	return ls.selection, nil
 }
 
 // Page serves the requested range from the immutable resident bytes and
