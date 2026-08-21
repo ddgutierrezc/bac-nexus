@@ -377,3 +377,22 @@ PR #55 (`feat(mcp): add stdio MCP server slice (4.1-4.3)`) is delivered as one c
 `internal/mcp` exposes only `resolve_catalog_candidates` and `read_selected_source`; the typed input schemas forbid temporary, listing, or delete fields, and the typed output schemas never include source, cursor, raw error, path, host, user, command, SQL, credential, or model content. The composition root in `cmd/nexus/main.go` invokes `source.RecoveryCoordinator.Recover` during real Nexus process start-up through `app.Service.Startup` before the MCP server is exposed to clients. `cmd/catalogspike` prefix behavior remains intact and the package tests still pass.
 
 Task count: 41/42 canonical parent tasks complete. Task 4.4 is next. Corporate endpoint-policy validation remains a deferred rollout prerequisite.
+
+### Maintainer-Approved Size Exception — Finalized for PR #55
+
+PR #55 is covered by a maintainer-approved, scoped `size:exception`. The default 1,000-line review ceiling remains in force for all future work; this exception applies only to PR #55 and does not authorize task 4.4 or live IBM i acceptance.
+
+| Field | Value |
+|---|---|
+| PR | `#55` (`feat(mcp): add stdio MCP server slice (4.1-4.3)`) |
+| Labels | `type:feature`, `size:exception` |
+| Default ceiling | 1,000 authored additions + deletions |
+| Authorized native accounting | 1,025 authored changed lines |
+| Accounting | 997-line PR diff plus 28 lines of post-merge evidence |
+| Rationale | The native count includes the already-merged coherent MCP slice and its post-merge documentation/evidence update. The maintainer authorized this exact exception without changing product behavior. |
+| Exact CI evidence | Pre-merge Go `32510069691`; pre-merge Keyring Dependency Gate `32510069663`; post-merge Go `32510283292`; post-docs Go `32510477756` |
+| Merge | `c6ab3a8` (`c6ab3a897de952e41a081a417fb90e0a1b9025d5`) |
+| Post-merge docs/evidence commit | `949fab9fdb5c2dc23877215c0dea7b7b6f2aead2` |
+| Scope | PR #55 only. Future work remains subject to the normal 1,000-line ceiling unless separately authorized. |
+
+No source or test files changed. Task checkboxes are unchanged: 41/42 canonical parent tasks remain complete, task 4.4 is next and untouched.
