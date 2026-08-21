@@ -30,6 +30,12 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install Ubuntu Secret Service
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y dbus gnome-keyring libglib2.0-bin
+
       - name: Verify candidate module integrity
         run: |
           go mod download all
@@ -44,8 +50,23 @@ jobs:
             rm -f keyring.test keyring.test.exe
           done
 
+      - name: Run Ubuntu upstream native keyring tests in an isolated Secret Service session
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          dbus-run-session -- bash -euo pipefail -c '
+            runtime_dir="$(mktemp -d)"
+            chmod 700 "$runtime_dir"
+            export XDG_RUNTIME_DIR="$runtime_dir"
+            trap "rm -rf \"$runtime_dir\"" EXIT
+            printf "\n" | gnome-keyring-daemon --unlock --components=secrets --control-directory="$XDG_RUNTIME_DIR/keyring" >/dev/null
+            gdbus call --session --dest org.freedesktop.secrets --object-path /org/freedesktop/secrets --method org.freedesktop.DBus.Peer.Ping
+            go test -v -count=1 github.com/zalando/go-keyring
+          '
+
       - name: Run upstream native keyring tests on this runner
-        run: go test -count=1 github.com/zalando/go-keyring
+        if: runner.os != 'Linux'
+        run: go test -v -count=1 github.com/zalando/go-keyring
 
       - name: Scan the candidate runtime package
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 github.com/zalando/go-keyring
