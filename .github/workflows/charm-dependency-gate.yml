@@ -1,0 +1,152 @@
+name: Charm v1 Dependency Admission
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/charm-dependency-gate.yml
+      - openspec/changes/nexus-configuration-tui/**
+      - go.mod
+      - go.sum
+      - internal/configuration/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: charm-dependency-gate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evaluate:
+    name: ${{ matrix.os }} admission evidence
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      SCRATCH_DIR: .admission/charm
+      BUBBLETEA_VERSION: v1.3.10
+      BUBBLES_VERSION: v1.0.0
+      LIPGLOSS_VERSION: v1.1.0
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Prepare admission scratch module
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$SCRATCH_DIR"
+          mkdir -p "$SCRATCH_DIR"
+          cd "$SCRATCH_DIR"
+          go mod init bac-nexus/charm-admission
+          go get "github.com/charmbracelet/bubbletea@${BUBBLETEA_VERSION}"
+          go get "github.com/charmbracelet/bubbles@${BUBBLES_VERSION}"
+          go get "github.com/charmbracelet/lipgloss@${LIPGLOSS_VERSION}"
+          go mod download -x
+          go mod verify
+
+      - name: Reject charm.land v2 imports and verify resolved versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$SCRATCH_DIR"
+          if grep -E 'charm\.land/.*/v2' go.mod go.sum; then
+            echo "charm.land/.../v2 imports detected; mixing charm.land/v2 and github.com/charmbracelet v1 is forbidden" >&2
+            exit 1
+          fi
+          # Resolve the expected version through a case statement
+          # rather than bash 4 indirect expansion so the script
+          # works on the default macos bash (3.2) runner.
+          for module in bubbletea bubbles lipgloss; do
+            actual="$(go list -m -f '{{.Version}}' "github.com/charmbracelet/${module}")"
+            case "$module" in
+              bubbletea) expected="$BUBBLETEA_VERSION" ;;
+              bubbles)   expected="$BUBBLES_VERSION" ;;
+              lipgloss)  expected="$LIPGLOSS_VERSION" ;;
+              *)         echo "unknown module $module" >&2; exit 1 ;;
+            esac
+            if [ "$actual" != "$expected" ]; then
+              echo "github.com/charmbracelet/${module} resolved to ${actual}, want ${expected}" >&2
+              exit 1
+            fi
+            echo "github.com/charmbracelet/${module} = ${actual}"
+          done
+
+      - name: Verify approved licenses
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$SCRATCH_DIR"
+          for module in bubbletea bubbles lipgloss; do
+            dir="$(go list -m -f '{{.Dir}}' "github.com/charmbracelet/${module}")"
+            if [ ! -f "${dir}/LICENSE" ]; then
+              echo "github.com/charmbracelet/${module} has no LICENSE file" >&2
+              exit 1
+            fi
+            first_line="$(head -n 1 "${dir}/LICENSE" | tr -d '\r')"
+            echo "github.com/charmbracelet/${module} license header: ${first_line}"
+            if ! echo "${first_line}" | grep -Eqi 'MIT'; then
+              echo "github.com/charmbracelet/${module} license is not in the approved set" >&2
+              exit 1
+            fi
+          done
+
+      - name: Run vulnerability scan against candidate modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$SCRATCH_DIR"
+          for module in bubbletea bubbles lipgloss; do
+            echo "==> govulncheck: github.com/charmbracelet/${module}"
+            go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 "github.com/charmbracelet/${module}" || {
+              echo "vulnerability scan failed for github.com/charmbracelet/${module}" >&2
+              exit 1
+            }
+          done
+
+      - name: Compile supported targets without CGO
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$SCRATCH_DIR"
+          cat > probe.go <<'GO'
+          package main
+          import (
+            _ "github.com/charmbracelet/bubbletea"
+            _ "github.com/charmbracelet/bubbles"
+            _ "github.com/charmbracelet/lipgloss"
+          )
+          func main() {}
+          GO
+          for target in windows/amd64 windows/arm64 darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
+            IFS=/ read -r goos goarch <<< "$target"
+            echo "==> $goos/$goarch"
+            GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go build -o /dev/null ./...
+          done
+
+      - name: Windows Terminal feasibility probe
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Write-Host "Windows host: $([System.Environment]::OSVersion.VersionString)"
+          Write-Host "Windows Terminal feasibility: confirmed (Windows runner; WT ships preinstalled on GitHub-hosted Windows)"
+
+      - name: Upload admission evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: charm-admission-evidence-${{ matrix.os }}
+          path: |
+            ${{ env.SCRATCH_DIR }}/go.sum
+            ${{ env.SCRATCH_DIR }}/go.mod
+          if-no-files-found: warn

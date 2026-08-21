@@ -3,25 +3,33 @@ package main
 import (
 	"bufio"
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"bac-nexus/internal/catalog"
+	"bac-nexus/internal/configuration"
 	"bac-nexus/internal/credential"
 	"bac-nexus/internal/mapepire"
 	"bac-nexus/internal/profile"
 	"bac-nexus/internal/remote"
 	"bac-nexus/internal/source"
 )
+
+// OrphanVaultError is re-exported for backward compatibility with
+// the original catalogspike test contract. The canonical type
+// lives in internal/configuration.
+type OrphanVaultError = configuration.OrphanVaultError
+
+// CommittedOutputError is re-exported for backward compatibility
+// with the original catalogspike test contract. The canonical type
+// lives in internal/configuration.
+type CommittedOutputError = configuration.CommittedOutputError
 
 type diagnostic struct {
 	Status             string               `json:"status"`
@@ -298,28 +306,13 @@ type vaultReader interface {
 	Get(string, []byte) ([]byte, error)
 }
 
-type secretReader func(string) ([]byte, error)
+// secretReader is a type alias for configuration.SecretReader so
+// the existing test contract compiles unchanged while the
+// orchestration is owned by the configuration package.
+type secretReader = configuration.SecretReader
 
 func acquireLivePassword(vault vaultReader, profileName string, mode profile.CredentialMode, prompt secretReader) ([]byte, error) {
-	if mode == profile.CredentialModePrompt {
-		return prompt("IBM i password for " + profileName)
-	}
-	if mode != profile.CredentialModeVault {
-		return nil, errors.New("profile credential mode is invalid")
-	}
-	exists, err := vault.Status(profileName)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, errors.New("vault-mode profile has no credential vault; run credentials set explicitly")
-	}
-	master, err := prompt("Vault master passphrase for " + profileName)
-	if err != nil {
-		return nil, err
-	}
-	defer credential.Zero(master)
-	return vault.Get(profileName, master)
+	return configuration.AcquireLivePassword(vault, profileName, mode, configuration.SecretPromptFunc(prompt))
 }
 
 func runCredentials(args []string) error {
@@ -505,206 +498,20 @@ func setupLineReaders(input io.Reader, prompts io.Writer) (func(string) (string,
 }
 
 func executeSetup(deps setupDependencies) error {
-	if deps.Profiles == nil || deps.Vaults == nil || deps.ReadLine == nil || deps.ReadSecret == nil || deps.DiscoverJAR == nil || deps.VerifyJAR == nil || deps.InspectKey == nil || deps.Output == nil || deps.Notices == nil {
-		return errors.New("setup dependencies are incomplete")
+	serviceDeps := configuration.Dependencies{
+		Profiles:    deps.Profiles,
+		Vaults:      deps.Vaults,
+		ReadLine:    deps.ReadLine,
+		ReadExact:   deps.ReadExact,
+		ReadSecret:  deps.ReadSecret,
+		DiscoverJAR: deps.DiscoverJAR,
+		VerifyJAR:   deps.VerifyJAR,
+		InspectKey:  deps.InspectKey,
+		Output:      deps.Output,
+		Notices:     deps.Notices,
 	}
-	if deps.ReadExact == nil {
-		deps.ReadExact = deps.ReadLine
-	}
-	if _, err := fmt.Fprintln(deps.Notices, "Host-key inspection is optional first-contact discovery, not independent server identity verification."); err != nil {
-		return err
-	}
-	name, err := deps.ReadLine("Connection name")
-	if err != nil {
-		return err
-	}
-	host, err := deps.ReadLine("Host")
-	if err != nil {
-		return err
-	}
-	portText, err := deps.ReadLine("Port [22]")
-	if err != nil {
-		return err
-	}
-	port := 22
-	if portText != "" {
-		port, err = strconv.Atoi(portText)
-		if err != nil {
-			return errors.New("port must be a number")
-		}
-	}
-	if err := profile.ValidateEndpoint(host, port); err != nil {
-		return err
-	}
-	hostKeyPath, err := deps.ReadLine("Host-key enrollment [manual/inspect] (manual recommended; inspect is spike-only TOFU fallback)")
-	if err != nil {
-		return err
-	}
-	var fingerprint string
-	var hostKeyTrust profile.HostKeyTrust
-	switch hostKeyPath {
-	case "inspect":
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		observation, inspectErr := deps.InspectKey(ctx, host, port)
-		cancel()
-		if inspectErr != nil {
-			return inspectErr
-		}
-		if observation.Verified || observation.TrustCandidate != profile.HostKeyTrustTOFU {
-			return errors.New("host-key inspection returned an invalid trust observation")
-		}
-		if _, err := fmt.Fprintf(deps.Notices, "Observed SSH host key algorithm %s with fingerprint %s\n", observation.Algorithm, observation.Fingerprint); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintln(deps.Notices, "WARNING: this key came from the current connection and is not independently verified. Production enrollment requires an approved independent channel."); err != nil {
-			return err
-		}
-		confirm, err := deps.ReadExact("Trust this observed key for this spike? Type exact yes")
-		if err != nil {
-			return err
-		}
-		if confirm != "yes" {
-			return errors.New("host-key trust was not confirmed; exact yes is required")
-		}
-		fingerprint = observation.Fingerprint
-		hostKeyTrust = profile.HostKeyTrustTOFU
-	case "manual":
-		fingerprint, err = deps.ReadLine("Independently verified SHA256 host-key fingerprint")
-		if err != nil {
-			return err
-		}
-		hostKeyTrust = profile.HostKeyTrustVerified
-	default:
-		return errors.New("host-key enrollment must be inspect or manual")
-	}
-	if err := profile.ValidateHostKey(fingerprint, hostKeyTrust); err != nil {
-		return err
-	}
-	username, err := deps.ReadLine("Username")
-	if err != nil {
-		return err
-	}
-	javaHome, err := deps.ReadLine("Optional Java home")
-	if err != nil {
-		return err
-	}
-	discovery := deps.DiscoverJAR()
-	jar := ""
-	automaticallyDiscovered := false
-	if discovery.Status == mapepire.DiscoveryFound && discovery.VerifiedCandidateCount == 1 && discovery.Path != "" {
-		jar = discovery.Path
-		automaticallyDiscovered = true
-	} else {
-		switch {
-		case discovery.Status == mapepire.DiscoveryAmbiguous:
-			_, err = fmt.Fprintf(deps.Notices, "Mapepire Server 2.3.5 auto-discovery found %d verified candidates; a unique candidate is required. Enter the absolute path manually.\n", discovery.VerifiedCandidateCount)
-		case discovery.RejectedCandidateCount > 0:
-			_, err = fmt.Fprintf(deps.Notices, "Mapepire Server 2.3.5 auto-discovery found no verified candidate; %d exact-location candidate(s) failed verification. Enter the absolute path manually.\n", discovery.RejectedCandidateCount)
-		case discovery.InspectionFailed:
-			_, err = fmt.Fprintln(deps.Notices, "Mapepire Server 2.3.5 auto-discovery could not inspect the VS Code extensions directory. Enter the absolute path manually.")
-		default:
-			_, err = fmt.Fprintln(deps.Notices, "Mapepire Server 2.3.5 auto-discovery did not find a unique verified candidate. Enter the absolute path manually.")
-		}
-		if err != nil {
-			return err
-		}
-		jar, err = deps.ReadLine("Local Mapepire Server 2.3.5 JAR path")
-		if err != nil {
-			return err
-		}
-		if !filepath.IsAbs(jar) {
-			return errors.New("Mapepire JAR path must be absolute")
-		}
-	}
-	if err := deps.VerifyJAR(jar); err != nil {
-		return errors.New("Mapepire Server JAR verification failed")
-	}
-	if automaticallyDiscovered {
-		if _, err := fmt.Fprintln(deps.Notices, "Mapepire Server 2.3.5 was automatically found and verified."); err != nil {
-			return err
-		}
-	}
-	p := profile.Profile{Name: name, Host: host, Port: port, Username: username, HostKeyFingerprint: fingerprint, HostKeyTrust: hostKeyTrust, JavaHome: javaHome, MapepireJAR: jar, CredentialMode: profile.CredentialModeVault}
-	if err := p.Validate(); err != nil {
-		return err
-	}
-	if jar == "" {
-		return errors.New("Mapepire JAR path is required")
-	}
-	password, err := deps.ReadSecret("IBM i password for " + name)
-	if err != nil {
-		return err
-	}
-	defer credential.Zero(password)
-	master, err := deps.ReadSecret("Vault master passphrase for " + name)
-	if err != nil {
-		return err
-	}
-	defer credential.Zero(master)
-	confirmation, err := deps.ReadSecret("Confirm vault master passphrase for " + name)
-	if err != nil {
-		return err
-	}
-	defer credential.Zero(confirmation)
-	if subtle.ConstantTimeCompare(master, confirmation) != 1 {
-		return errors.New("vault master passphrase confirmation does not match")
-	}
-	confirm, err := deps.ReadLine("Create this profile and encrypted vault? [yes/no]")
-	if err != nil {
-		return err
-	}
-	if !strings.EqualFold(confirm, "yes") {
-		return errors.New("setup cancelled")
-	}
-	output, err := json.Marshal(struct {
-		Status  string          `json:"status"`
-		Profile profile.Profile `json:"profile"`
-	}{"configured", p})
-	if err != nil {
-		return errors.New("render setup result")
-	}
-	output = append(output, '\n')
-	if _, err := deps.Vaults.Set(name, password, master, false); err != nil {
-		return err
-	}
-	if _, err := deps.Profiles.Save(p); err != nil {
-		if _, cleanupErr := deps.Vaults.Delete(name); cleanupErr != nil {
-			return errors.Join(fmt.Errorf("publish setup profile: %w", err), &OrphanVaultError{Profile: name, Err: cleanupErr})
-		}
-		return err
-	}
-	if _, err := deps.Output.Write(output); err != nil {
-		return &CommittedOutputError{Operation: "setup", Output: "stdout result", Err: err}
-	}
-	return nil
+	return configuration.NewService(serviceDeps).Configure(context.Background())
 }
-
-type OrphanVaultError struct {
-	Profile string
-	Err     error
-}
-
-func (e *OrphanVaultError) Error() string {
-	return fmt.Sprintf("setup profile %q was not published and encrypted vault cleanup failed; recover with credentials status/delete -profile %q", e.Profile, e.Profile)
-}
-
-func (e *OrphanVaultError) Unwrap() error { return e.Err }
-
-func (e *OrphanVaultError) Recoverable() bool { return true }
-
-type CommittedOutputError struct {
-	Operation string
-	Output    string
-	Err       error
-}
-
-func (e *CommittedOutputError) Error() string {
-	return e.Operation + " committed but " + e.Output + " delivery failed; do not retry the mutation; query current status"
-}
-
-func (e *CommittedOutputError) Unwrap() error { return e.Err }
-
-func (e *CommittedOutputError) Committed() bool { return true }
 
 func selectCandidate(candidates []catalog.Candidate, item, library, fileBase, objectType, sourceType string) (catalog.Candidate, bool, error) {
 	if len(candidates) == 0 {
