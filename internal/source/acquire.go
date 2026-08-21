@@ -37,6 +37,7 @@ type RemoteOpener func(context.Context) (AcquisitionRemote, io.Closer, error)
 // Acquirer builds a complete in-memory snapshot and confirms its remote temporary is gone.
 type Acquirer struct {
 	Open         RemoteOpener
+	Recover      func(context.Context) error
 	Random       io.Reader
 	Ownership    OwnershipLedger
 	Profile      string

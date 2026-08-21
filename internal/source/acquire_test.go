@@ -145,6 +145,8 @@ func newAcquisitionFixture(events *[]string) acquisitionFixture {
 	}
 }
 
+func successfulAcquisitionRecovery(context.Context) error { return nil }
+
 type readCloser struct {
 	io.Reader
 	readErr, closeErr error
@@ -191,6 +193,55 @@ func TestAcquirerAcquiresOneCompleteSnapshotAndConfirmsCleanup(t *testing.T) {
 	}
 	if page, err := snap.Page(1, 2); err != nil || strings.Join(page.Lines, ",") != "one,two" || strings.Join(events, ",") != "admit,reserve,copy,download,remove,delete" {
 		t.Fatalf("snapshot/events = %#v, %v / %v", page, err, events)
+	}
+}
+
+func TestAcquirerRequiresSuccessfulRecoveryBeforeOpeningRemote(t *testing.T) {
+	boom := errors.New("recovery failed")
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	for _, tt := range []struct {
+		name      string
+		ctx       context.Context
+		recover   func(context.Context) error
+		wantCalls int
+	}{
+		{name: "missing recovery", ctx: context.Background()},
+		{name: "recovery failure", ctx: context.Background(), recover: func(context.Context) error { return boom }, wantCalls: 1},
+		{name: "cancelled context", ctx: cancelled, recover: successfulAcquisitionRecovery},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			events := []string{}
+			fixture := newAcquisitionFixture(&events)
+			fixture.acquirer.Recover = tt.recover
+			opens := 0
+			fixture.acquirer.Open = func(context.Context) (AcquisitionRemote, io.Closer, error) {
+				opens++
+				return fixture.request, io.NopCloser(nil), nil
+			}
+
+			snap, err := fixture.acquirer.Acquire(tt.ctx, candidate())
+			if err == nil || snap != nil || opens != 0 || fixture.request.copies != 0 || fixture.ledger.record.Token != nil || len(events) != 0 {
+				t.Fatalf("Acquire() = %v, %v; recovery/open/copy/admit/events = %d/%d/%d/%v", snap, err, tt.wantCalls, opens, fixture.request.copies, events)
+			}
+		})
+	}
+}
+
+func TestAcquirerRecoversExactlyOnceBeforeExistingAcquisition(t *testing.T) {
+	events := []string{}
+	fixture := newAcquisitionFixture(&events)
+	recoveryCalls := 0
+	fixture.acquirer.Recover = func(context.Context) error {
+		recoveryCalls++
+		events = append(events, "recover")
+		return nil
+	}
+
+	snap, err := fixture.acquirer.Acquire(context.Background(), candidate())
+	if err != nil || snap == nil || recoveryCalls != 1 || strings.Join(events, ",") != "recover,admit,reserve,copy,download,remove,delete" {
+		t.Fatalf("Acquire() = %v, %v; recovery/events = %d/%v", snap, err, recoveryCalls, events)
 	}
 }
 
