@@ -62,10 +62,10 @@ type ResolveCatalogOutput struct {
 // read_selected_source. The cursor is the only selection binding;
 // no path, listing, or delete field exists.
 type ReadSelectedSourceInput struct {
-	Selection         catalog.Candidate `json:"selection" jsonschema:"exact catalog selection; required only on the first page"`
-	Cursor            string           `json:"cursor,omitempty" jsonschema:"opaque snapshot cursor for later pages"`
-	StartLine         int              `json:"startLine" jsonschema:"one-based inclusive start line"`
-	MaxLines          int              `json:"maxLines" jsonschema:"maximum lines in this page"`
+	Selection catalog.Candidate `json:"selection" jsonschema:"exact catalog selection; required only on the first page"`
+	Cursor    string            `json:"cursor,omitempty" jsonschema:"opaque snapshot cursor for later pages"`
+	StartLine int               `json:"startLine" jsonschema:"one-based inclusive start line"`
+	MaxLines  int               `json:"maxLines" jsonschema:"maximum lines in this page"`
 }
 
 // ReadSelectedSourceOutput is the typed MCP response for
