@@ -33,10 +33,7 @@ func main() {
 	}
 }
 
-// mainDeps groups every dependency that the main package needs to
-// compose the catalog-context service and the MCP server. Test
-// code substitutes fakes; production code supplies the canonical
-// implementations from the corresponding internal packages.
+// mainDeps groups every dependency the composition root needs.
 type mainDeps struct {
 	Profile       string
 	Credentials   credential.CredentialStore
@@ -50,9 +47,7 @@ type mainDeps struct {
 	Now           func() time.Time
 }
 
-// service wraps the app.Service with the mcp-facing surface. It
-// exists so the main package can hold a typed reference to both
-// the local-OS-principal service and the MCP adapter and so the
+// service wraps app.Service with the mcp-facing surface so the
 // composition root has a single, testable unit.
 type service struct {
 	app     *app.Service
@@ -60,18 +55,15 @@ type service struct {
 	profile string
 }
 
-// runner is the minimal surface the MCP server exposes to the main
-// package. The production MCP server implements it; tests can
-// substitute a deterministic double.
+// runner is the minimal surface the MCP server exposes. The
+// production mcp.Server implements it; tests can substitute a double.
 type runner interface {
 	Run(ctx context.Context) error
 }
 
-// runWithDeps is the composition root used by the serve
-// subcommand and by main_test. It builds the app service, invokes
-// the pre-acquire recovery gate, constructs the MCP server, and
-// runs the server over the supplied transport. A failed startup
-// or cancelled context aborts the lifecycle before the server runs.
+// runWithDeps is the composition root. It builds the app service,
+// invokes the pre-acquire recovery gate, constructs the MCP server,
+// and runs the server over the supplied transport.
 func runWithDeps(ctx context.Context, deps mainDeps) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -103,8 +95,7 @@ func runWithDeps(ctx context.Context, deps mainDeps) error {
 	return r.Run(ctx)
 }
 
-// newMCPServer is the production ServerFactory. It builds the
-// canonical typed MCP server over the wrapped app service.
+// newMCPServer is the production ServerFactory.
 func newMCPServer(s *service) (runner, error) {
 	server, err := mcp.New(mcp.Config{
 		Info:    mcp.Info{Name: "bac-nexus", Version: "v0.0.0"},
@@ -119,8 +110,7 @@ func newMCPServer(s *service) (runner, error) {
 
 // defaultDeps returns the canonical production dependency set. The
 // serve subcommand supplies the profile from flags; the resolver
-// and acquirer are intentionally nil in v1 MCP because the surface
-// is restricted to the two read-only tools.
+// and acquirer are intentionally nil in v1 MCP.
 func defaultDeps() mainDeps {
 	return mainDeps{
 		Credentials:   credential.NewNativeCredentialStore(),
@@ -132,8 +122,7 @@ func defaultDeps() mainDeps {
 }
 
 // runCommand is the CLI entry point. It accepts "serve" and "help"
-// subcommands; anything else is rejected so an operator can never
-// accidentally invoke a tool that does not exist.
+// subcommands; anything else is rejected.
 func runCommand(args []string, out io.Writer) error {
 	if out == nil {
 		out = io.Discard
