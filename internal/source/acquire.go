@@ -151,7 +151,12 @@ func (a Acquirer) cleanup(ctx context.Context, record OwnershipRecord) (err erro
 	return nil
 }
 
-func removeConfirmed(ctx context.Context, remote AcquisitionRemote, path string) error {
+type removalRemote interface {
+	Remove(context.Context, string) error
+	Stat(context.Context, string) (os.FileInfo, error)
+}
+
+func removeConfirmed(ctx context.Context, remote removalRemote, path string) error {
 	removeErr := remote.Remove(ctx, path)
 	_, statErr := remote.Stat(ctx, path)
 	if errors.Is(statErr, ErrRemoteNotFound) {

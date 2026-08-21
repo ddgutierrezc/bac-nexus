@@ -239,6 +239,11 @@ func (l *Ledger) listRecovery(ctx context.Context) ([]source.OwnershipRecord, er
 	return records, nil
 }
 
+// ListRecovery exposes only the bounded, validated recovery rows required by source.
+func (l *Ledger) ListRecovery(ctx context.Context) ([]source.OwnershipRecord, error) {
+	return l.listRecovery(ctx)
+}
+
 func recordFromRecoveryRow(token []byte, remotePath string, version int, profile string, digest []byte, created string) (source.OwnershipRecord, error) {
 	createdAt, err := time.Parse(time.RFC3339, created)
 	if err != nil || version != userVersion || len(token) != 16 || len(remotePath) == 0 || len([]byte(remotePath)) > 1024 || len(profile) == 0 || len(profile) > 64 || len(digest) != 32 || createdAt.UTC().Format(time.RFC3339) != created {

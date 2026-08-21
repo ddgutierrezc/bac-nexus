@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"os"
 	"path"
 	"regexp"
 	"strings"
@@ -35,17 +36,68 @@ type OwnershipLedger interface {
 	Close() error
 }
 
+// RecoveryLedger permits bounded recovery enumeration and exact ownership deletion.
+// It is separate from acquisition ownership because recovery never admits new rows.
+type RecoveryLedger interface {
+	ListRecovery(context.Context) ([]OwnershipRecord, error)
+	Delete(context.Context, OwnershipRecord) error
+}
+
 type recoveryProfileResolver func(context.Context, string) (profile.Profile, error)
 type recoveryCredentialGetter func(context.Context, string) ([]byte, error)
-type recoveryCleanupRemote interface{ io.Closer }
-type recoveryCleanupOpener func(context.Context, profile.Profile, []byte) (recoveryCleanupRemote, error)
-type recoveryReady func(context.Context, recoveryCleanupRemote, string) error
+
+// RecoveryRemote permits only exact temporary cleanup confirmation.
+type RecoveryRemote interface {
+	io.Closer
+	Remove(context.Context, string) error
+	Stat(context.Context, string) (os.FileInfo, error)
+}
+
+type recoveryCleanupOpener func(context.Context, profile.Profile, []byte) (RecoveryRemote, error)
+type recoveryReady func(context.Context, RecoveryRemote, string) error
 
 type recoveryGuards struct {
 	resolveProfile recoveryProfileResolver
 	getCredential  recoveryCredentialGetter
 	openCleanup    recoveryCleanupOpener
 	cleanupReady   recoveryReady
+}
+
+// RecoveryCoordinator recovers only the exact rows supplied by its ledger.
+type RecoveryCoordinator struct {
+	Ledger         RecoveryLedger
+	ResolveProfile func(context.Context, string) (profile.Profile, error)
+	GetCredential  func(context.Context, string) ([]byte, error)
+	OpenCleanup    func(context.Context, profile.Profile, []byte) (RecoveryRemote, error)
+}
+
+func (r RecoveryCoordinator) Recover(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if r.Ledger == nil || r.ResolveProfile == nil || r.GetCredential == nil || r.OpenCleanup == nil {
+		return ErrOwnershipInvalid
+	}
+	records, err := r.Ledger.ListRecovery(ctx)
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
+		if err := recoverOwnershipRecord(ctx, record, recoveryGuards{
+			resolveProfile: r.ResolveProfile,
+			getCredential:  r.GetCredential,
+			openCleanup:    r.OpenCleanup,
+			cleanupReady: func(ctx context.Context, remote RecoveryRemote, path string) error {
+				return removeConfirmed(ctx, remote, path)
+			},
+		}); err != nil {
+			return err
+		}
+		if err := r.Ledger.Delete(ctx, record); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func recoverOwnershipRecord(ctx context.Context, record OwnershipRecord, guards recoveryGuards) (err error) {

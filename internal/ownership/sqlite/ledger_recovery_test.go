@@ -12,10 +12,6 @@ import (
 	"bac-nexus/internal/source"
 )
 
-type recoveryLister interface {
-	listRecovery(context.Context) ([]source.OwnershipRecord, error)
-}
-
 func TestLedgerListsBoundedValidatedRecoveryRows(t *testing.T) {
 	t.Run("returns exact valid rows in creation order", func(t *testing.T) {
 		ledger := openRecoveryLedger(t)
@@ -91,11 +87,7 @@ func openRecoveryLedger(t *testing.T) *Ledger {
 
 func recoveryRows(t *testing.T, ledger *Ledger) ([]source.OwnershipRecord, error) {
 	t.Helper()
-	lister, ok := any(ledger).(recoveryLister)
-	if !ok {
-		t.Fatal("Ledger does not implement bounded recovery listing")
-	}
-	return lister.listRecovery(context.Background())
+	return ledger.ListRecovery(context.Background())
 }
 
 func insertRecoveryRecord(t *testing.T, ledger *Ledger, record source.OwnershipRecord) {
