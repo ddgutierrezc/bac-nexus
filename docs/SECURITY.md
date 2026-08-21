@@ -10,16 +10,7 @@ BAC Nexus v1 is a read-oriented, local-first foundation for bounded IBM i source
 
 ## MCP server surface (v1)
 
-The `nexus serve` subcommand runs the canonical typed MCP stdio server built on the official `github.com/modelcontextprotocol/go-sdk`. The server exposes exactly two tools:
-
-| Tool | Wire input | Wire output | Behavior |
-|---|---|---|---|
-| `resolve_catalog_candidates` | `statement`, `parameters` | bounded candidate coordinates only | Authorizes the canonical selector, verifies the credential, runs the bounded catalog query, returns up to 50 candidates. No source content is ever returned. |
-| `read_selected_source` | `cursor`, `startLine`, `maxLines` | one page only | Re-queries the catalog to validate the coordinate, opens a reader on the immutable lease, returns the requested page or a deterministic error. |
-
-The wire schemas do not accept a temporary, listing, or delete path. There is no generic remote, SSH, SQL, shell, or path tool. The cursor is the opaque server binding; it is never echoed in any output, error, or audit record.
-
-The server's start-up sequence runs the same pre-acquire recovery gate that every acquisition uses. A failed recovery, a missing credential, a denied selector, a stale coordinate, or a cancelled context all fail closed before any remote work begins.
+The `nexus serve` subcommand runs the typed MCP stdio server built on the official `github.com/modelcontextprotocol/go-sdk`. The server exposes exactly two tools: `resolve_catalog_candidates` (bounded candidate coordinates) and `read_selected_source` (one page at a time). Wire schemas forbid temporary, listing, or delete fields; the cursor is the opaque server binding and is never echoed. Start-up runs the same pre-acquire recovery gate that every acquisition uses, and a failed recovery, missing credential, denied selector, stale coordinate, or cancelled context all fail closed before any remote work begins.
 
 ## Trust and threat model
 
