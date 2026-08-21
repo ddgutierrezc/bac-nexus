@@ -1,8 +1,4 @@
-// Package main wires the v1 MCP stdio server entry point. The
-// command composes the catalog-context service from phases 2, 3B.3,
-// 5A, 5B, and 6, invokes the pre-acquire recovery gate during
-// startup, and runs the MCP server over stdio. It must never
-// expose a generic remote, path, shell, SQL, or SSH tool.
+// Package main wires the v1 MCP stdio server entry point.
 package main
 
 import (
@@ -22,8 +18,6 @@ import (
 	"bac-nexus/internal/source"
 )
 
-// runnerStub is the package-local runner double used by every main
-// test. It records the Run call and returns the configured error.
 type runnerStub struct {
 	runErr   error
 	runCalls int
@@ -34,8 +28,6 @@ func (r *runnerStub) Run(ctx context.Context) error {
 	return r.runErr
 }
 
-// successfulRecovery is a RecoveryCoordinator that records its
-// call and returns nil.
 type successfulRecovery struct {
 	calls int
 }
@@ -45,7 +37,6 @@ func (s *successfulRecovery) Recover(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// failingRecovery returns the configured error and records its call.
 type failingRecovery struct {
 	err   error
 	calls int
@@ -68,11 +59,7 @@ func (fakeCredentialStore) Delete(profile string) error             { return nil
 type fakeAuthorizer struct{}
 
 func (fakeAuthorizer) Authorize(ctx context.Context, selector security.Selector, target security.CapabilityTarget) (security.Decision_, error) {
-	return security.Decision_{
-		Selector: selector, Class: security.CapabilityCatalogResolve, Target: target,
-		Decision: security.DecisionAllow,
-		Reason:   "allowlisted selector and matching target class",
-	}, nil
+	return security.Decision_{Selector: selector, Target: target, Decision: security.DecisionAllow, Reason: "ok"}, nil
 }
 
 type fakeResolver struct{}
@@ -84,7 +71,7 @@ func (fakeResolver) Resolve(ctx context.Context, query catalog.Query) ([]catalog
 type fakeAcquirer struct{}
 
 func (fakeAcquirer) Acquire(ctx context.Context, candidate catalog.Candidate) (*source.Snapshot, error) {
-	return nil, errors.New("acquirer not used by main tests")
+	return nil, errors.New("unused")
 }
 
 type fakeLeaseStore struct{}
@@ -96,7 +83,7 @@ func (fakeLeaseStore) Lookup(cursor source.Cursor) (catalog.Candidate, error) {
 	return candidateFixture(), nil
 }
 func (fakeLeaseStore) OpenReader(cursor source.Cursor, selection catalog.Candidate, policy source.ClientPolicy) (*source.LeaseReader, error) {
-	return nil, errors.New("lease reader not used by main tests")
+	return nil, errors.New("unused")
 }
 
 func candidateFixture() catalog.Candidate {
@@ -109,9 +96,6 @@ func candidateFixture() catalog.Candidate {
 
 func fixedClock() func() time.Time { return func() time.Time { return time.Unix(0, 0).UTC() } }
 
-// validDeps returns a mainDeps struct with a successful recovery
-// and a runner stub. Tests can override individual fields before
-// invoking runWithDeps.
 func validDeps() (mainDeps, *runnerStub, *successfulRecovery) {
 	rec := &successfulRecovery{}
 	r := &runnerStub{}
@@ -124,10 +108,6 @@ func validDeps() (mainDeps, *runnerStub, *successfulRecovery) {
 	}
 	return deps, r, rec
 }
-
-// ---------------------------------------------------------------------------
-// Composition tests
-// ---------------------------------------------------------------------------
 
 func TestRunWithDepsInvokesRecoveryBeforeRun(t *testing.T) {
 	deps, r, rec := validDeps()
@@ -191,10 +171,6 @@ func TestRunWithDepsRejectsWhitespaceProfile(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// CLI subcommand parsing
-// ---------------------------------------------------------------------------
-
 func TestRunCommandCLIParsing(t *testing.T) {
 	tests := []struct {
 		name string
@@ -224,10 +200,6 @@ func TestRunCommandCLIParsing(t *testing.T) {
 		})
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Structural surface guard
-// ---------------------------------------------------------------------------
 
 var forbiddenMainSubstrings = []string{
 	"path", "command", "shell", "exec", "sql", "ssh",
@@ -274,10 +246,6 @@ func fieldContainsVisited(typ reflect.Type, substring string, visited map[reflec
 	}
 	return false, ""
 }
-
-// ---------------------------------------------------------------------------
-// Help-text contract
-// ---------------------------------------------------------------------------
 
 func TestRunCommandServeHelpTextContract(t *testing.T) {
 	out := &strings.Builder{}

@@ -1,9 +1,5 @@
 // Package mcp exposes the v1 read-only catalog-context service as a
-// typed, stdio Model Context Protocol server. The package owns no
-// remote, path, shell, SQL, or SSH capability of its own; it adapts
-// internal/app.Service calls to the official MCP wire protocol and
-// surfaces only the two allowed tools: resolve_catalog_candidates
-// and read_selected_source.
+// typed, stdio Model Context Protocol server.
 package mcp
 
 import (
@@ -22,9 +18,6 @@ import (
 	"bac-nexus/internal/source"
 )
 
-// fakeService is the deterministic, package-local Service double used
-// by every handler test. It records the last call and returns the
-// configured result.
 type fakeService struct {
 	resolveFn    func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error)
 	readFn       func(ctx context.Context, cursor string, page source.Range) (source.Page, error)
@@ -58,15 +51,9 @@ func (f *fakeService) ReadSelectedSource(ctx context.Context, cursor string, pag
 
 func validCandidate() catalog.Candidate {
 	return catalog.Candidate{
-		Item:              "PISA061",
-		SourceLibrary:     "QRPGLESRC",
-		SourceFileBase:    "QRPGLESRC",
-		ObjectType:        "RPGLE",
-		SourceType:        "RPG",
-		Application:       "APP",
-		Version:           "V1",
-		ProductionLibrary: "PRODLIB",
-		Description:       "test program",
+		Item: "PISA061", SourceLibrary: "QRPGLESRC", SourceFileBase: "QRPGLESRC",
+		ObjectType: "RPGLE", SourceType: "RPG", Application: "APP", Version: "V1",
+		ProductionLibrary: "PRODLIB", Description: "test program",
 	}
 }
 
@@ -83,22 +70,11 @@ func validReadInput() ReadSelectedSourceInput {
 	return ReadSelectedSourceInput{Cursor: "opaque-cursor-token", StartLine: 1, MaxLines: 50}
 }
 
-// forbiddenSurfaceSubstrings is the authoritative structural guard
-// list. Adding an entry requires an explicit decision and a matching
-// red test.
 var forbiddenSurfaceSubstrings = []string{
 	"path", "command", "shell", "exec", "sql", "ssh",
 	"dial", "connect", "remote", "clientinfo", "parent",
 }
 
-// CallToolResult is an alias used in test helpers so we do not
-// have to import the mcp package directly in the test file's
-// helper signatures.
-type CallToolResult = mcp.CallToolResult
-
-// hasFieldContaining returns whether the supplied struct type exposes
-// a field whose lower-cased name contains the supplied substring. It
-// recurses into anonymous embedded structs.
 func hasFieldContaining(typ reflect.Type, substring string) (bool, string) {
 	return fieldContains(typ, substring, map[reflect.Type]bool{})
 }
@@ -129,20 +105,15 @@ func fieldContains(typ reflect.Type, substring string, visited map[reflect.Type]
 	return false, ""
 }
 
-// ---------------------------------------------------------------------------
-// Tool registration and structural surface
-// ---------------------------------------------------------------------------
-
 func TestServerRegistersExactlyTwoTools(t *testing.T) {
 	cfg, _ := validConfig()
 	srv, err := New(cfg)
 	if err != nil {
 		t.Fatalf("New error = %v", err)
 	}
-	names := srv.ToolNames()
 	want := []string{"resolve_catalog_candidates", "read_selected_source"}
-	if !slices.Equal(names, want) {
-		t.Fatalf("ToolNames = %v, want %v", names, want)
+	if got := srv.ToolNames(); !slices.Equal(got, want) {
+		t.Fatalf("ToolNames = %v, want %v", got, want)
 	}
 }
 
@@ -173,10 +144,7 @@ func TestServerSurfaceHasNoRemotePathOrShellCommands(t *testing.T) {
 }
 
 func TestTypedInputOutputSchemasAreBounded(t *testing.T) {
-	inputs := map[string]reflect.Type{
-		"ResolveCatalogInput":    reflect.TypeOf(ResolveCatalogInput{}),
-		"ReadSelectedSourceInput": reflect.TypeOf(ReadSelectedSourceInput{}),
-	}
+	inputs := []reflect.Type{reflect.TypeOf(ResolveCatalogInput{}), reflect.TypeOf(ReadSelectedSourceInput{})}
 	for _, typ := range inputs {
 		for _, forbidden := range []string{"path", "list", "delete", "remove", "command", "shell", "ssh", "exec", "sql", "remote"} {
 			if found, name := hasFieldContaining(typ, forbidden); found {
@@ -184,10 +152,7 @@ func TestTypedInputOutputSchemasAreBounded(t *testing.T) {
 			}
 		}
 	}
-	outputs := map[string]reflect.Type{
-		"ResolveCatalogOutput":    reflect.TypeOf(ResolveCatalogOutput{}),
-		"ReadSelectedSourceOutput": reflect.TypeOf(ReadSelectedSourceOutput{}),
-	}
+	outputs := []reflect.Type{reflect.TypeOf(ResolveCatalogOutput{}), reflect.TypeOf(ReadSelectedSourceOutput{})}
 	for _, typ := range outputs {
 		for _, forbidden := range []string{"cursor", "raw", "source", "path", "host", "user", "command", "sql"} {
 			if found, name := hasFieldContaining(typ, forbidden); found {
@@ -196,10 +161,6 @@ func TestTypedInputOutputSchemasAreBounded(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// resolve_catalog_candidates handler behavior
-// ---------------------------------------------------------------------------
 
 func TestResolveCatalogHandlerReturnsServiceResult(t *testing.T) {
 	cfg, svc := validConfig()
@@ -289,10 +250,6 @@ func TestResolveCatalogHandlerHonorsContextCancellation(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// read_selected_source handler behavior
-// ---------------------------------------------------------------------------
-
 func TestReadSelectedSourceHandlerReturnsServiceResult(t *testing.T) {
 	cfg, svc := validConfig()
 	srv, err := New(cfg)
@@ -363,16 +320,12 @@ func TestReadSelectedSourceHandlerErrorMapping(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Handler invocation helpers
-// ---------------------------------------------------------------------------
-
-func callResolveCatalog(t *testing.T, srv *Server, input ResolveCatalogInput) (*CallToolResult, ResolveCatalogOutput, error) {
+func callResolveCatalog(t *testing.T, srv *Server, input ResolveCatalogInput) (*mcp.CallToolResult, ResolveCatalogOutput, error) {
 	t.Helper()
 	return callResolveCatalogWithContext(t, srv, context.Background(), input)
 }
 
-func callResolveCatalogWithContext(t *testing.T, srv *Server, ctx context.Context, input ResolveCatalogInput) (*CallToolResult, ResolveCatalogOutput, error) {
+func callResolveCatalogWithContext(t *testing.T, srv *Server, ctx context.Context, input ResolveCatalogInput) (*mcp.CallToolResult, ResolveCatalogOutput, error) {
 	t.Helper()
 	raw, ok := srv.handlers["resolve_catalog_candidates"]
 	if !ok {
@@ -385,12 +338,12 @@ func callResolveCatalogWithContext(t *testing.T, srv *Server, ctx context.Contex
 	return handler(ctx, input)
 }
 
-func callReadSelectedSource(t *testing.T, srv *Server, input ReadSelectedSourceInput) (*CallToolResult, ReadSelectedSourceOutput, error) {
+func callReadSelectedSource(t *testing.T, srv *Server, input ReadSelectedSourceInput) (*mcp.CallToolResult, ReadSelectedSourceOutput, error) {
 	t.Helper()
 	return callReadSelectedSourceWithContext(t, srv, context.Background(), input)
 }
 
-func callReadSelectedSourceWithContext(t *testing.T, srv *Server, ctx context.Context, input ReadSelectedSourceInput) (*CallToolResult, ReadSelectedSourceOutput, error) {
+func callReadSelectedSourceWithContext(t *testing.T, srv *Server, ctx context.Context, input ReadSelectedSourceInput) (*mcp.CallToolResult, ReadSelectedSourceOutput, error) {
 	t.Helper()
 	raw, ok := srv.handlers["read_selected_source"]
 	if !ok {
