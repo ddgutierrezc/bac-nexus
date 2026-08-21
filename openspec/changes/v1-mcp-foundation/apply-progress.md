@@ -10,13 +10,11 @@
 - [x] 2.14 — private acquisition boundaries.
 - [x] 2.15 — exact private cleanup and transactional ownership deletion.
 - [x] 2.16 — acquisition fixture refactor and final evidence.
-- [x] 2.17a — bounded recovery-list RED contract and row-65 overflow evidence.
-- [x] 2.17b — bounded SQLite recovery-list GREEN boundary and malformed-row fail-closed evidence.
-- [x] 2.17c.1 — authorized initial source recovery seam compile RED.
-- [x] 2.17c.2 — source-only recovery-record guard GREEN.
-- [ ] 2.17c.3 and later — recovery coordination and remaining product scope.
+- [ ] 2.17 — bounded stale-temporary recovery is partial: Slice A merged in PR #40 (`LIMIT 65` listing, no partial results, and `guardRecoveryRecord` RED/GREEN); Slice B is complete in draft PR #41 (fresh identity guards); Slice C remains pending.
+- [ ] 2.18 — startup/pre-acquire recovery integration remains pending.
+- [ ] 2.19 — operator/security documentation and evidence refactor remains pending.
 
-Task count: 29/42 complete.
+Task count: 25/42 canonical parent tasks complete.
 
 ## Strict TDD Cycle Evidence
 | Task / microcycle | Test file / layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
@@ -29,6 +27,7 @@ Task count: 29/42 complete.
 | 2.17b bounded recovery list GREEN | `internal/ownership/sqlite/ledger_recovery_test.go`, package-private SQLite/temporary-DB boundary | The 2.17a RED evidence provides the pre-production baseline: GHA CI 32428355060 failed only the absent-boundary subtests; WDAC blocks local Go test execution. | 2.17a supplied the original exact-order and row-65 RED; a malformed canonical-time row was added before production code and compile-checked locally without running a test binary. | GHA CI 32429026447 passed `go test -count=1 ./...` and `go vet ./...` on `464bfac67666e9d5ff6abb571baf356e123143df`. | Exact ordered rows, row 65 overflow, and malformed-row no-partial-result cases exercise distinct success and fail-closed paths. | None needed — the minimum package-private query/row mapping is clear and independently bounded. |
 | 2.17c.1 initial source recovery seam compile RED | `internal/source/ownership_recovery_test.go`, package-local compiler boundary | N/A (new test file); WDAC blocks local Go test execution. | GHA CI 32430525136 ran the test first on `1ed0b167a05e7321808a46fa9983acc99c9eab80` and failed only `internal/source/ownership_recovery_test.go:18:12: undefined: guardRecoveryRecord`. | N/A — authorized RED-only work unit; 2.17c.2 owns the minimal production seam. | N/A — one canonical exact record establishes the first absent seam; malformed/unavailable behavior belongs to 2.17c.2. | N/A — no production code exists to refactor. |
 | 2.17c.2 source recovery-record guard GREEN | `internal/source/ownership_recovery_test.go`, package-private source validation | 2.17c.1 authorized absent-symbol RED; WDAC blocks local Go test execution. | GHA CI 32431142613 on clean head `033409867f399c2434ff032ab2a0223327384024` failed only the absent `guardRecoveryRecord` symbol. The malformed/unavailable table was added before production code and compile-checked without executing a local test binary. | GHA CI 32431657989 passed `go test -count=1 ./...` and `go vet ./...` on `a9c17d629752bcf2b7a60851022bf6f2e1779896`. | One exact valid immutable record passes; malformed token, relative/traversal/historical paths, malformed profile, unavailable digest, and unavailable/non-canonical times return `ErrOwnershipInvalid`. The guard accepts only an `OwnershipRecord`, so it has no ledger mutation or remote dependency. | None needed — the source-only record guard remains package-private and has no recovery coordination. |
+| 2.17 Slice B fresh identity guards | `internal/source/ownership_recovery_guards_test.go`, package-private source coordinator | Slice A final GHA CI 32431834329 passed on merged PR #40; WDAC blocked local Go test runtime. | GHA CI 32433749715 ran the compiling suite on `43a92b1f34ddac2a868e098015bfd5326dc5d447`; only `TestRecoverOwnershipRecordRunsFreshGuardsBeforeExactPathCallback` failed because the temporary fail-closed seam returned `ErrOwnershipInvalid`. | GHA CI 32433893468 passed `go test -count=1 ./...` and `go vet ./...` on `a54871d76a8c99d55a53f4b4b2c5381f29659f4d`. | Success proves fresh profile → credential → constrained pinned opener → exact-path callback and secret clearing. Separate cancelled, resolver, credential, target-binding, invalid pin, and opener failures stop at their exact stage without cleanup-ready. | None needed — package-private consumer-owned callback types keep Slice C remote removal/deletion unavailable. |
 
 ## Work Unit Evidence: 3B.2 task 2.14
 | Evidence | Result |
@@ -85,13 +84,16 @@ Task count: 29/42 complete.
 | Static / builds | Local `gofmt -w internal/source/ownership.go internal/source/ownership_recovery_test.go`, `git diff --check`, `go vet ./...`, and compile-only `go test -c -o NUL ./internal/source` exited 0. No local Go test binary ran. |
 | Rollback boundary | Revert `a9c17d6` to remove only the package-private source guard and its direct tests. It does not remove the prior 2.17c.1 RED, SQLite list boundary, acquisition behavior, or any later profile/credential/binding/pin/remote cleanup scope. |
 
-## Delivery / exclusions
-- Draft PR #40 is stacked-to-main → `main`, open and draft; issue #39 is approved and linked.
-- Maintainer-selected review ceiling: 800 authored additions + deletions. The 2.17c.1 RED and 2.17c.2 GREEN commits remain under that ceiling; it remains a ceiling, not permission for unrelated scope. Delivery remains `ask-on-risk` resolved as `stacked-to-main`.
-- Excluded: 2.17c.3 and later; source recovery coordination, credential/pin/remote behavior, historical `/tmp` behavior, acquisition/rescope/reset/settle, and merge.
+## Work Unit Evidence: 3B.3 Slice B fresh identity guards
+| Evidence | Result |
+|---|---|
+| Focused test command | GREEN implementation GHA CI 32433893468: `go test -count=1 ./...` exited 0, including `internal/source` fresh-guard coverage; `go vet ./...` exited 0 on `a54871d76a8c99d55a53f4b4b2c5381f29659f4d`. |
+| Runtime harness | GHA Ubuntu executed package-local fake profile, credential, constrained remote, and cleanup-ready callbacks. It proved exact-stage failure stopping and zero cleanup-ready calls; no `Remove`, `Stat`, or `Delete` contract exists in Slice B. WDAC blocked local test binaries and was not bypassed. |
+| Rollback boundary | Revert `43a92b1` and `a54871d` plus the Slice B artifact-evidence correction commit to remove only Slice B package-private guard seams/tests and its progress wording; Slice A listing/record validation remains and unresolved ownership rows are retained. |
 
-## Settlement Handoff
-- Authorized attempt token: `sha256:ece0dc1b901091f034c26e7b55155fc610c763e55fbbf31d2509c85f17a9f9fd`.
-- Passing settlement obligation retained by parent: `--remediates-evidence-revision sha256:e8ef7c92c82647a0072242a121e465fd187b5a62380e757c89026882b9f35a05` with a distinct passing evidence revision bound to the final artifact head and GHA run.
-- This executor does not acquire, rescope, reset, settle, or merge. The parent/orchestrator retains that authority.
-- Native attempt state remains `proceed`; work unit: `3B.3-2.17c.2-source-guard-green`.
+## Current Delivery and Scope
+- PR #40 is MERGED as `11e1c46c18ca7d8092cbe0babad65aa82486f205`; issue #39 is OPEN and approved.
+- Slice A is settled complete and merged. Its final GHA evidence is 32431834329. Delivery remains `ask-on-risk`, resolved to the `stacked-to-main` chain strategy; the 800-line ceiling remains a boundary, not permission for unrelated scope.
+- Draft PR #41 (`test/recovery-identity-guards` → `main`) completed Slice B implementation at GREEN commit `a54871d76a8c99d55a53f4b4b2c5381f29659f4d`; GHA CI 32433893468 passed the full test and vet commands as GREEN implementation evidence. Final artifact-head verification is recorded externally in the phase result and PR metadata. Its package-private order is record → fresh profile → credential → canonical length-prefixed target binding → pin/trust validation → constrained opener → cleanup-ready exact path. The credential buffer is zeroed after use.
+- Slice B excludes Slices C and D; Phase 3 native credential storage; cleanup `Remove`/`Stat`/`Delete`; historical discovery; startup integration; and docs/MCP. Parent 2.17 remains unchecked/partial because Slice C is pending.
+- Native attempt remains parent-owned and untouched: state `proceed`, token `sha256:6d325e2fe1bb7707e613a749b162d2fd6d686ff63a45c25ce445320aac3cc3fa`, work unit `3B.3-Slice-B-fresh-identity-guards`.

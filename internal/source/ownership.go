@@ -2,11 +2,18 @@ package source
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/binary"
 	"errors"
+	"io"
 	"path"
 	"regexp"
 	"strings"
 	"time"
+
+	"bac-nexus/internal/credential"
+	"bac-nexus/internal/profile"
 )
 
 var ErrOwnershipInvalid = errors.New("ownership record is invalid")
@@ -26,6 +33,94 @@ type OwnershipLedger interface {
 	Admit(context.Context, OwnershipRecord) error
 	Delete(context.Context, OwnershipRecord) error
 	Close() error
+}
+
+type recoveryProfileResolver func(context.Context, string) (profile.Profile, error)
+type recoveryCredentialGetter func(context.Context, string) ([]byte, error)
+type recoveryCleanupRemote interface{ io.Closer }
+type recoveryCleanupOpener func(context.Context, profile.Profile, []byte) (recoveryCleanupRemote, error)
+type recoveryReady func(context.Context, recoveryCleanupRemote, string) error
+
+type recoveryGuards struct {
+	resolveProfile recoveryProfileResolver
+	getCredential  recoveryCredentialGetter
+	openCleanup    recoveryCleanupOpener
+	cleanupReady   recoveryReady
+}
+
+func recoverOwnershipRecord(ctx context.Context, record OwnershipRecord, guards recoveryGuards) (err error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := guardRecoveryRecord(record); err != nil {
+		return err
+	}
+	if guards.resolveProfile == nil || guards.getCredential == nil || guards.openCleanup == nil || guards.cleanupReady == nil {
+		return ErrOwnershipInvalid
+	}
+
+	fresh, err := guards.resolveProfile(ctx, record.Profile)
+	if err != nil || fresh.Name != record.Profile {
+		return ErrOwnershipInvalid
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	secret, err := guards.getCredential(ctx, record.Profile)
+	if err != nil || len(secret) == 0 || len(secret) > 4096 {
+		return ErrOwnershipInvalid
+	}
+	defer credential.Zero(secret)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	binding := recoveryTargetDigest(fresh)
+	if subtle.ConstantTimeCompare(binding[:], record.TargetDigest) != 1 {
+		return ErrOwnershipInvalid
+	}
+	if err := fresh.Validate(); err != nil {
+		return ErrOwnershipInvalid
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	remote, err := guards.openCleanup(ctx, fresh, secret)
+	if err != nil || remote == nil {
+		return ErrOwnershipInvalid
+	}
+	defer func() {
+		if closeErr := remote.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return guards.cleanupReady(ctx, remote, record.RemotePath)
+}
+
+func recoveryTargetDigest(fresh profile.Profile) [sha256.Size]byte {
+	hash := sha256.New()
+	_, _ = hash.Write([]byte("BAC Nexus/recovery-target-binding/v1\x00"))
+	writeRecoveryBindingField(hash, fresh.Host)
+	var port [2]byte
+	binary.BigEndian.PutUint16(port[:], uint16(fresh.Port))
+	_, _ = hash.Write(port[:])
+	writeRecoveryBindingField(hash, fresh.Username)
+	writeRecoveryBindingField(hash, fresh.HostKeyFingerprint)
+	writeRecoveryBindingField(hash, string(fresh.HostKeyTrust))
+	var digest [sha256.Size]byte
+	copy(digest[:], hash.Sum(nil))
+	return digest
+}
+
+func writeRecoveryBindingField(hash io.Writer, value string) {
+	var length [4]byte
+	binary.BigEndian.PutUint32(length[:], uint32(len(value)))
+	_, _ = hash.Write(length[:])
+	_, _ = io.WriteString(hash, value)
 }
 
 func guardRecoveryRecord(record OwnershipRecord) error {
