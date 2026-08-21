@@ -364,5 +364,5 @@ func (e *CommittedOutputError) Error() string {
 	return e.Operation + " committed but " + e.Output + " delivery failed; do not retry the mutation; query current status"
 }
 
-func (e *CommittedOutputError) Unwrap() error    { return e.Err }
+func (e *CommittedOutputError) Unwrap() error   { return e.Err }
 func (e *CommittedOutputError) Committed() bool { return true }

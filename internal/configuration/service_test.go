@@ -63,9 +63,11 @@ func newServiceDeps(t *testing.T) Dependencies {
 		ReadSecret:  func(string) ([]byte, error) { return nil, io.EOF },
 		DiscoverJAR: func() mapepire.DiscoveryResult { return mapepire.DiscoveryResult{Status: mapepire.DiscoveryNotFound} },
 		VerifyJAR:   func(string) error { return nil },
-		InspectKey:  func(context.Context, string, int) (remote.HostKeyObservation, error) { return remote.HostKeyObservation{}, nil },
-		Output:      io.Discard,
-		Notices:     io.Discard,
+		InspectKey: func(context.Context, string, int) (remote.HostKeyObservation, error) {
+			return remote.HostKeyObservation{}, nil
+		},
+		Output:  io.Discard,
+		Notices: io.Discard,
 	}
 }
 
