@@ -18,29 +18,15 @@ import (
 	"bac-nexus/internal/source"
 )
 
-type runnerStub struct {
-	runErr   error
-	runCalls int
-}
+type runnerStub struct{ runErr error; runCalls int }
 
-func (r *runnerStub) Run(ctx context.Context) error {
-	r.runCalls++
-	return r.runErr
-}
+func (r *runnerStub) Run(ctx context.Context) error { r.runCalls++; return r.runErr }
 
-type successfulRecovery struct {
-	calls int
-}
+type successfulRecovery struct{ calls int }
 
-func (s *successfulRecovery) Recover(ctx context.Context) error {
-	s.calls++
-	return ctx.Err()
-}
+func (s *successfulRecovery) Recover(ctx context.Context) error { s.calls++; return ctx.Err() }
 
-type failingRecovery struct {
-	err   error
-	calls int
-}
+type failingRecovery struct{ err error; calls int }
 
 func (f *failingRecovery) Recover(ctx context.Context) error {
 	f.calls++
@@ -54,7 +40,7 @@ type fakeCredentialStore struct{}
 
 func (fakeCredentialStore) Get(profile string) ([]byte, error) { return []byte("test"), nil }
 func (fakeCredentialStore) Set(profile string, secret []byte) error { return nil }
-func (fakeCredentialStore) Delete(profile string) error             { return nil }
+func (fakeCredentialStore) Delete(profile string) error { return nil }
 
 type fakeAuthorizer struct{}
 
@@ -79,19 +65,13 @@ type fakeLeaseStore struct{}
 func (fakeLeaseStore) Acquire(snap *source.Snapshot, selection catalog.Candidate, policy source.ClientPolicy) (source.Cursor, error) {
 	return source.Cursor("test-cursor"), nil
 }
-func (fakeLeaseStore) Lookup(cursor source.Cursor) (catalog.Candidate, error) {
-	return candidateFixture(), nil
-}
+func (fakeLeaseStore) Lookup(cursor source.Cursor) (catalog.Candidate, error) { return candidateFixture(), nil }
 func (fakeLeaseStore) OpenReader(cursor source.Cursor, selection catalog.Candidate, policy source.ClientPolicy) (*source.LeaseReader, error) {
 	return nil, errors.New("unused")
 }
 
 func candidateFixture() catalog.Candidate {
-	return catalog.Candidate{
-		Item: "PISA061", SourceLibrary: "QRPGLESRC", SourceFileBase: "QRPGLESRC",
-		ObjectType: "RPGLE", SourceType: "RPG", Application: "APP", Version: "V1",
-		ProductionLibrary: "PRODLIB", Description: "test program",
-	}
+	return catalog.Candidate{Item: "PISA061", SourceLibrary: "QRPGLESRC", SourceFileBase: "QRPGLESRC", ObjectType: "RPGLE", SourceType: "RPG", Application: "APP", Version: "V1", ProductionLibrary: "PRODLIB", Description: "test"}
 }
 
 func fixedClock() func() time.Time { return func() time.Time { return time.Unix(0, 0).UTC() } }
@@ -100,8 +80,7 @@ func validDeps() (mainDeps, *runnerStub, *successfulRecovery) {
 	rec := &successfulRecovery{}
 	r := &runnerStub{}
 	deps := mainDeps{
-		Profile:     "test-profile",
-		Credentials: fakeCredentialStore{}, Authorizer: fakeAuthorizer{}, Auditor: audit.NewRecorder(),
+		Profile: "test-profile", Credentials: fakeCredentialStore{}, Authorizer: fakeAuthorizer{}, Auditor: audit.NewRecorder(),
 		Resolver: fakeResolver{}, Acquirer: fakeAcquirer{}, Recovery: rec, Leases: fakeLeaseStore{},
 		ServerFactory: func(s *service) (runner, error) { return r, nil },
 		Now:           fixedClock(),
@@ -109,65 +88,71 @@ func validDeps() (mainDeps, *runnerStub, *successfulRecovery) {
 	return deps, r, rec
 }
 
-func TestRunWithDepsInvokesRecoveryBeforeRun(t *testing.T) {
-	deps, r, rec := validDeps()
-	if err := runWithDeps(context.Background(), deps); err != nil {
-		t.Fatalf("runWithDeps error = %v", err)
+func TestRunWithDepsComposition(t *testing.T) {
+	tests := []struct {
+		name      string
+		mutate    func(d *mainDeps)
+		ctxFn     func() context.Context
+		wantRec   int
+		wantRun   int
+		wantErrIs error
+	}{
+		{
+			name:    "recovery runs before run",
+			ctxFn:   func() context.Context { return context.Background() },
+			wantRec: 1, wantRun: 1,
+		},
+		{
+			name:      "recovery failure stops the run",
+			mutate:    func(d *mainDeps) { d.Recovery = &failingRecovery{err: errors.New("simulated recovery failure")} },
+			ctxFn:     func() context.Context { return context.Background() },
+			wantRec:   0, wantRun: 0,
+			wantErrIs: errors.New(""),
+		},
+		{
+			name: "pre-cancelled context aborts before recovery",
+			ctxFn: func() context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx
+			},
+			wantRec: 0, wantRun: 0, wantErrIs: context.Canceled,
+		},
+		{
+			name:    "empty profile is rejected",
+			mutate:  func(d *mainDeps) { d.Profile = "" },
+			ctxFn:   func() context.Context { return context.Background() },
+			wantRec: 0, wantRun: 0, wantErrIs: errors.New(""),
+		},
+		{
+			name:    "whitespace profile is rejected",
+			mutate:  func(d *mainDeps) { d.Profile = "   \t  " },
+			ctxFn:   func() context.Context { return context.Background() },
+			wantRec: 0, wantRun: 0, wantErrIs: errors.New(""),
+		},
 	}
-	if rec.calls != 1 {
-		t.Fatalf("Recovery calls = %d, want 1", rec.calls)
-	}
-	if r.runCalls != 1 {
-		t.Fatalf("Run calls = %d, want 1", r.runCalls)
-	}
-}
-
-func TestRunWithDepsFailsClosedOnRecoveryError(t *testing.T) {
-	deps, r, _ := validDeps()
-	deps.Recovery = &failingRecovery{err: errors.New("simulated recovery failure")}
-	if err := runWithDeps(context.Background(), deps); err == nil {
-		t.Fatal("runWithDeps error = nil, want recovery failure")
-	}
-	if r.runCalls != 0 {
-		t.Fatalf("Run calls = %d, want 0 after recovery failure", r.runCalls)
-	}
-}
-
-func TestRunWithDepsHonorsContextCancellation(t *testing.T) {
-	deps, r, rec := validDeps()
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	err := runWithDeps(ctx, deps)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("runWithDeps error = %v, want context.Canceled", err)
-	}
-	if rec.calls != 0 {
-		t.Fatalf("Recovery calls = %d after cancellation, want 0", rec.calls)
-	}
-	if r.runCalls != 0 {
-		t.Fatalf("Run calls = %d after cancellation, want 0", r.runCalls)
-	}
-}
-
-func TestRunWithDepsRequiresProfile(t *testing.T) {
-	deps, r, rec := validDeps()
-	deps.Profile = ""
-	if err := runWithDeps(context.Background(), deps); err == nil {
-		t.Fatal("runWithDeps error = nil, want empty profile rejection")
-	}
-	if rec.calls != 0 {
-		t.Fatalf("Recovery calls = %d with empty profile, want 0", rec.calls)
-	}
-	if r.runCalls != 0 {
-		t.Fatalf("Run calls = %d with empty profile, want 0", r.runCalls)
-	}
-}
-
-func TestRunWithDepsRejectsWhitespaceProfile(t *testing.T) {
-	deps, _, _ := validDeps()
-	deps.Profile = "   \t  "
-	if err := runWithDeps(context.Background(), deps); err == nil {
-		t.Fatal("runWithDeps error = nil, want whitespace profile rejection")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps, r, rec := validDeps()
+			if tt.mutate != nil {
+				tt.mutate(&deps)
+			}
+			err := runWithDeps(tt.ctxFn(), deps)
+			if tt.wantErrIs != nil {
+				if err == nil {
+					t.Fatalf("runWithDeps error = nil, want non-nil")
+				}
+				if tt.wantErrIs == context.Canceled && !errors.Is(err, context.Canceled) {
+					t.Fatalf("runWithDeps error = %v, want context.Canceled", err)
+				}
+			}
+			if rec.calls != tt.wantRec {
+				t.Fatalf("Recovery calls = %d, want %d", rec.calls, tt.wantRec)
+			}
+			if r.runCalls != tt.wantRun {
+				t.Fatalf("Run calls = %d, want %d", r.runCalls, tt.wantRun)
+			}
+		})
 	}
 }
 
@@ -201,14 +186,10 @@ func TestRunCommandCLIParsing(t *testing.T) {
 	}
 }
 
-var forbiddenMainSubstrings = []string{
-	"path", "command", "shell", "exec", "sql", "ssh",
-	"dial", "connect", "remote", "clientinfo", "parent", "argv",
-}
+var forbiddenMainSubstrings = []string{"path", "command", "shell", "exec", "sql", "ssh", "dial", "connect", "remote", "clientinfo", "parent", "argv"}
 
 func TestMainPackageHasNoRemotePathOrShellSurface(t *testing.T) {
-	checks := []reflect.Type{reflect.TypeOf(mainDeps{}), reflect.TypeOf(service{})}
-	for _, typ := range checks {
+	for _, typ := range []reflect.Type{reflect.TypeOf(mainDeps{}), reflect.TypeOf(service{})} {
 		for _, forbidden := range forbiddenMainSubstrings {
 			if found, name := fieldContains(typ, forbidden); found {
 				t.Fatalf("%s has forbidden field %q (matched %q)", typ.String(), name, forbidden)
