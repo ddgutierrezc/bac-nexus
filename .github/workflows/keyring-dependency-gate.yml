@@ -1,0 +1,72 @@
+name: Keyring Dependency Gate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - go.mod
+      - go.sum
+      - .github/workflows/keyring-dependency-gate.yml
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    name: ${{ matrix.os }} keyring evaluation
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Ubuntu Secret Service
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y dbus gnome-keyring libglib2.0-bin
+
+      - name: Verify candidate module integrity
+        run: |
+          go mod download all
+          go mod verify
+          go list -m -json all
+
+      - name: Compile supported targets without CGO
+        shell: bash
+        run: |
+          for target in windows/amd64 windows/arm64 darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
+            GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 go test -c github.com/zalando/go-keyring
+            rm -f keyring.test keyring.test.exe
+          done
+
+      - name: Run Ubuntu upstream native keyring tests in an isolated Secret Service session
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          dbus-run-session -- bash -euo pipefail -c '
+            runtime_dir="$(mktemp -d)"
+            chmod 700 "$runtime_dir"
+            export XDG_RUNTIME_DIR="$runtime_dir"
+            trap "rm -rf \"$runtime_dir\"" EXIT
+            printf "\n" | gnome-keyring-daemon --unlock --components=secrets --control-directory="$XDG_RUNTIME_DIR/keyring" >/dev/null
+            gdbus call --session --dest org.freedesktop.secrets --object-path /org/freedesktop/secrets --method org.freedesktop.DBus.Peer.Ping
+            go test -v -count=1 github.com/zalando/go-keyring
+          '
+
+      - name: Run upstream native keyring tests on this runner
+        if: runner.os != 'Linux'
+        run: go test -v -count=1 github.com/zalando/go-keyring
+
+      - name: Scan the candidate runtime package
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 github.com/zalando/go-keyring

@@ -1,8 +1,9 @@
 module bac-nexus
 
-go 1.25.0
+go 1.25.10
 
 require (
+	github.com/zalando/go-keyring v0.2.8
 	github.com/pkg/sftp v1.13.9
 	golang.org/x/crypto v0.41.0
 	golang.org/x/term v0.34.0

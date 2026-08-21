@@ -13,8 +13,9 @@
 - [x] 2.17 — bounded stale-temporary recovery is complete through Slice C: Slice A merged in PR #40 (`LIMIT 65` listing, no partial results, and `guardRecoveryRecord` RED/GREEN); Slice B merged in PR #41 (fresh identity guards); Slice C merged in PR #42 as `eecd803783eeb176b5866313babf3886a76d47d5` (exact cleanup and exact-record deletion).
 - [x] 2.18 — source-owned pre-acquire recovery gate is complete; real Nexus startup composition remains deferred to task 3.9.
 - [x] 2.19 — operator/security documentation and evidence refactor is complete; no MCP recovery operation exists.
+- [x] 3.1 — keyring dependency gate completed with real Ubuntu Secret Service runtime evidence; corporate endpoint-policy validation remains a rollout prerequisite.
 
-Task count: 28/42 canonical parent tasks complete.
+Task count: 29/42 canonical parent tasks complete.
 
 ## Strict TDD Cycle Evidence
 | Task / microcycle | Test file / layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
@@ -113,3 +114,98 @@ Task count: 28/42 canonical parent tasks complete.
 - Slice A is settled complete and merged. Its final GHA evidence is 32431834329. Delivery remains `ask-on-risk`, resolved to the `stacked-to-main` chain strategy; the 800-line ceiling remains a boundary, not permission for unrelated scope.
 - PR #42 completed Slice C at code-head GREEN commit `46577df33f78aecb314a5aebd948989522c40513`; GHA CI 32435646241 passed full test and vet commands. `RecoveryLedger` is consumer-owned and has only bounded `ListRecovery` plus exact `Delete`; SQLite's exported adapter delegates to its tested package-private `LIMIT 65` list. `RecoveryRemote` has only `Close`, exact `Remove`, and exact `Stat`. The coordinator lists once, runs every record through Slice B guards, confirms absence before deletion, and stops on any uncertain result.
 - Slice D completes tasks 2.18/2.19 with a required source-owned recovery dependency invoked before every acquisition remote open. It excludes real Nexus startup/app composition (task 3.9), Phase 3 native credential storage, MCP, remote discovery/list/glob, historical `/tmp` handling, and any `cmd/catalogspike` behavior change. Task 3.1 is next. `36e59f4` and `200166e` have no commit-specific GHA checks; final delivery-head runtime proof is GHA CI 32439957422 on `e927bf6`. The correction-head run is carried by the delivery result and PR metadata without a later commit.
+
+## Attempt 5A: Task 3.1 Keyring Dependency Gate — BLOCKED
+
+Task 3.1 remains unchecked. No `CredentialStore`, keyring adapter, credential test, migration, remote credential path, or task 3.2–3.4 behavior was created.
+
+### Candidate Runtime Graph and Integrity
+
+The candidate is explicitly pinned only for gate evaluation at `6c878d88e465c325fffe39144abf26aeef6589b8`; no application package imports it yet, so this is a resolved candidate runtime graph rather than a claim that a credential feature ships.
+
+| Module | Role | Module checksum | `go.mod` checksum |
+|---|---|---|---|
+| `github.com/zalando/go-keyring v0.2.8` | Candidate direct module; upstream tag commit `a8cdfe320cc8bc0534c895a648dc9214715a9da5`; declares Go 1.18 | `h1:6sD/Ucpl7jNq10rM2pgqTs0sZ9V3qMrqfIIy5YPccHs=` | `h1:tsMo+VpRq5NGyKfxoBVjCuMrG47yj8cmakZDO5QGii0=` |
+| `github.com/danieljoos/wincred v1.2.3` | Windows Credential Manager backend | `h1:v7dZC2x32Ut3nEfRH+vhoZGvN72+dQ/snVXo/vMFLdQ=` | `h1:6qqX0WNrS4RzPZ1tnroDzq9kY3fu1KwE7MRLQK4X0bs=` |
+| `github.com/godbus/dbus/v5 v5.2.2` | Linux Secret Service D-Bus backend | `h1:TUR3TgtSVDmjiXOgAAyaZbYmIeP3DPkld3jgKGV8mXQ=` | `h1:3AAv2+hPq5rdnr5txxxRwiGjPXamgoIHgz9FPBfOp3c=` |
+| `golang.org/x/sys v0.47.0` | Existing project-selected Windows API support; satisfies keyring's `v0.27.0` minimum under MVS | `h1:o7XGOvZQCADBQQ4Y7VNq2dRWQR7JmOUW8Kxx4ZsNgWs=` | `h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=` |
+
+`go mod verify` exited 0 locally without executing a generated Go binary. GitHub Actions ran `go mod download all`, `go mod verify`, and `go list -m -json all` successfully on Windows, macOS, and Ubuntu in run `32441478559`.
+
+### License and Source Review
+
+| Module | License evidence | Runtime behavior evidence |
+|---|---|---|
+| `go-keyring` | `LICENSE`: MIT | Platform-selected source has no HTTP/download API. Windows calls `wincred`; macOS executes only fixed `/usr/bin/security`; Linux opens the local D-Bus Secret Service. |
+| `wincred` | `LICENSE`: MIT | `sys.go` uses `windows.NewLazySystemDLL("advapi32.dll")`, a preinstalled Windows system DLL load. No DLL download is present. |
+| `godbus/dbus/v5` | `LICENSE`: BSD-3-Clause | Used for local D-Bus IPC; the reviewed keyring graph contains no HTTP client/download call. |
+| `golang.org/x/sys` | `LICENSE`: BSD-3-Clause | Provides platform syscall bindings; no downloaded runtime binary is introduced. |
+
+The code review proves no runtime binary or DLL download behavior in the evaluated sources. It does not claim that an enterprise endpoint permits Windows system-DLL loading, macOS `/usr/bin/security`, or Linux D-Bus access.
+
+### Vulnerability Evidence and Limits
+
+- Direct OSV queries for `go-keyring v0.2.8`, `wincred v1.2.3`, and `godbus/dbus/v5 v5.2.2` returned no vulnerability records.
+- The direct OSV query for resolved `golang.org/x/sys v0.47.0` returned historical advisories whose fixed ranges end before `v0.47.0`; none applies to the resolved version.
+- GHA macOS and Windows ran `go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 github.com/zalando/go-keyring`: both reported `No vulnerabilities found` and `Your code is affected by 0 vulnerabilities`. The tool is tooling-only; it downloaded `golang.org/x/vuln v1.7.0` and `golang.org/x/mod v0.39.0`, which are not candidate runtime modules.
+- The scanner also reported uncalled package/module findings for the pre-existing full project graph (macOS: 3 package/43 module; Windows: 4 package/42 module). They are not evidence that the keyring candidate is clean or affected; they require separate project-level review if shipment proceeds.
+- Ubuntu did not execute `govulncheck` because its required preceding native test failed; this must not be represented as Ubuntu vulnerability proof.
+
+### TDD Cycle Evidence
+
+| Task | Test file / layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 3.1 dependency gate | GHA three-runner upstream-module runtime layer | Local runtime blocked by WDAC. GHA `go test -count=1 ./...` run `32441478626` failed an unrelated existing SQLite contention test (`TestLedgerAdmissionUsesExactRetrySchedule`), so it is not a valid safety-net pass. | N/A — this is a supply-chain gate; creating task 3.2 credential tests or production behavior is prohibited. | **FAILED** — required Ubuntu native Secret Service test failed. | Windows, macOS, and Ubuntu ran the same six compile targets; native runtime passed on Windows/macOS and actually failed on Ubuntu. | None — fail closed at the first required gate failure. |
+
+### Work Unit Evidence: 5A-keyring-dependency-gate
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | GHA `32441478559`, head `6c878d88e465c325fffe39144abf26aeef6589b8`: `go test -count=1 github.com/zalando/go-keyring` passed on macOS (`ok`, `0.413s`) and Windows (`ok`, `0.095s`), but Ubuntu exited 1 because `org.freedesktop.secrets` was not provided by any `.service` file. |
+| Runtime harness command/scenario and exact result | The unmodified upstream native tests exercised each runner's actual native backend, not a mock harness. Windows Credential Manager and macOS Keychain tests passed. Ubuntu attempted the real D-Bus Secret Service and failed because the service was unavailable; this is evidence of unavailable runner capability, not proof of Linux admission. |
+| Static / compile evidence | Local `go mod verify`, six `GOOS/GOARCH` `CGO_ENABLED=0 go test -c -o NUL github.com/zalando/go-keyring`, and `git diff --check` exited 0; no local generated Go binary ran. The GHA matrix repeated all six compile targets successfully on each runner. |
+| Endpoint-policy admission | **NOT PROVEN.** The available GitHub runner result cannot establish corporate endpoint policy for fixed macOS executable access, Windows `advapi32.dll`, or Linux D-Bus/Secret Service. The actual Ubuntu service absence also blocks technical Linux runtime admission. |
+| Rollback boundary | Revert `6c878d8` to remove only the candidate `go-keyring` pin/checksums and `.github/workflows/keyring-dependency-gate.yml`. No credential behavior, remote path, migration, or tasks 3.2–3.4 implementation exists. |
+
+### Prior Delivery Status (Superseded)
+
+- Issue: #44 (open, `status:approved`)
+- Branch: `chore/keyring-dependency-gate`
+- Evidence-only draft PR: #45, targeting `main`, intentionally `Part of #44` and not closing the issue
+- Gate decision: **BLOCKED** — actual Ubuntu Secret Service absence and unproven corporate endpoint-policy admission prevent task completion.
+- Required next action: do not start tasks 3.2–3.4. A maintainer must supply an approved Linux Secret Service/endpoint-policy runner or change the approved dependency/design through a new decision before re-evaluation.
+
+## Successful Precursor for Task 3.1 Final-Artifact Candidate
+
+The maintainer approved an isolated real D-Bus Secret Service implementation in GitHub-hosted Ubuntu as sufficient Linux technical PoC evidence and explicitly deferred corporate endpoint-policy/environment approval to rollout. That deferred approval remains mandatory for deployment but is not a task 3.1 completion blocker.
+
+| Evidence | Exact result |
+|---|---|
+| Prior successful gate run / head | GHA Keyring Dependency Gate `32442432657` on `f1e15be5db0bed150fcc9a60d6b50981fc1e502f` completed successfully. The final-artifact candidate must receive a new exact-head run before settlement. |
+| Ubuntu Secret Service | The workflow installed `dbus`, `gnome-keyring`, and `libglib2.0-bin`; started a `dbus-run-session`; created a mode-0700 temporary runtime directory; sent only a blank line to `gnome-keyring-daemon --unlock`; and removed the temporary directory on exit. No credential/passphrase was passed through argv, environment, repository, artifacts, or logs. |
+| Actual service proof | Ubuntu logs record `Successfully activated service 'org.freedesktop.secrets'` and `gdbus ... org.freedesktop.DBus.Peer.Ping` returned `()`. |
+| Native upstream behavior | In that real service session, `go test -v -count=1 github.com/zalando/go-keyring` passed `TestSet`, `TestGet`, `TestDelete`, their not-found variants, and `TestDeleteAll`; it was not a mock or compile-only result. |
+| Matrix / compilation | Ubuntu job `96655634791`, Windows job `96655634907`, and macOS job `96655635024` all passed module verification, six `CGO_ENABLED=0` windows/darwin/linux × amd64/arm64 compile targets, and their native upstream test paths. |
+| Vulnerabilities | All three matrix jobs ran `govulncheck@v1.7.0` against `github.com/zalando/go-keyring` with `No vulnerabilities found` and `Your code is affected by 0 vulnerabilities`. Go was raised from `1.25.0` to `1.25.10` because GO-2026-4971 affects `net` before `go1.25.10`; the final Ubuntu scan passed. |
+| Repository verification | GHA Go Verification `32442432780` on the same head passed `go test -count=1 ./...` and `go vet ./...`. WDAC prevented local runtime tests and was not bypassed. |
+| Corporate rollout policy | Deferred and unproven. Validation for Windows system DLL access, fixed macOS `/usr/bin/security`, and Linux D-Bus/Secret Service on BAC endpoints remains a rollout prerequisite. |
+
+### TDD Cycle Evidence: 3.1 Linux Secret Service Remediation
+
+| Task | Test file / layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 3.1 Linux Secret Service remediation | GHA three-runner upstream-module runtime layer | GHA Go Verification `32442290697` passed before the Go patch; local runtime remained blocked by WDAC. | GHA `32442290696` on `c22df1d` proved the real service and native tests pass but `govulncheck` failed on GO-2026-4971 with Go 1.25.0. | GHA `32442432657` on `f1e15be` passed all native, compile, graph, and vulnerability gates with Go 1.25.10. | Ubuntu proves real D-Bus activation and native Get/Set/Delete; Windows and macOS prove their native upstream paths. | Narrow workflow setup plus Go patch only; no credential production behavior was added. |
+
+### Work Unit Evidence: 5A-keyring-linux-secret-service-ci
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | GHA Ubuntu job `96655634791` in run `32442432657`: `go test -v -count=1 github.com/zalando/go-keyring` exited 0 after service activation; the log contains passing `TestSet`, `TestGet`, and `TestDelete` cases. |
+| Runtime harness command/scenario and exact result | `dbus-run-session` hosted GNOME Keyring Secret Service in an isolated mode-0700 runtime directory; `gdbus` successfully pinged `org.freedesktop.secrets`; upstream tests persisted, retrieved, and deleted their test entries through the actual service. |
+| Rollback boundary | Revert `c22df1d` and `f1e15be` to remove only Ubuntu Secret Service evaluation and Go 1.25.10 patching. Revert `6c878d8` as well to remove the entire candidate keyring gate. No CredentialStore, migration, remote path, or task 3.2–3.4 behavior is affected. |
+
+### Candidate Delivery Status Before Exact-Head Verification
+
+- Issue #44 is open and approved; draft PR #45 now closes it on merge only.
+- Task 3.1 is checked at 29/42; exact-head verification is required before settlement, then task 3.2 is next.
+- The historical failures (`32441478559`, absent Secret Service; `32442290696`, GO-2026-4971 before Go 1.25.10) remain preserved above.
