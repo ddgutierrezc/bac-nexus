@@ -83,6 +83,21 @@ func NewLeaseStore(clock func() time.Time, random io.Reader) *LeaseStore {
 	return newLeaseStoreWithEpoch(epoch, clock, random, DefaultResidentCapacity, DefaultIdleTTL)
 }
 
+// NewLeaseStoreForTest creates a lease store with a deterministic epoch
+// derived from the clock. It is intended only for service-level tests
+// that need to mint and read back cursors; production code uses
+// NewLeaseStore.
+func NewLeaseStoreForTest(clock func() time.Time, random io.Reader) *LeaseStore {
+	epoch := make([]byte, EpochBytes)
+	for i := range epoch {
+		epoch[i] = byte(0xA5 ^ i)
+	}
+	if random == nil {
+		random = bytes.NewReader(nil)
+	}
+	return newLeaseStoreWithEpoch(epoch, clock, random, DefaultResidentCapacity, DefaultIdleTTL)
+}
+
 // newLeaseStoreWithEpoch builds the store with pre-supplied epoch, clock, and
 // capacity; used by NewLeaseStore and the test/internal restart helper.
 func newLeaseStoreWithEpoch(epoch []byte, clock func() time.Time, random io.Reader, capacity int64, ttl time.Duration) *LeaseStore {
@@ -192,6 +207,32 @@ func (s *LeaseStore) OpenReader(cursor Cursor, selection catalog.Candidate, poli
 	ls.expiresAt = s.now().Add(s.ttl)
 	ls.refCount++
 	return &LeaseReader{store: s, lease: ls}, nil
+}
+
+// Lookup returns the canonical selection bound to a valid cursor without
+// opening a reader or refreshing TTL. The caller supplies the cursor;
+// the store resolves its capability and returns the recorded selection
+// when the cursor is well-formed, bound to the current process epoch,
+// and not hidden. An invalid, expired, or hidden cursor returns
+// ErrInvalidCursor or ErrExpiredLease.
+func (s *LeaseStore) Lookup(cursor Cursor) (catalog.Candidate, error) {
+	capability, cursorEpoch, err := decodeCursor(cursor)
+	if err != nil {
+		return catalog.Candidate{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !bytes.Equal(cursorEpoch, s.epoch) {
+		return catalog.Candidate{}, ErrInvalidCursor
+	}
+	ls, ok := s.leases[string(capability)]
+	if !ok || ls.hidden {
+		return catalog.Candidate{}, ErrInvalidCursor
+	}
+	if !s.now().Before(ls.expiresAt) {
+		return catalog.Candidate{}, ErrExpiredLease
+	}
+	return ls.selection, nil
 }
 
 // Page serves the requested range from the immutable resident bytes and
