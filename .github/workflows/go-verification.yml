@@ -80,9 +80,6 @@ jobs:
           assert root.name == f"{goos}-{goarch}" and root.parent.name == version
           PY
           done
-          native="build/v1-mcp-foundation/${VERSION}/linux-amd64/nexus"
-          version_output="$("$native" version --json)"
-          test -n "$version_output"
 
       - name: Upload operator handoff package
         uses: actions/upload-artifact@v4

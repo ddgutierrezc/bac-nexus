@@ -166,6 +166,19 @@ func TestRunCommandCLIParsing(t *testing.T) {
 	}
 }
 
+func TestPrintVersionIsDeterministic(t *testing.T) {
+	oldVersion, oldRevision := releaseVersion, vcsRevision
+	defer func() { releaseVersion, vcsRevision = oldVersion, oldRevision }()
+	releaseVersion, vcsRevision = "v1.0.0", "abc123"
+	out := &strings.Builder{}
+	if err := printVersion([]string{"--json"}, out); err != nil {
+		t.Fatalf("printVersion() error = %v", err)
+	}
+	if got, want := out.String(), "{\"version\":\"v1.0.0\",\"revision\":\"abc123\"}\n"; got != want {
+		t.Fatalf("version output = %q, want %q", got, want)
+	}
+}
+
 var forbiddenMainSubstrings = []string{"path", "command", "shell", "exec", "sql", "ssh", "dial", "connect", "remote", "clientinfo", "parent", "argv"}
 
 func TestMainPackageHasNoRemotePathOrShellSurface(t *testing.T) {
