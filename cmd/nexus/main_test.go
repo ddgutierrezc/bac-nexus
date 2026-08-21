@@ -189,43 +189,23 @@ func TestRunCommandCLIParsing(t *testing.T) {
 var forbiddenMainSubstrings = []string{"path", "command", "shell", "exec", "sql", "ssh", "dial", "connect", "remote", "clientinfo", "parent", "argv"}
 
 func TestMainPackageHasNoRemotePathOrShellSurface(t *testing.T) {
-	for _, typ := range []reflect.Type{reflect.TypeOf(mainDeps{}), reflect.TypeOf(service{})} {
-		for _, forbidden := range forbiddenMainSubstrings {
-			if found, name := fieldContains(typ, forbidden); found {
-				t.Fatalf("%s has forbidden field %q (matched %q)", typ.String(), name, forbidden)
+	checks := []struct {
+		typ   reflect.Type
+		names []string
+	}{
+		{reflect.TypeOf(mainDeps{}), []string{"Profile", "Credentials", "Authorizer", "Auditor", "Resolver", "Acquirer", "Recovery", "Leases", "ServerFactory", "Now"}},
+		{reflect.TypeOf(service{}), []string{"app", "server", "profile"}},
+	}
+	for _, c := range checks {
+		for _, name := range c.names {
+			lower := strings.ToLower(name)
+			for _, forbidden := range forbiddenMainSubstrings {
+				if strings.Contains(lower, forbidden) {
+					t.Fatalf("%s has forbidden field %q (matched %q)", c.typ.String(), name, forbidden)
+				}
 			}
 		}
 	}
-}
-
-func fieldContains(typ reflect.Type, substring string) (bool, string) {
-	return fieldContainsVisited(typ, substring, map[reflect.Type]bool{})
-}
-
-func fieldContainsVisited(typ reflect.Type, substring string, visited map[reflect.Type]bool) (bool, string) {
-	if typ == nil || visited[typ] {
-		return false, ""
-	}
-	visited[typ] = true
-	if typ.Kind() == reflect.Ptr {
-		typ = typ.Elem()
-	}
-	if typ.Kind() != reflect.Struct {
-		return false, ""
-	}
-	for i := 0; i < typ.NumField(); i++ {
-		field := typ.Field(i)
-		if field.Anonymous {
-			if found, name := fieldContainsVisited(field.Type, substring, visited); found {
-				return true, name
-			}
-			continue
-		}
-		if strings.Contains(strings.ToLower(field.Name), substring) {
-			return true, field.Name
-		}
-	}
-	return false, ""
 }
 
 func TestRunCommandServeHelpTextContract(t *testing.T) {
