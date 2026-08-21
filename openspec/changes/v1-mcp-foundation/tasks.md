@@ -30,7 +30,7 @@ PoC exceptions are approved; production/corporate SQLite/keyring rollout approva
 | 3B.1c-T | Transaction retry/readback; 3B.1b; PR #32 → `main`; 330–380 lines | `go test -count=1 ./internal/ownership/sqlite` | GHA Linux real child-process SQLite lock: 25/50/100ms, cancel, ambiguous COMMIT, deadline contention | `ledger.go` transaction retry/readback plus `ledger_transaction_red_test.go` transaction cases |
 | 3B.1c-I | Integrity microcycles; 3B.1c-T merged; draft PR #36 → `main`; 330–380 lines | `go test -count=1 ./internal/ownership/sqlite` | GHA real temporary SQLite ordering/corruption/cancellation/bound cases plus injected `Open` mapping and bounded-row/query edges; no shared gate | `ledger.go` verifier/Open boundary and `ledger_integrity_red_test.go` only; independently revertible |
 | 3B.2 | Private acquisition microcycles; 3B.1c-I merged; PR 3B.2 → `main`; 340–390 lines | `go test -count=1 ./internal/source ./internal/remote` | GHA Ubuntu loopback SSH + temporary remote root; no live IBM i | revert only private acquire/retrieve/SSH boundaries and package tests |
-| 3B.3 | Recovery; 3B.2; target `main` | `go test -count=1 ./internal/source ./internal/ownership/sqlite` | crash/contention fake | recovery/docs |
+| 3B.3 | Recovery microcycles; 3B.2; target `main`; ≤800 authored lines | `go test -count=1 ./internal/source ./internal/ownership/sqlite` | GHA available-runner temp SQLite plus credential/target/pin/remote fakes and cross-process contention; WDAC blocks local Go runtime evidence | `internal/source/ownership.go`, SQLite recovery-list boundary, recovery tests, and `docs/SECURITY.md` only |
 | 5A | Credentials | `go test -count=1 ./internal/credential` | available OS only | credential |
 | 5B | Policy/audit; 5A | `go test -count=1 ./internal/security ./internal/audit` | fakes | policy/audit |
 | 6 | Freshness; 2,3B.3,5B | `go test -count=1 ./internal/app` | app fakes | service |
@@ -71,9 +71,31 @@ Draft PR #28 / issue #27 must narrow to 3B.1b; its current RED is not valid or c
 - [x] 2.14 **RED→GREEN (PR 3B.2 — private acquisition boundaries)**: In `internal/source/acquire_test.go` and minimal production boundaries, independently RED then GREEN authenticated absolute home; private `0700`; exclusive random `0600` + `Lstat`; immutable-source approval/safety-net success; traversal/symlink rejection; durable `Admit`/readback before reserve/copy—no shared compile gate or synthetic test-only implementation.
 - [x] 2.15 **RED→GREEN (PR 3B.2 — cleanup integration)**: In `internal/source/{acquire,retrieve}.go` and `internal/remote/ssh.go`, independently RED then GREEN exact private-path wiring and `Remove` + `Stat`-not-found before transactional DELETE; retain on failure and never add recovery-loop behavior.
 - [x] 2.16 **REFACTOR (PR 3B.2)**: Consolidate acquisition fixtures; record focused CI/runtime/static evidence, independent rollback, and the maintainer-selected 800-line review ceiling; no snapshot when row or cleanup confirmation fails.
-- [ ] 2.17 **RED (PR 3B.3)**: Test bounded `LIMIT 65` exact rows, fresh profile/credential/pin/binding, crash idempotence, corruption/contention/retarget blocking, and no historical `/tmp` discovery.
-- [ ] 2.18 **GREEN (PR 3B.3)**: Implement exact-path startup/pre-acquire recovery in `internal/source/ownership.go`; delete only after confirmed absence.
+- [x] 2.17a **RED (PR 3B.3)**: Add a compiling `ledger_recovery_test.go` case for exact validated ownership rows returned with `LIMIT 65`, including row 65 as overflow evidence; it builds against the preceding 3B.2 GREEN.
+- [x] 2.17b **GREEN (PR 3B.3)**: Add the minimum SQLite package-private bounded recovery-list boundary; query only exact ledger rows with `LIMIT 65`, validate each record, and fail closed on overflow/malformed data.
+- [x] 2.17c.1 **RED (PR 3B.3)**: In `internal/source/ownership_recovery_test.go`, directly call absent package-private `guardRecoveryRecord` with one exact bounded `OwnershipRecord`; GHA expects only `undefined: guardRecoveryRecord` while unrelated packages compile/pass.
+- [x] 2.17c.2 **GREEN (PR 3B.3)**: Add the minimum real `guardRecoveryRecord` seam in `internal/source/ownership.go`; triangulate valid exact-row acceptance plus malformed/unavailable fail-closed retention and zero remote calls—no placeholder/test-only code, generic API, or later scope.
+- [ ] 2.17c.3 **RED (PR 3B.3)**: Prove fresh recorded-profile resolution then credential retrieval run in order; either unavailable/failing result retains the row and makes zero remote-open/`Remove` calls.
+- [ ] 2.17c.4 **GREEN (PR 3B.3)**: Add the minimal source-owned profile-resolver/credential-getter adapter seam using `profile.Profile`; fail closed before target, pin, or remote work—do not implement Phase 3 credential storage.
+- [ ] 2.17d.1 **RED (PR 3B.3)**: Prove a freshly resolved profile whose canonical target digest differs from `OwnershipRecord.TargetDigest` retains ownership and makes zero remote-open/`Remove` calls.
+- [ ] 2.17d.2 **GREEN (PR 3B.3)**: Add the exact canonical target-binding comparison in `internal/source/ownership.go`; only a matching 32-byte digest advances to pin validation.
+- [ ] 2.17d.3 **RED (PR 3B.3)**: Prove fresh pinned host-key validation runs after a matching binding and that unavailable/mismatched pin retains ownership with zero cleanup-remote-open/`Remove` calls.
+- [ ] 2.17d.4 **GREEN (PR 3B.3)**: Add the minimum pinned cleanup-remote opener seam; validate the fresh `profile.Profile` pin before it returns a constrained cleanup remote, without `Remove`, `Stat`, or `Delete`.
+- [ ] 2.17d.5 **RED (PR 3B.3)**: Prove only a valid record plus fresh profile, credential, binding, and pin reaches an exact-path cleanup-ready callback; every guard failure retains ownership and calls no `Remove`.
+- [ ] 2.17d.6 **GREEN (PR 3B.3)**: Wire the guard chain to pass only the recorded exact path to that callback; leave actual `Remove`/`Stat`/transactional `Delete` exclusively to 2.17e–2.17f.
+- [ ] 2.17e **RED (PR 3B.3)**: Add a compiling exact-path case: `Remove` then `Stat`-not-found is required before the matching row `Delete`; uncertainty retains the row.
+- [ ] 2.17f **GREEN (PR 3B.3)**: Add the minimum recovery cleanup step using only the recorded validated path and transactional exact-row delete after confirmed absence.
+- [ ] 2.17g **RED (PR 3B.3)**: Add compiling crash cases for pre/during-copy and post-remove states; repeated recovery deletes only a confirmed-absent exact row and otherwise retains it.
+- [ ] 2.17h **GREEN (PR 3B.3)**: Make the exact-path recovery step idempotent for repeated not-found confirmation; never reuse a token or path.
+- [ ] 2.17i **RED (PR 3B.3)**: Add compiling corruption, bounded-contention, and profile-retarget cases that block all remote cleanup and new acquisition.
+- [ ] 2.17j **GREEN (PR 3B.3)**: Propagate list/validation/contention/retarget failures as fail-closed recovery outcomes with no remote call or partial deletion.
+- [ ] 2.17k **RED (PR 3B.3)**: Add a compiling historical-path case proving recovery accepts only ledger rows and never discovers, lists, globs, or deletes `/tmp/bac-nexus-catalog-*`.
+- [ ] 2.17l **GREEN (PR 3B.3)**: Keep recovery input confined to the bounded ledger list; introduce no historical-path discovery or generic remote-list/delete boundary.
+- [ ] 2.18a **RED (PR 3B.3)**: Add compiling startup and pre-acquire cases proving recovery completes successfully before acquisition, or blocks acquisition on any retained unsafe row/fail-closed outcome.
+- [ ] 2.18b **GREEN (PR 3B.3)**: Wire the recovery coordinator into startup and pre-acquire paths in `internal/source/ownership.go`; preserve no MCP recovery operation.
 - [ ] 2.19 **REFACTOR (PR 3B.3)**: Add `docs/SECURITY.md` operator/privileged-risk guidance and available cross-process/platform evidence; no MCP recovery operation.
+
+Lettered items are independently executable RED→GREEN microcycles within parent task identities 2.17 and 2.18; the tracked task count remains 42. The sole exception is 2.17c.1's direct absent-symbol compile RED: it must not use placeholder/test-only production code or a reflection/missing-interface gate. 2.17c.2 creates the real minimum seam; every RED from 2.17c.3 onward must compile against its preceding GREEN and prove independent behavior. Run `go test -count=1 ./internal/source ./internal/ownership/sqlite` in GitHub Actions for every later pair; do not bypass WDAC locally.
 
 ## Phase 3: Credentials, Policy, and Freshness
 

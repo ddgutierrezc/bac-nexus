@@ -18,11 +18,12 @@ import (
 )
 
 const (
-	applicationID   = 1111573326
-	userVersion     = 1
-	sqliteBusy      = 5
-	maxLedgerBytes  = 4 << 20
-	ownershipSchema = `CREATE TABLE ownership (token BLOB PRIMARY KEY CHECK(length(token) = 16), remote_path TEXT UNIQUE CHECK(length(CAST(remote_path AS BLOB)) BETWEEN 1 AND 1024), version INTEGER NOT NULL CHECK(version = 1), profile TEXT NOT NULL CHECK(length(profile) BETWEEN 1 AND 64), target_digest BLOB NOT NULL CHECK(length(target_digest) = 32), created_at TEXT NOT NULL CHECK(length(created_at) = 20))`
+	applicationID     = 1111573326
+	userVersion       = 1
+	sqliteBusy        = 5
+	maxLedgerBytes    = 4 << 20
+	recoveryListLimit = 65
+	ownershipSchema   = `CREATE TABLE ownership (token BLOB PRIMARY KEY CHECK(length(token) = 16), remote_path TEXT UNIQUE CHECK(length(CAST(remote_path AS BLOB)) BETWEEN 1 AND 1024), version INTEGER NOT NULL CHECK(version = 1), profile TEXT NOT NULL CHECK(length(profile) BETWEEN 1 AND 64), target_digest BLOB NOT NULL CHECK(length(target_digest) = 32), created_at TEXT NOT NULL CHECK(length(created_at) = 20))`
 )
 
 var transactionRetryDelays = [...]time.Duration{25 * time.Millisecond, 50 * time.Millisecond, 100 * time.Millisecond}
@@ -207,6 +208,51 @@ func applicationDataRoot() string {
 	return root
 }
 func (l *Ledger) Close() error { return l.db.Close() }
+
+func (l *Ledger) listRecovery(ctx context.Context) ([]source.OwnershipRecord, error) {
+	rows, err := l.db.QueryContext(ctx, `SELECT token, remote_path, version, profile, target_digest, created_at FROM ownership ORDER BY created_at ASC, token ASC LIMIT 65`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	records := make([]source.OwnershipRecord, 0, recoveryListLimit-1)
+	for rows.Next() {
+		if len(records) == recoveryListLimit-1 {
+			return nil, source.ErrOwnershipCapacity
+		}
+		var token, digest []byte
+		var remotePath, profile, createdAt string
+		var version int
+		if err := rows.Scan(&token, &remotePath, &version, &profile, &digest, &createdAt); err != nil {
+			return nil, err
+		}
+		record, err := recordFromRecoveryRow(token, remotePath, version, profile, digest, createdAt)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return records, nil
+}
+
+func recordFromRecoveryRow(token []byte, remotePath string, version int, profile string, digest []byte, created string) (source.OwnershipRecord, error) {
+	createdAt, err := time.Parse(time.RFC3339, created)
+	if err != nil || version != userVersion || len(token) != 16 || len(remotePath) == 0 || len([]byte(remotePath)) > 1024 || len(profile) == 0 || len(profile) > 64 || len(digest) != 32 || createdAt.UTC().Format(time.RFC3339) != created {
+		return source.OwnershipRecord{}, source.ErrOwnershipInvalid
+	}
+	return source.OwnershipRecord{
+		Token:        append([]byte(nil), token...),
+		RemotePath:   remotePath,
+		Profile:      profile,
+		TargetDigest: append([]byte(nil), digest...),
+		CreatedAt:    createdAt,
+	}, nil
+}
+
 func (l *Ledger) Admit(ctx context.Context, record source.OwnershipRecord) error {
 	for attempt := 0; ; attempt++ {
 		commitAttempted, err := l.admitAttempt(ctx, record)
