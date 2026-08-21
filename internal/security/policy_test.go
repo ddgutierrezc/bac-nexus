@@ -323,9 +323,21 @@ func TestPinnedTrustRejectsAmbiguousObservedEvidence(t *testing.T) {
 		Fingerprint: "SHA256:ambiguous",
 		Binding:     []byte("approved-binding-padding-32-x"),
 	}
-	verifyType := reflect.TypeOf(trust.Verify)
-	if verifyType.NumIn() != 5 {
-		t.Fatalf("Verify takes %d arguments, want 5 (ctx, pin, fingerprint, binding)", verifyType.NumIn())
+	// reflect.TypeOf(methodValue) returns the method type without the
+	// receiver; the explicit arguments are (ctx, pin, fingerprint,
+	// binding), so NumIn is 4. Including the receiver (via the
+	// pointer type) yields 5.
+	boundType := reflect.TypeOf(trust.Verify)
+	if got, want := boundType.NumIn(), 4; got != want {
+		t.Fatalf("Verify explicit arguments = %d, want %d (ctx, pin, fingerprint, binding)", got, want)
+	}
+	pointerType := reflect.TypeOf((*PinnedTrust)(nil))
+	method, ok := pointerType.MethodByName("Verify")
+	if !ok {
+		t.Fatal("PinnedTrust.Verify is missing")
+	}
+	if got, want := method.Type.NumIn(), 5; got != want {
+		t.Fatalf("Verify method type arguments = %d, want %d (receiver, ctx, pin, fingerprint, binding)", got, want)
 	}
 	if err := trust.Verify(context.Background(), pin, "SHA256:ambiguous", []byte("approved-binding-padding-32-x")); err != nil {
 		t.Fatalf("Verify(single) error = %v, want nil", err)
@@ -363,15 +375,30 @@ func TestPinnedTrustBindingCompareIsConstantTime(t *testing.T) {
 	trust := NewPinnedTrust()
 	goodBinding := bytes.Repeat([]byte{0x42}, sha256.Size)
 	pin := PinnedTarget{Trust: HostKeyTrustVerified, Fingerprint: "SHA256:p", Binding: goodBinding}
-	for _, length := range []int{0, 1, 16, 31, 32} {
-		prefix := make([]byte, length)
-		copy(prefix, goodBinding[:length])
-		// Tamper the last byte when length matches the digest size.
-		if length == sha256.Size {
-			prefix[length-1] ^= 0x01
+	tests := []struct {
+		length int
+		want   error
+	}{
+		// Empty observed binding is a missing-evidence failure, not a
+		// host-key change.
+		{length: 0, want: ErrTrustEvidenceMissing},
+		// Shorter observed bindings differ in length and are a
+		// host-key change because the seam performed the comparison.
+		{length: 1, want: ErrHostKeyChanged},
+		{length: 16, want: ErrHostKeyChanged},
+		{length: 31, want: ErrHostKeyChanged},
+		// Same length with the last byte tampered is also a
+		// host-key change.
+		{length: 32, want: ErrHostKeyChanged},
+	}
+	for _, tt := range tests {
+		prefix := make([]byte, tt.length)
+		copy(prefix, goodBinding[:tt.length])
+		if tt.length == sha256.Size {
+			prefix[tt.length-1] ^= 0x01
 		}
-		if err := trust.Verify(context.Background(), pin, "SHA256:p", prefix); !errors.Is(err, ErrHostKeyChanged) {
-			t.Fatalf("prefix length %d: error = %v, want ErrHostKeyChanged", length, err)
+		if err := trust.Verify(context.Background(), pin, "SHA256:p", prefix); !errors.Is(err, tt.want) {
+			t.Fatalf("prefix length %d: error = %v, want %v", tt.length, err, tt.want)
 		}
 	}
 }
@@ -379,19 +406,25 @@ func TestPinnedTrustBindingCompareIsConstantTime(t *testing.T) {
 // TestPinnedTrustRejectsMalformedFingerprint covers fingerprints that
 // do not follow the canonical "SHA256:" + base64 form. The seam must
 // fail closed for any fingerprint that is not equal to the pinned
-// fingerprint, regardless of shape.
+// fingerprint, regardless of shape. Empty observed fingerprints are
+// missing evidence; non-empty malformed fingerprints are a host-key
+// change.
 func TestPinnedTrustRejectsMalformedFingerprint(t *testing.T) {
 	trust := NewPinnedTrust()
 	pin := PinnedTarget{Trust: HostKeyTrustVerified, Fingerprint: "SHA256:" + hex.EncodeToString(bytes.Repeat([]byte{0x42}, sha256.Size)), Binding: bytes.Repeat([]byte{0x42}, sha256.Size)}
-	for _, malformed := range []string{
-		"",
-		"MD5:00000000",
-		"SHA256:",
-		"sha256:00000000",
-		"SHA256:" + strings.Repeat("z", 64),
-	} {
-		if err := trust.Verify(context.Background(), pin, malformed, pin.Binding); !errors.Is(err, ErrHostKeyChanged) {
-			t.Fatalf("malformed fingerprint %q: error = %v, want ErrHostKeyChanged", malformed, err)
+	tests := []struct {
+		fingerprint string
+		want        error
+	}{
+		{fingerprint: "", want: ErrTrustEvidenceMissing},
+		{fingerprint: "MD5:00000000", want: ErrHostKeyChanged},
+		{fingerprint: "SHA256:", want: ErrHostKeyChanged},
+		{fingerprint: "sha256:00000000", want: ErrHostKeyChanged},
+		{fingerprint: "SHA256:" + strings.Repeat("z", 64), want: ErrHostKeyChanged},
+	}
+	for _, tt := range tests {
+		if err := trust.Verify(context.Background(), pin, tt.fingerprint, pin.Binding); !errors.Is(err, tt.want) {
+			t.Fatalf("malformed fingerprint %q: error = %v, want %v", tt.fingerprint, err, tt.want)
 		}
 	}
 }
