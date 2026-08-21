@@ -1,6 +1,6 @@
 module bac-nexus
 
-go 1.25.0
+go 1.25.10
 
 require (
 	github.com/zalando/go-keyring v0.2.8
