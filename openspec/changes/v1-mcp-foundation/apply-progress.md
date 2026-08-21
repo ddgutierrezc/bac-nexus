@@ -210,3 +210,9 @@ The maintainer approved an isolated real D-Bus Secret Service implementation in 
 - Issue #44 is open and approved; draft PR #45 now closes it on merge only.
 - Task 3.1 is checked at 29/42; exact-head verification is required before settlement, then task 3.2 is next.
 - The historical failures (`32441478559`, absent Secret Service; `32442290696`, GO-2026-4971 before Go 1.25.10) remain preserved above.
+
+## Attempt 5A: Tasks 3.2–3.4 CredentialStore/keyring adapter — BLOCKED
+
+- RED tests were committed before production code. GHA Go Verification `32488962873` and Keyring Dependency Gate `32488962889` on `8ac6c12dd5816e44d258753592f2c5f07d19ca86` failed only because the new `KeyringStore`, `ErrCredentialsUnavailable`, and macOS command seam were intentionally absent; unrelated packages remained green.
+- GREEN code head `2dbccaabb9333df8761684f4b682b0bb555e278c` passed GHA Go Verification `32489347195`, but its Keyring Dependency Gate `32489347181` failed in the pre-existing Ubuntu upstream native test before the BAC Nexus credential-package step. Isolating XDG data/home did not repair the upstream collection-unlock failure: exact head `7c45ad5238cd43bb38a129c454e6988f020531d7` passed Go Verification `32489887806` while Keyring Dependency Gate `32489888263` again failed at the upstream Ubuntu native test.
+- Tasks 3.2–3.4 remain unchecked at 29/42. No refactor, task completion, or 3.5+ work is authorized until a stable real Linux Secret Service harness supplies exact-head GREEN evidence.
