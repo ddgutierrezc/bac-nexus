@@ -1,0 +1,71 @@
+# BAC Nexus Security Boundary
+
+BAC Nexus v1 is a read-oriented, local-first foundation for bounded IBM i source context. It is not a generic remote administration interface. When a security property cannot be established, the operation fails closed.
+
+## Quick operator path
+
+1. Run Nexus only with an approved local OS identity, approved profile, native credential access, and a pinned IBM i host key.
+2. Treat any recovery, ownership, integrity, contention, or platform-policy failure as a stop condition; do not bypass it by deleting files or database rows broadly.
+3. Before rollout, obtain the unresolved IBM i, data-classification, source/audit-policy, and corporate endpoint approvals.
+
+## Trust and threat model
+
+| Boundary | Decision and residual risk |
+|---|---|
+| Local caller | The current local OS principal is the v1 trust boundary. Profile and client selectors are advisory capability selectors, not product authentication. A malicious same-principal process remains a residual risk. |
+| IBM i target | A fresh profile, credential, canonical target binding, and pinned host key are checked before recovery opens a cleanup connection. A privileged IBM i operator can still race or replace remote files; Nexus does not claim absolute protection from a privileged account. |
+| Local ownership data | SQLite records only ownership metadata: version, 16-byte token, exact private path, profile selector, target digest, and canonical creation time. It never stores secrets, source, commands, cursors, or model content. |
+| Uncertainty | Missing, malformed, conflicting, unavailable, corrupt, or inconclusive evidence fails closed. |
+
+## Remote temporary ownership and recovery
+
+Nexus can create only an owned temporary path below the validated authenticated home:
+
+```text
+<validated-home>/.bac-nexus/tmp/<32-hex-token>.utf8
+```
+
+The directory is private (`0700`), files are exclusively reserved (`0600`), tokens are 128 random bits, and the durable ownership ledger is limited to 64 records. Recovery reads at most 65 rows (`LIMIT 65`) so a 65th row is an overflow failure rather than an unbounded cleanup attempt.
+
+Each recovery record is revalidated against a fresh profile, credential, binding, and pin before the exact recorded path is used. Cleanup is deliberately narrow:
+
+```text
+exact Remove → exact Stat reports not found → exact ownership Delete
+```
+
+No path is discovered, listed, globbed, or prefix-deleted. Historical shared `/tmp/bac-nexus-catalog-*` paths are outside automatic recovery.
+
+Before every new `source.Acquirer.Acquire`, the pre-acquire gate runs recovery. A missing recovery dependency, cancelled context, recovery error, or retained unsafe row stops acquisition before a new acquisition remote connection, private-directory operation, ownership admission, token generation, copy, or other new remote operation. This gate is not process-startup composition: task 3.9 owns real Nexus startup invocation before service availability.
+
+## Failure, crash, and contention behavior
+
+- Crash before copy: recovery removes the empty reservation or accepts an exact not-found result.
+- Crash during copy or download: recovery removes the exact partial or complete temporary file.
+- Crash after remote removal: exact not-found permits record deletion; a retry is idempotent because tokens and paths are never reused.
+- Corruption, overflow, lock contention, ambiguous cleanup, or failed deletion retains the ownership row and blocks recovery and new acquisition.
+- Operators must not force-delete rows to restore capacity. Investigate the exact profile, target binding, pin, and path under approved IBM i controls first.
+
+## Least privilege, credentials, and logs
+
+Use a read-oriented IBM i identity limited to approved libraries and source access. Credentials are retrieved through the approved native-store boundary and must never appear in source, SQLite, logs, audit records, argv, environment, fixtures, errors, or MCP results. Source content, tokens, target digests, and cursors are also excluded from logs and audit output. Redact before export and retain only necessary outcome metadata.
+
+Nexus exposes no generic SSH, SQL, shell, or MCP recovery operation. Recovery is an internal, exact-record lifecycle control, not an operator command surface.
+
+## Evidence and rollout limits
+
+| Evidence | What it proves | What it does not prove |
+|---|---|---|
+| Go unit tests with fakes and temporary SQLite | Ordering, fail-closed contracts, exact ownership behavior, and bounded ledger handling | Live IBM i behavior or durability across power loss |
+| GitHub Actions | Available runner/package evidence, including available platform and cross-process evidence where recorded | Windows/macOS/Linux runtime behavior on runners that were not available |
+| WDAC-constrained developer environment | A local runtime restriction that is not bypassed | A substitute runtime harness |
+
+Available evidence uses CI, fakes, and temporary SQLite only. There is no live IBM i validation and no claim of unavailable-platform proof.
+
+Rollout remains blocked on approved IBM i access, source/data classification, audit policy, corporate dependency and endpoint policy, signed/approved Nexus distribution, and an approved local database directory.
+
+## Incident and rollback guidance
+
+1. Stop new acquisition before changing recovery state.
+2. Preserve the SQLite ownership record and collect redacted diagnostics; never copy source or credentials into an incident ticket.
+3. Verify the exact recorded path, approved profile, target binding, and host-key pin using approved IBM i procedures.
+4. If rollback is required, revert the Slice D pre-acquire gate and this document before reverting earlier recovery slices. Retain unresolved ownership rows; do not replace recovery with broad remote deletion.
