@@ -136,6 +136,7 @@ func newAcquisitionFixture(events *[]string) acquisitionFixture {
 		ledger:  ledger,
 		acquirer: Acquirer{
 			Open:         sequentialOpener(request, cleanup),
+			Recover:      successfulAcquisitionRecovery,
 			Random:       bytes.NewReader(make([]byte, 16)),
 			Ownership:    ledger,
 			Profile:      "test",
@@ -214,7 +215,15 @@ func TestAcquirerRequiresSuccessfulRecoveryBeforeOpeningRemote(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			events := []string{}
 			fixture := newAcquisitionFixture(&events)
-			fixture.acquirer.Recover = tt.recover
+			recoveryCalls := 0
+			if tt.recover != nil {
+				fixture.acquirer.Recover = func(ctx context.Context) error {
+					recoveryCalls++
+					return tt.recover(ctx)
+				}
+			} else {
+				fixture.acquirer.Recover = nil
+			}
 			opens := 0
 			fixture.acquirer.Open = func(context.Context) (AcquisitionRemote, io.Closer, error) {
 				opens++
@@ -222,8 +231,9 @@ func TestAcquirerRequiresSuccessfulRecoveryBeforeOpeningRemote(t *testing.T) {
 			}
 
 			snap, err := fixture.acquirer.Acquire(tt.ctx, candidate())
-			if err == nil || snap != nil || opens != 0 || fixture.request.copies != 0 || fixture.ledger.record.Token != nil || len(events) != 0 {
-				t.Fatalf("Acquire() = %v, %v; recovery/open/copy/admit/events = %d/%d/%d/%v", snap, err, tt.wantCalls, opens, fixture.request.copies, events)
+			admitted := fixture.ledger.record.Token != nil
+			if err == nil || snap != nil || recoveryCalls != tt.wantCalls || opens != 0 || fixture.request.copies != 0 || admitted || len(events) != 0 {
+				t.Fatalf("Acquire() = %v, %v; recovery/open/copy/admit/events = %d/%d/%d/%t/%v", snap, err, recoveryCalls, opens, fixture.request.copies, admitted, events)
 			}
 		})
 	}
@@ -385,7 +395,7 @@ func TestAcquirerFailsClosedAndCleansOwnedTemporary(t *testing.T) {
 				fixture.cleanup.statErr = boom
 			}
 			snap, err := fixture.acquirer.Acquire(tt.ctx, candidate())
-			wantRemoteWork := tt.name != "nonregular stat"
+			wantRemoteWork := tt.name != "cancelled" && tt.name != "deadline" && tt.name != "nonregular stat"
 			if err == nil || snap != nil || (fixture.request.copies == 1) != wantRemoteWork || (fixture.cleanup.removes == 1) != wantRemoteWork || fixture.cleanup.removeContextErr != nil {
 				t.Fatalf("Acquire() = %v, %v; copy/remove = %d/%d", snap, err, fixture.request.copies, fixture.cleanup.removes)
 			}

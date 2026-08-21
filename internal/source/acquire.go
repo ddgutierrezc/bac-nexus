@@ -34,10 +34,13 @@ type AcquisitionRemote interface {
 // RemoteOpener supplies a separately owned remote lifecycle for request and cleanup work.
 type RemoteOpener func(context.Context) (AcquisitionRemote, io.Closer, error)
 
+// AcquisitionRecovery performs the bounded ownership recovery gate before a new acquisition opens a remote connection.
+type AcquisitionRecovery func(context.Context) error
+
 // Acquirer builds a complete in-memory snapshot and confirms its remote temporary is gone.
 type Acquirer struct {
 	Open         RemoteOpener
-	Recover      func(context.Context) error
+	Recover      AcquisitionRecovery
 	Random       io.Reader
 	Ownership    OwnershipLedger
 	Profile      string
@@ -46,8 +49,14 @@ type Acquirer struct {
 }
 
 func (a Acquirer) Acquire(ctx context.Context, candidate catalog.Candidate) (snap *Snapshot, err error) {
-	if a.Open == nil || a.Ownership == nil || a.Profile == "" || len(a.TargetDigest) != 32 {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if a.Open == nil || a.Recover == nil || a.Ownership == nil || a.Profile == "" || len(a.TargetDigest) != 32 {
 		return nil, errors.New("source acquisition dependencies are required")
+	}
+	if err := a.Recover(ctx); err != nil {
+		return nil, fmt.Errorf("recover source ownership before acquisition: %w", err)
 	}
 	remote, closeRemote, err := a.Open(ctx)
 	if err != nil {
