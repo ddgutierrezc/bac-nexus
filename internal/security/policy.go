@@ -128,23 +128,20 @@ func (p *Policy) Authorize(ctx context.Context, selector Selector, target Capabi
 // zero value is constructed through this helper.
 func emptyDecision() Decision_ { return Decision_{} }
 
-// normalizeSelector trims a single trailing newline/tab character and
-// rejects empty, whitespace, control-byte, or case-variant forms. The
-// allowlist is exact and case-sensitive.
+// normalizeSelector validates a selector against the allowlist
+// preconditions: non-empty, no control bytes, no DEL, and exact
+// case-sensitive match. The allowlist lookup itself happens in
+// Authorize; this function only enforces input shape so that a
+// malformed selector cannot reach the lookup map.
 func normalizeSelector(selector Selector) (Selector, bool) {
 	value := string(selector)
 	if value == "" {
 		return "", false
 	}
 	for _, r := range value {
-		switch {
-		case r >= 0x20 && r != 0x7f:
-		default:
+		if r < 0x20 || r == 0x7f {
 			return "", false
 		}
-	}
-	if value != string(Selector(value)) {
-		return "", false
 	}
 	return Selector(value), true
 }

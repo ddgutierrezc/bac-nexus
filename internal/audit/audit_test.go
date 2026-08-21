@@ -38,7 +38,7 @@ func TestRecorderRejectsDisallowedCapability(t *testing.T) {
 		"ssh-exec",
 		"",
 		"Catalog_Resolve", // case-sensitive
-		"source_read ",     // trailing whitespace
+		"source_read ",    // trailing whitespace
 	}
 	for _, capability := range tests {
 		t.Run(string(capability), func(t *testing.T) {
@@ -293,16 +293,43 @@ func TestAuditPackageHasNoRemotePathOrShellSurface(t *testing.T) {
 		{typ: reflect.TypeOf((*Auditor)(nil)).Elem(), label: "Auditor"},
 	}
 	for _, check := range checks {
-		for i := 0; i < check.typ.NumMethod(); i++ {
-			name := check.typ.Method(i).Name
-			lower := strings.ToLower(name)
-			for _, forbidden := range []string{"ssh", "exec", "shell", "path", "command", "sql", "dial", "connect", "remote", "clientinfo", "parent"} {
-				if strings.Contains(lower, forbidden) {
-					t.Fatalf("%s has forbidden method %q (matched %q)", check.label, name, forbidden)
-				}
+		for _, forbidden := range forbiddenMethodSubstrings {
+			found, name := hasMethodContaining(check.typ, forbidden)
+			if found {
+				t.Fatalf("%s has forbidden method %q (matched %q)", check.label, name, forbidden)
 			}
 		}
 	}
+}
+
+// forbiddenMethodSubstrings is the structural guard list. The list is
+// authoritative; adding an entry requires an explicit decision and a
+// matching red test.
+var forbiddenMethodSubstrings = []string{
+	"ssh",
+	"exec",
+	"shell",
+	"path",
+	"command",
+	"sql",
+	"dial",
+	"connect",
+	"remote",
+	"clientinfo",
+	"parent",
+}
+
+// hasMethodContaining returns whether the supplied type exposes a
+// method whose lower-cased name contains the supplied substring. It
+// also returns the matching method name for diagnostics.
+func hasMethodContaining(typ reflect.Type, substring string) (bool, string) {
+	for i := 0; i < typ.NumMethod(); i++ {
+		name := typ.Method(i).Name
+		if strings.Contains(strings.ToLower(name), substring) {
+			return true, name
+		}
+	}
+	return false, ""
 }
 
 func validAuditEvent() Event {

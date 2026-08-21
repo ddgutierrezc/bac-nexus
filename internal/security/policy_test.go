@@ -117,34 +117,30 @@ func TestPolicyDeniesSelectorTargetMismatch(t *testing.T) {
 
 // TestPolicyAuthorizesIdenticallyRegardlessOfClientIdentityVariants proves
 // that the policy never branches on the parent process, product identity,
-// or `clientInfo` content. Two different `clientInfo` strings supplied
-// outside the policy boundary (here simulated by selector suffix and
-// process-scope string variants) MUST yield identical authorization
-// outcomes for the canonical allowlisted selector, and any selector
-// variant that is not on the allowlist MUST be denied regardless of
-// suffix.
+// or `clientInfo` content. The spoofed identifier lives in the
+// surrounding context that the policy never inspects; the canonical
+// allowlisted selector MUST yield the same allow decision regardless
+// of the surrounding identifier.
 func TestPolicyAuthorizesIdenticallyRegardlessOfClientIdentityVariants(t *testing.T) {
-	canonical := []Decision{DecisionAllow, DecisionAllow, DecisionAllow, DecisionAllow, DecisionAllow, DecisionAllow}
-	decisions := make([]Decision, 0, len(canonical))
-	for _, info := range []string{
+	infos := []string{
 		"copilot/1.0",
 		"opencode/2.0",
 		"product-X/3.0",
 		"",
 		"unknown",
 		"copilot\x00rogue",
-	} {
-		policy := NewPolicy()
-		// Selector is identical across runs; the spoofed identifier lives
-		// in the surrounding context that the policy never inspects.
-		decision, err := policy.Authorize(context.Background(), SelectorResolveCatalog, TargetIBMiCatalog)
-		if err != nil {
-			t.Fatalf("Authorize(info=%q) error = %v", info, err)
-		}
-		decisions = append(decisions, decision.Decision)
 	}
-	if !reflect.DeepEqual(decisions, canonical) {
-		t.Fatalf("decisions = %v, want %v", decisions, canonical)
+	for _, info := range infos {
+		t.Run(info, func(t *testing.T) {
+			policy := NewPolicy()
+			decision, err := policy.Authorize(context.Background(), SelectorResolveCatalog, TargetIBMiCatalog)
+			if err != nil {
+				t.Fatalf("Authorize(info=%q) error = %v", info, err)
+			}
+			if decision.Decision != DecisionAllow {
+				t.Fatalf("info=%q: decision = %q, want %q", info, decision.Decision, DecisionAllow)
+			}
+		})
 	}
 }
 
@@ -416,14 +412,41 @@ func TestSecurityPackageHasNoRemotePathOrShellSurface(t *testing.T) {
 		{typ: reflect.TypeOf((*Authorizer)(nil)).Elem(), label: "Authorizer"},
 	}
 	for _, check := range checks {
-		for i := 0; i < check.typ.NumMethod(); i++ {
-			name := check.typ.Method(i).Name
-			lower := strings.ToLower(name)
-			for _, forbidden := range []string{"ssh", "exec", "shell", "path", "command", "sql", "dial", "connect", "remote", "clientinfo", "parent"} {
-				if strings.Contains(lower, forbidden) {
-					t.Fatalf("%s has forbidden method %q (matched %q)", check.label, name, forbidden)
-				}
+		for _, forbidden := range forbiddenMethodSubstrings {
+			found, name := hasMethodContaining(check.typ, forbidden)
+			if found {
+				t.Fatalf("%s has forbidden method %q (matched %q)", check.label, name, forbidden)
 			}
 		}
 	}
+}
+
+// forbiddenMethodSubstrings is the structural guard list. The list is
+// authoritative; adding an entry requires an explicit decision and a
+// matching red test.
+var forbiddenMethodSubstrings = []string{
+	"ssh",
+	"exec",
+	"shell",
+	"path",
+	"command",
+	"sql",
+	"dial",
+	"connect",
+	"remote",
+	"clientinfo",
+	"parent",
+}
+
+// hasMethodContaining returns whether the supplied type exposes a
+// method whose lower-cased name contains the supplied substring. It
+// also returns the matching method name for diagnostics.
+func hasMethodContaining(typ reflect.Type, substring string) (bool, string) {
+	for i := 0; i < typ.NumMethod(); i++ {
+		name := typ.Method(i).Name
+		if strings.Contains(strings.ToLower(name), substring) {
+			return true, name
+		}
+	}
+	return false, ""
 }
