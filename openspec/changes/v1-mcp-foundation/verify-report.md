@@ -182,3 +182,9 @@ This section preserves the original failed report above and records the single a
 - Local compile-only checks passed for `./internal/app`, `./internal/mcp`, and `./cmd/nexus`; no local Go test binary was executed because WDAC remains authoritative.
 - Exact-head GitHub Actions tests, vet, formatting, package, and runbook checks are still required before settlement.
 - IBM i remains `ready_for_controlled_ibmi_validation` / `not_validated_on_ibmi`.
+
+### Exact-head GHA result for this attempt
+
+- Run `32519777214` reached the correction head `ec49d9b3b1acda6a0b935f9c2748a2a525ff818d`; tests and vet passed on reruns, but the formatting gate failed on `internal/app/service.go`.
+- The same run also recorded the pre-existing flaky SQLite contention failure on an earlier rerun (`TestLedgerAdmissionUsesExactRetrySchedule`); it is not attributed to this correction.
+- No passing remediation evidence revision exists. This correction therefore cannot settle `passed`.

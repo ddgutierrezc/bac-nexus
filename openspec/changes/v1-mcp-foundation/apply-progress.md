@@ -434,3 +434,9 @@ format gates. The original findings remain preserved in `verify-report.md`.
 
 Strict-TDD correction evidence is limited to focused candidate coverage and
 must not be treated as complete historical 42-task provenance.
+
+The exact-head GHA attempt `32519777214` passed tests and vet on rerun but
+failed its formatting gate at `internal/app/service.go`; no passing settlement
+or new evidence revision is recorded. The native remediation remains failed
+with the unresolved formatting and cumulative-evidence blockers. No archive
+action is authorized.
