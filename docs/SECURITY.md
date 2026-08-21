@@ -8,11 +8,16 @@ BAC Nexus v1 is a read-oriented, local-first foundation for bounded IBM i source
 2. Treat any recovery, ownership, integrity, contention, or platform-policy failure as a stop condition; do not bypass it by deleting files or database rows broadly.
 3. Before rollout, obtain the unresolved IBM i, data-classification, source/audit-policy, and corporate endpoint approvals.
 
+## MCP server surface (v1)
+
+The `nexus serve` subcommand runs the typed MCP stdio server built on the official `github.com/modelcontextprotocol/go-sdk`. The server exposes exactly two tools: `resolve_catalog_candidates` (bounded candidate coordinates) and `read_selected_source` (one page at a time). Wire schemas forbid temporary, listing, or delete fields; the cursor is the opaque server binding and is never echoed. Start-up runs the same pre-acquire recovery gate that every acquisition uses, and a failed recovery, missing credential, denied selector, stale coordinate, or cancelled context all fail closed before any remote work begins.
+
 ## Trust and threat model
 
 | Boundary | Decision and residual risk |
 |---|---|
 | Local caller | The current local OS principal is the v1 trust boundary. Profile and client selectors are advisory capability selectors, not product authentication. A malicious same-principal process remains a residual risk. |
+| MCP wire surface | The two allowed tools are the only path between an MCP client and the Nexus service. The typed input schemas forbid temporary, listing, or delete fields; the typed output schemas never include source, cursor, raw error, path, host, user, command, SQL, credential, or model content. |
 | IBM i target | A fresh profile, credential, canonical target binding, and pinned host key are checked before recovery opens a cleanup connection. A privileged IBM i operator can still race or replace remote files; Nexus does not claim absolute protection from a privileged account. |
 | Local ownership data | SQLite records only ownership metadata: version, 16-byte token, exact private path, profile selector, target digest, and canonical creation time. It never stores secrets, source, commands, cursors, or model content. |
 | Uncertainty | Missing, malformed, conflicting, unavailable, corrupt, or inconclusive evidence fails closed. |
@@ -35,7 +40,7 @@ exact Remove → exact Stat reports not found → exact ownership Delete
 
 No path is discovered, listed, globbed, or prefix-deleted. Historical shared `/tmp/bac-nexus-catalog-*` paths are outside automatic recovery.
 
-Before every new `source.Acquirer.Acquire`, the pre-acquire gate runs recovery. A missing recovery dependency, cancelled context, recovery error, or retained unsafe row stops acquisition before a new acquisition remote connection, private-directory operation, ownership admission, token generation, copy, or other new remote operation. This gate is not process-startup composition: task 3.9 owns real Nexus startup invocation before service availability.
+Before every new `source.Acquirer.Acquire`, the pre-acquire gate runs recovery. A missing recovery dependency, cancelled context, recovery error, or retained unsafe row stops acquisition before a new acquisition remote connection, private-directory operation, ownership admission, token generation, copy, or other new remote operation. Real Nexus process start-up also runs this gate through the MCP server's composition root; the gate is invoked during `nexus serve` before the server is exposed to clients.
 
 ## Failure, crash, and contention behavior
 
@@ -49,7 +54,7 @@ Before every new `source.Acquirer.Acquire`, the pre-acquire gate runs recovery. 
 
 Use a read-oriented IBM i identity limited to approved libraries and source access. Credentials are retrieved through the approved native-store boundary and must never appear in source, SQLite, logs, audit records, argv, environment, fixtures, errors, or MCP results. Source content, tokens, target digests, and cursors are also excluded from logs and audit output. Redact before export and retain only necessary outcome metadata.
 
-Nexus exposes no generic SSH, SQL, shell, or MCP recovery operation. Recovery is an internal, exact-record lifecycle control, not an operator command surface.
+Nexus exposes no generic SSH, SQL, shell, or MCP recovery operation. The MCP server's typed input schemas forbid path, listing, or delete fields; recovery is an internal, exact-record lifecycle control, not an operator command surface.
 
 ## Evidence and rollout limits
 
@@ -59,13 +64,13 @@ Nexus exposes no generic SSH, SQL, shell, or MCP recovery operation. Recovery is
 | GitHub Actions | Available runner/package evidence, including available platform and cross-process evidence where recorded | Windows/macOS/Linux runtime behavior on runners that were not available |
 | WDAC-constrained developer environment | A local runtime restriction that is not bypassed | A substitute runtime harness |
 
-Available evidence uses CI, fakes, and temporary SQLite only. There is no live IBM i validation and no claim of unavailable-platform proof.
+Available evidence uses CI, fakes, and temporary SQLite only. There is no live IBM i validation and no claim of unavailable-platform proof. The `nexus serve` runtime is exercised in CI through deterministic fakes and the in-memory transport; a live MCP client and a real IBM i remain out of scope for the v1 PoC.
 
 Rollout remains blocked on approved IBM i access, source/data classification, audit policy, corporate dependency and endpoint policy, signed/approved Nexus distribution, and an approved local database directory.
 
 ## Incident and rollback guidance
 
-1. Stop new acquisition before changing recovery state.
+1. Stop the `nexus` process before changing recovery state.
 2. Preserve the SQLite ownership record and collect redacted diagnostics; never copy source or credentials into an incident ticket.
 3. Verify the exact recorded path, approved profile, target binding, and host-key pin using approved IBM i procedures.
-4. If rollback is required, revert the Slice D pre-acquire gate and this document before reverting earlier recovery slices. Retain unresolved ownership rows; do not replace recovery with broad remote deletion.
+4. If rollback is required, revert the MCP server slice (`cmd/nexus` and `internal/mcp`) and this document before reverting earlier recovery slices. Retain unresolved ownership rows; do not replace recovery with broad remote deletion.
