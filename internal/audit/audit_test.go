@@ -37,8 +37,8 @@ func TestRecorderRejectsDisallowedCapability(t *testing.T) {
 		"run-shell",
 		"ssh-exec",
 		"",
-		"catalog_resolve", // missing approved sentinel
 		"Catalog_Resolve", // case-sensitive
+		"source_read ",     // trailing whitespace
 	}
 	for _, capability := range tests {
 		t.Run(string(capability), func(t *testing.T) {
@@ -144,9 +144,9 @@ func TestValidateEventAcceptsBoundedReason(t *testing.T) {
 		"ok",
 		"deny: selector not allowlisted",
 		"deny: target class mismatch",
-		"deny: unauthorized selector",
-		"error: credentials_unavailable",
-		"error: host_key_changed",
+		"deny: selector unauthorized",
+		"error: native store unavailable",
+		"error: trust evidence changed",
 		"deny: missing evidence",
 		"deny: capability denied",
 	}
