@@ -37,7 +37,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -z "$(gofmt -l $(git ls-files '*.go'))"
+          while IFS= read -r file; do
+            diff="$(sed 's/\r$//' "$file" | gofmt -d)"
+            test -z "$diff"
+          done < <(git ls-files '*.go')
           python3 - <<'PY'
           from pathlib import Path
           text = Path('docs/IBM_I_VALIDATION.md').read_text(encoding='utf-8')
