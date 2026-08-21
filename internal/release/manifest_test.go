@@ -49,7 +49,7 @@ func TestManifestRejectsTamperingMismatchAndUnsafePath(t *testing.T) {
 
 func TestManifestStatusLanguageIsExplicitNonClaim(t *testing.T) {
 	manifest := NewManifest(Identity{Version: "dev", Revision: "unknown"}, "linux", "amd64", []byte("x"))
-	if manifest.Status != "ready_for_controlled_ibmi_validation" || manifest.IBMISStatus != "not_validated_on_ibmi" {
-		t.Fatalf("status = %q/%q", manifest.Status, manifest.IBMISStatus)
+	if manifest.Status != "ready_for_controlled_ibmi_validation" || manifest.IBMIStatus != "not_validated_on_ibmi" {
+		t.Fatalf("status = %q/%q", manifest.Status, manifest.IBMIStatus)
 	}
 }

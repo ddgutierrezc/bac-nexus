@@ -63,4 +63,4 @@ GitHub Actions is the canonical runtime evidence; local Windows Defender Applica
 
 ## Rollout
 
-Production rollout is still blocked on approved IBM i access, source/data classification, audit policy, corporate dependency and endpoint policy, signed/approved Nexus distribution, and an approved local database directory. See `docs/SECURITY.md` for the rollout gate list.
+The SDD/package status is `ready_for_controlled_ibmi_validation`; it is explicitly `not_validated_on_ibmi`. Live IBM i validation is an external, authorized rollout gate and is not represented by tests, fakes, CI, or package checks. See [docs/IBM_I_VALIDATION.md](docs/IBM_I_VALIDATION.md) and [docs/SECURITY.md](docs/SECURITY.md).
