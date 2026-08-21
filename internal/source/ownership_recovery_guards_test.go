@@ -3,6 +3,7 @@ package source
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"io"
 	"reflect"
@@ -13,6 +14,8 @@ import (
 )
 
 var errRecoveryGuard = errors.New("recovery guard failed")
+
+var validRecoveryTargetDigest = mustRecoveryDigest("56fd2e82c3d814386b40fb61ba3d9001c330f9cf61562ae1b47810842647b78d")
 
 func TestRecoverOwnershipRecordRunsFreshGuardsBeforeExactPathCallback(t *testing.T) {
 	fresh := recoveryProfile()
@@ -71,12 +74,14 @@ func TestRecoverOwnershipRecordRetainsOwnershipBeforeCleanupReady(t *testing.T) 
 		ctx    context.Context
 		record OwnershipRecord
 		guards func(*[]string) recoveryGuards
+		want   []string
 	}{
 		{
 			name:   "cancelled context",
 			ctx:    cancelledRecoveryContext(),
 			record: validRecord,
 			guards: recoveryWorkingGuards(valid),
+			want:   nil,
 		},
 		{
 			name:   "profile resolution fails",
@@ -90,6 +95,7 @@ func TestRecoverOwnershipRecordRetainsOwnershipBeforeCleanupReady(t *testing.T) 
 				}
 				return guards
 			},
+			want: []string{"profile"},
 		},
 		{
 			name:   "credential retrieval fails",
@@ -103,6 +109,7 @@ func TestRecoverOwnershipRecordRetainsOwnershipBeforeCleanupReady(t *testing.T) 
 				}
 				return guards
 			},
+			want: []string{"profile", "credential"},
 		},
 		{
 			name: "target binding differs",
@@ -113,6 +120,7 @@ func TestRecoverOwnershipRecordRetainsOwnershipBeforeCleanupReady(t *testing.T) 
 				return record
 			}(),
 			guards: recoveryWorkingGuards(valid),
+			want:   []string{"profile", "credential"},
 		},
 		{
 			name:   "fresh profile pin is invalid",
@@ -123,6 +131,7 @@ func TestRecoverOwnershipRecordRetainsOwnershipBeforeCleanupReady(t *testing.T) 
 				invalid.HostKeyFingerprint = ""
 				return recoveryWorkingGuards(invalid)(events)
 			},
+			want: []string{"profile", "credential"},
 		},
 		{
 			name:   "constrained cleanup opener fails",
@@ -136,6 +145,7 @@ func TestRecoverOwnershipRecordRetainsOwnershipBeforeCleanupReady(t *testing.T) 
 				}
 				return guards
 			},
+			want: []string{"profile", "credential", "open"},
 		},
 	}
 
@@ -146,10 +156,8 @@ func TestRecoverOwnershipRecordRetainsOwnershipBeforeCleanupReady(t *testing.T) 
 			if err == nil {
 				t.Fatal("recovery guard failure unexpectedly continued")
 			}
-			for _, event := range events {
-				if event == "ready" {
-					t.Fatalf("cleanup-ready callback ran after guard failure: %v", events)
-				}
+			if !reflect.DeepEqual(events, tt.want) {
+				t.Fatalf("guard events = %v, want %v; cleanup-ready must not run", events, tt.want)
 			}
 		})
 	}
@@ -183,7 +191,7 @@ func recoveryRecordForProfile(fresh profile.Profile) OwnershipRecord {
 		Token:        bytes.Repeat([]byte{0x17}, 16),
 		RemotePath:   "/home/nexus/.bac-nexus/tmp/recovery-017.utf8",
 		Profile:      fresh.Name,
-		TargetDigest: bytes.Repeat([]byte{0}, 32),
+		TargetDigest: append([]byte(nil), validRecoveryTargetDigest...),
 		CreatedAt:    time.Date(2026, 8, 20, 0, 0, 17, 0, time.UTC),
 	}
 }
@@ -204,6 +212,14 @@ func cancelledRecoveryContext() context.Context {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	return ctx
+}
+
+func mustRecoveryDigest(encoded string) []byte {
+	digest, err := hex.DecodeString(encoded)
+	if err != nil {
+		panic(err)
+	}
+	return digest
 }
 
 type recoveryCloser struct{ onClose func() }
