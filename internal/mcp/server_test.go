@@ -56,7 +56,8 @@ func validConfig() (Config, *fakeService) {
 	return Config{Info: Info{Name: "bac-nexus", Version: "v0.0.0"}, Service: svc}, svc
 }
 
-// forbiddenSurfaceSubstrings is the structural guard list.
+// forbiddenSurfaceSubstrings is the structural guard list. Adding
+// an entry requires an explicit decision and a matching red test.
 var forbiddenSurfaceSubstrings = []string{"path", "command", "shell", "exec", "sql", "ssh", "dial", "connect", "remote", "clientinfo", "parent"}
 
 func hasFieldContaining(typ reflect.Type, substring string) (bool, string) {
@@ -88,6 +89,41 @@ func fieldContains(typ reflect.Type, substring string, visited map[reflect.Type]
 	}
 	return false, ""
 }
+
+// canned resolve/read functions shared by the behavior tables.
+var (
+	resolveSuccess = func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) {
+		return []catalog.Candidate{validCandidate(), validCandidate()}, nil
+	}
+	resolvePassThrough = func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) {
+		return nil, nil
+	}
+	resolveCtx = func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) {
+		return nil, context.Canceled
+	}
+	resolveCreds = func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) {
+		return nil, credential.ErrCredentialsUnavailable
+	}
+	resolveUnauth = func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) {
+		return nil, security.ErrUnauthorized
+	}
+
+	readSuccess = func(ctx context.Context, cursor string, _ source.Range) (source.Page, error) {
+		return source.Page{StartLine: 1, LineCount: 2, Lines: []string{"line-one", "line-two"}, EOF: false, NextStartLine: 3}, nil
+	}
+	readPassThrough = func(ctx context.Context, cursor string, _ source.Range) (source.Page, error) {
+		return source.Page{}, nil
+	}
+	readCtx = func(ctx context.Context, cursor string, _ source.Range) (source.Page, error) {
+		return source.Page{}, context.Canceled
+	}
+	readStale = func(ctx context.Context, cursor string, _ source.Range) (source.Page, error) {
+		return source.Page{}, source.ErrStaleCoordinate
+	}
+	readInvalid = func(ctx context.Context, cursor string, _ source.Range) (source.Page, error) {
+		return source.Page{}, source.ErrInvalidRequest
+	}
+)
 
 func TestServerRegistersExactlyTwoTools(t *testing.T) {
 	cfg, _ := validConfig()
@@ -143,7 +179,6 @@ func TestTypedInputOutputSchemasAreBounded(t *testing.T) {
 }
 
 func TestResolveCatalogHandlerBehavior(t *testing.T) {
-	candidate := validCandidate()
 	tests := []struct {
 		name      string
 		resolveFn func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error)
@@ -151,10 +186,7 @@ func TestResolveCatalogHandlerBehavior(t *testing.T) {
 		check     func(t *testing.T, out ResolveCatalogOutput, svc *fakeService, err error)
 	}{
 		{
-			name: "returns service result",
-			resolveFn: func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) {
-				return []catalog.Candidate{candidate, candidate}, nil
-			},
+			name: "returns service result", resolveFn: resolveSuccess,
 			input: ResolveCatalogInput{Statement: "SELECT 1", Parameters: []string{"%PISA%"}},
 			check: func(t *testing.T, out ResolveCatalogOutput, svc *fakeService, err error) {
 				if err != nil {
@@ -169,9 +201,8 @@ func TestResolveCatalogHandlerBehavior(t *testing.T) {
 			},
 		},
 		{
-			name:      "forwards selector and parameters",
-			resolveFn: func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) { return nil, nil },
-			input:     ResolveCatalogInput{Statement: "SELECT 1", Parameters: []string{"%PISA%"}},
+			name: "forwards selector and parameters", resolveFn: resolvePassThrough,
+			input: ResolveCatalogInput{Statement: "SELECT 1", Parameters: []string{"%PISA%"}},
 			check: func(t *testing.T, out ResolveCatalogOutput, svc *fakeService, err error) {
 				if err != nil {
 					t.Fatalf("error = %v", err)
@@ -185,9 +216,8 @@ func TestResolveCatalogHandlerBehavior(t *testing.T) {
 			},
 		},
 		{
-			name:      "maps context cancelled",
-			resolveFn: func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) { return nil, context.Canceled },
-			input:     ResolveCatalogInput{Statement: "SELECT 1"},
+			name: "maps context cancelled", resolveFn: resolveCtx,
+			input: ResolveCatalogInput{Statement: "SELECT 1"},
 			check: func(t *testing.T, out ResolveCatalogOutput, svc *fakeService, err error) {
 				if !errors.Is(err, context.Canceled) {
 					t.Fatalf("error = %v, want context.Canceled", err)
@@ -195,9 +225,8 @@ func TestResolveCatalogHandlerBehavior(t *testing.T) {
 			},
 		},
 		{
-			name:      "maps credentials unavailable",
-			resolveFn: func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) { return nil, credential.ErrCredentialsUnavailable },
-			input:     ResolveCatalogInput{Statement: "SELECT 1"},
+			name: "maps credentials unavailable", resolveFn: resolveCreds,
+			input: ResolveCatalogInput{Statement: "SELECT 1"},
 			check: func(t *testing.T, out ResolveCatalogOutput, svc *fakeService, err error) {
 				if !errors.Is(err, credential.ErrCredentialsUnavailable) {
 					t.Fatalf("error = %v, want ErrCredentialsUnavailable", err)
@@ -205,9 +234,8 @@ func TestResolveCatalogHandlerBehavior(t *testing.T) {
 			},
 		},
 		{
-			name:      "maps unauthorized",
-			resolveFn: func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) { return nil, security.ErrUnauthorized },
-			input:     ResolveCatalogInput{Statement: "SELECT 1"},
+			name: "maps unauthorized", resolveFn: resolveUnauth,
+			input: ResolveCatalogInput{Statement: "SELECT 1"},
 			check: func(t *testing.T, out ResolveCatalogOutput, svc *fakeService, err error) {
 				if !errors.Is(err, security.ErrUnauthorized) {
 					t.Fatalf("error = %v, want ErrUnauthorized", err)
@@ -244,7 +272,6 @@ func TestResolveCatalogHandlerHonorsPreCancelledContext(t *testing.T) {
 }
 
 func TestReadSelectedSourceHandlerBehavior(t *testing.T) {
-	expected := source.Page{StartLine: 1, LineCount: 2, Lines: []string{"line-one", "line-two"}, EOF: false, NextStartLine: 3}
 	tests := []struct {
 		name   string
 		readFn func(ctx context.Context, cursor string, page source.Range) (source.Page, error)
@@ -252,15 +279,14 @@ func TestReadSelectedSourceHandlerBehavior(t *testing.T) {
 		check  func(t *testing.T, out ReadSelectedSourceOutput, svc *fakeService, err error)
 	}{
 		{
-			name:   "returns service result",
-			readFn: func(ctx context.Context, cursor string, _ source.Range) (source.Page, error) { return expected, nil },
-			input:  ReadSelectedSourceInput{Cursor: "opaque-cursor", StartLine: 1, MaxLines: 50},
+			name: "returns service result", readFn: readSuccess,
+			input: ReadSelectedSourceInput{Cursor: "opaque-cursor", StartLine: 1, MaxLines: 50},
 			check: func(t *testing.T, out ReadSelectedSourceOutput, svc *fakeService, err error) {
 				if err != nil {
 					t.Fatalf("error = %v", err)
 				}
-				if !reflect.DeepEqual(out.Page, expected) {
-					t.Fatalf("Page = %+v, want %+v", out.Page, expected)
+				if !reflect.DeepEqual(out.Page, readExpected) {
+					t.Fatalf("Page = %+v, want %+v", out.Page, readExpected)
 				}
 				if svc.readCalls != 1 {
 					t.Fatalf("readCalls = %d, want 1", svc.readCalls)
@@ -268,9 +294,8 @@ func TestReadSelectedSourceHandlerBehavior(t *testing.T) {
 			},
 		},
 		{
-			name:   "forwards cursor and range",
-			readFn: func(ctx context.Context, cursor string, _ source.Range) (source.Page, error) { return source.Page{}, nil },
-			input:  ReadSelectedSourceInput{Cursor: "opaque-cursor", StartLine: 5, MaxLines: 25},
+			name: "forwards cursor and range", readFn: readPassThrough,
+			input: ReadSelectedSourceInput{Cursor: "opaque-cursor", StartLine: 5, MaxLines: 25},
 			check: func(t *testing.T, out ReadSelectedSourceOutput, svc *fakeService, err error) {
 				if err != nil {
 					t.Fatalf("error = %v", err)
@@ -284,9 +309,8 @@ func TestReadSelectedSourceHandlerBehavior(t *testing.T) {
 			},
 		},
 		{
-			name:   "maps context cancelled",
-			readFn: func(ctx context.Context, cursor string, _ source.Range) (source.Page, error) { return source.Page{}, context.Canceled },
-			input:  ReadSelectedSourceInput{Cursor: "opaque-cursor", StartLine: 1, MaxLines: 50},
+			name: "maps context cancelled", readFn: readCtx,
+			input: ReadSelectedSourceInput{Cursor: "opaque-cursor", StartLine: 1, MaxLines: 50},
 			check: func(t *testing.T, out ReadSelectedSourceOutput, svc *fakeService, err error) {
 				if !errors.Is(err, context.Canceled) {
 					t.Fatalf("error = %v, want context.Canceled", err)
@@ -294,9 +318,8 @@ func TestReadSelectedSourceHandlerBehavior(t *testing.T) {
 			},
 		},
 		{
-			name:   "maps stale coordinate",
-			readFn: func(ctx context.Context, cursor string, _ source.Range) (source.Page, error) { return source.Page{}, source.ErrStaleCoordinate },
-			input:  ReadSelectedSourceInput{Cursor: "opaque-cursor", StartLine: 1, MaxLines: 50},
+			name: "maps stale coordinate", readFn: readStale,
+			input: ReadSelectedSourceInput{Cursor: "opaque-cursor", StartLine: 1, MaxLines: 50},
 			check: func(t *testing.T, out ReadSelectedSourceOutput, svc *fakeService, err error) {
 				if !errors.Is(err, source.ErrStaleCoordinate) {
 					t.Fatalf("error = %v, want ErrStaleCoordinate", err)
@@ -304,9 +327,8 @@ func TestReadSelectedSourceHandlerBehavior(t *testing.T) {
 			},
 		},
 		{
-			name:   "maps invalid request",
-			readFn: func(ctx context.Context, cursor string, _ source.Range) (source.Page, error) { return source.Page{}, source.ErrInvalidRequest },
-			input:  ReadSelectedSourceInput{Cursor: "opaque-cursor", StartLine: 1, MaxLines: 50},
+			name: "maps invalid request", readFn: readInvalid,
+			input: ReadSelectedSourceInput{Cursor: "opaque-cursor", StartLine: 1, MaxLines: 50},
 			check: func(t *testing.T, out ReadSelectedSourceOutput, svc *fakeService, err error) {
 				if !errors.Is(err, source.ErrInvalidRequest) {
 					t.Fatalf("error = %v, want ErrInvalidRequest", err)
@@ -327,3 +349,5 @@ func TestReadSelectedSourceHandlerBehavior(t *testing.T) {
 		})
 	}
 }
+
+var readExpected = source.Page{StartLine: 1, LineCount: 2, Lines: []string{"line-one", "line-two"}, EOF: false, NextStartLine: 3}

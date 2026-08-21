@@ -21,7 +21,10 @@ import (
 // all fakes are minimum implementations used only to satisfy the
 // composition-root contracts. Each method records a single count or
 // returns a single canned result.
-type runnerStub struct{ runErr error; runCalls int }
+type runnerStub struct {
+	runErr   error
+	runCalls int
+}
 
 func (r *runnerStub) Run(ctx context.Context) error { r.runCalls++; return r.runErr }
 
@@ -29,7 +32,10 @@ type successfulRecovery struct{ calls int }
 
 func (s *successfulRecovery) Recover(ctx context.Context) error { s.calls++; return ctx.Err() }
 
-type failingRecovery struct{ err error; calls int }
+type failingRecovery struct {
+	err   error
+	calls int
+}
 
 func (f *failingRecovery) Recover(ctx context.Context) error {
 	f.calls++
@@ -41,9 +47,9 @@ func (f *failingRecovery) Recover(ctx context.Context) error {
 
 type fakeCredentialStore struct{}
 
-func (fakeCredentialStore) Get(string) ([]byte, error)              { return []byte("test"), nil }
-func (fakeCredentialStore) Set(string, []byte) error                { return nil }
-func (fakeCredentialStore) Delete(string) error                     { return nil }
+func (fakeCredentialStore) Get(string) ([]byte, error) { return []byte("test"), nil }
+func (fakeCredentialStore) Set(string, []byte) error   { return nil }
+func (fakeCredentialStore) Delete(string) error        { return nil }
 
 type fakeAuthorizer struct{}
 
@@ -59,14 +65,18 @@ func (fakeResolver) Resolve(ctx context.Context, q catalog.Query) ([]catalog.Can
 
 type fakeAcquirer struct{}
 
-func (fakeAcquirer) Acquire(ctx context.Context, c catalog.Candidate) (*source.Snapshot, error) { return nil, errors.New("unused") }
+func (fakeAcquirer) Acquire(ctx context.Context, c catalog.Candidate) (*source.Snapshot, error) {
+	return nil, errors.New("unused")
+}
 
 type fakeLeaseStore struct{}
 
 func (fakeLeaseStore) Acquire(*source.Snapshot, catalog.Candidate, source.ClientPolicy) (source.Cursor, error) {
 	return source.Cursor("test-cursor"), nil
 }
-func (fakeLeaseStore) Lookup(source.Cursor) (catalog.Candidate, error) { return catalog.Candidate{Item: "PISA061"}, nil }
+func (fakeLeaseStore) Lookup(source.Cursor) (catalog.Candidate, error) {
+	return catalog.Candidate{Item: "PISA061"}, nil
+}
 func (fakeLeaseStore) OpenReader(source.Cursor, catalog.Candidate, source.ClientPolicy) (*source.LeaseReader, error) {
 	return nil, errors.New("unused")
 }
