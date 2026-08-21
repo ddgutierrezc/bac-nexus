@@ -130,16 +130,22 @@ func (s *Service) ResolveCatalog(ctx context.Context, query catalog.Query, selec
 		return nil, ErrServiceUnavailable
 	}
 	if err := s.requireCredentials(ctx); err != nil {
-		if auditErr := s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, err); auditErr != nil { return nil, auditErr }
+		if auditErr := s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, err); auditErr != nil {
+			return nil, auditErr
+		}
 		return nil, err
 	}
 	decision, err := s.deps.Authorizer.Authorize(ctx, selector, security.TargetIBMiCatalog)
 	if err != nil {
-		if auditErr := s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, err); auditErr != nil { return nil, auditErr }
+		if auditErr := s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, err); auditErr != nil {
+			return nil, auditErr
+		}
 		return nil, fmt.Errorf("authorize catalog resolve: %w", err)
 	}
 	if decision.Decision != security.DecisionAllow {
-		if auditErr := s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, errReason(decision.Reason)); auditErr != nil { return nil, auditErr }
+		if auditErr := s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, errReason(decision.Reason)); auditErr != nil {
+			return nil, auditErr
+		}
 		return nil, errReason(decision.Reason)
 	}
 	if err := ctx.Err(); err != nil {
@@ -150,19 +156,27 @@ func (s *Service) ResolveCatalog(ctx context.Context, query catalog.Query, selec
 	}
 	raw, err := s.deps.Resolver.Resolve(ctx, query)
 	if err != nil {
-		if auditErr := s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, err); auditErr != nil { return nil, auditErr }
+		if auditErr := s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, err); auditErr != nil {
+			return nil, auditErr
+		}
 		return nil, fmt.Errorf("resolve catalog: %w", err)
 	}
 	bounded, err := catalog.BoundedCandidates(raw)
 	if err != nil {
-		if auditErr := s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, err); auditErr != nil { return nil, auditErr }
+		if auditErr := s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, err); auditErr != nil {
+			return nil, auditErr
+		}
 		return nil, err
 	}
 	if len(bounded) == 0 {
-		if auditErr := s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, catalog.ErrCandidateNotFound); auditErr != nil { return nil, auditErr }
+		if auditErr := s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, catalog.ErrCandidateNotFound); auditErr != nil {
+			return nil, auditErr
+		}
 		return nil, catalog.ErrCandidateNotFound
 	}
-		if auditErr := s.recordAllowed(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, len(bounded)); auditErr != nil { return nil, auditErr }
+	if auditErr := s.recordAllowed(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, len(bounded)); auditErr != nil {
+		return nil, auditErr
+	}
 	return bounded, nil
 }
 
@@ -181,16 +195,22 @@ func (s *Service) ReadSelectedSource(ctx context.Context, selection catalog.Cand
 		return source.Page{}, ErrServiceUnavailable
 	}
 	if err := s.requireCredentials(ctx); err != nil {
-		if auditErr := s.recordDenied(ctx, audit.CapabilitySourceRead, audit.TargetClassIBMiSource, err); auditErr != nil { return source.Page{}, auditErr }
+		if auditErr := s.recordDenied(ctx, audit.CapabilitySourceRead, audit.TargetClassIBMiSource, err); auditErr != nil {
+			return source.Page{}, auditErr
+		}
 		return source.Page{}, err
 	}
 	decision, err := s.deps.Authorizer.Authorize(ctx, security.SelectorReadSource, security.TargetIBMiSource)
 	if err != nil {
-		if auditErr := s.recordDenied(ctx, audit.CapabilitySourceRead, audit.TargetClassIBMiSource, err); auditErr != nil { return source.Page{}, auditErr }
+		if auditErr := s.recordDenied(ctx, audit.CapabilitySourceRead, audit.TargetClassIBMiSource, err); auditErr != nil {
+			return source.Page{}, auditErr
+		}
 		return source.Page{}, fmt.Errorf("authorize source read: %w", err)
 	}
 	if decision.Decision != security.DecisionAllow {
-		if auditErr := s.recordDenied(ctx, audit.CapabilitySourceRead, audit.TargetClassIBMiSource, errReason(decision.Reason)); auditErr != nil { return source.Page{}, auditErr }
+		if auditErr := s.recordDenied(ctx, audit.CapabilitySourceRead, audit.TargetClassIBMiSource, errReason(decision.Reason)); auditErr != nil {
+			return source.Page{}, auditErr
+		}
 		return source.Page{}, errReason(decision.Reason)
 	}
 	if err := ctx.Err(); err != nil {
@@ -205,21 +225,35 @@ func (s *Service) ReadSelectedSource(ctx context.Context, selection catalog.Cand
 	var original catalog.Candidate
 	if cursor == "" {
 		query, err := catalog.BuildQuery(selection.Item, selection.ProductionLibrary)
-		if err != nil { return source.Page{}, source.ErrInvalidRequest }
+		if err != nil {
+			return source.Page{}, source.ErrInvalidRequest
+		}
 		candidates, err := s.deps.Resolver.Resolve(ctx, query)
-		if err != nil { return source.Page{}, source.ErrStaleCoordinate }
+		if err != nil {
+			return source.Page{}, source.ErrStaleCoordinate
+		}
 		original, err = catalog.Select(candidates, selection)
-		if err != nil { return source.Page{}, err }
-		if s.deps.Acquirer == nil { return source.Page{}, errors.New("service snapshot acquirer is required") }
+		if err != nil {
+			return source.Page{}, err
+		}
+		if s.deps.Acquirer == nil {
+			return source.Page{}, errors.New("service snapshot acquirer is required")
+		}
 		snap, err := s.deps.Acquirer.Acquire(ctx, original)
-		if err != nil { return source.Page{}, err }
+		if err != nil {
+			return source.Page{}, err
+		}
 		var acquired source.Cursor
 		acquired, err = s.deps.Leases.Acquire(snap, original, source.ClientPolicy(s.deps.Profile))
 		cursor = string(acquired)
-		if err != nil { return source.Page{}, err }
+		if err != nil {
+			return source.Page{}, err
+		}
 	} else {
 		original, err = s.deps.Leases.Lookup(source.Cursor(cursor))
-		if err != nil { return source.Page{}, err }
+		if err != nil {
+			return source.Page{}, err
+		}
 	}
 	if err := s.freshnessCheck(ctx, original); err != nil {
 		return source.Page{}, err
@@ -236,7 +270,9 @@ func (s *Service) ReadSelectedSource(ctx context.Context, selection catalog.Cand
 	if err != nil {
 		return source.Page{}, err
 	}
-	if auditErr := s.recordAllowed(ctx, audit.CapabilitySourceRead, audit.TargetClassIBMiSource, pageResult.LineCount); auditErr != nil { return source.Page{}, auditErr }
+	if auditErr := s.recordAllowed(ctx, audit.CapabilitySourceRead, audit.TargetClassIBMiSource, pageResult.LineCount); auditErr != nil {
+		return source.Page{}, auditErr
+	}
 	return pageResult, nil
 }
 

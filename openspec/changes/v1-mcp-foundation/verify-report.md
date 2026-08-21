@@ -188,3 +188,12 @@ This section preserves the original failed report above and records the single a
 - Run `32519777214` reached the correction head `ec49d9b3b1acda6a0b935f9c2748a2a525ff818d`; tests and vet passed on reruns, but the formatting gate failed on `internal/app/service.go`.
 - The same run also recorded the pre-existing flaky SQLite contention failure on an earlier rerun (`TestLedgerAdmissionUsesExactRetrySchedule`); it is not attributed to this correction.
 - No passing remediation evidence revision exists. This correction therefore cannot settle `passed`.
+
+## Final correction in progress
+
+The maintainer-authorized final correction is limited to canonical formatting of
+`internal/app/service.go` and cumulative Strict-TDD provenance. The provenance
+reconciliation is recorded in `apply-progress.md`; it preserves the original
+report and does not claim local Go runtime execution or live IBM i validation.
+The exact failed evidence revision remains
+`sha256:351160a11f7aa97c26d4f33d3be8db66ecc2273c05a45570cdc3d853e37f3abf`.
