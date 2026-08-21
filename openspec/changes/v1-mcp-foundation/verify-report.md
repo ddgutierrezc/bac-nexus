@@ -1,28 +1,29 @@
 ```yaml
 schema: gentle-ai.verify-result/v1
-evidence_revision: sha256:7377ee9ebe6b9d08488ff16f7863c125d545bf8f6ccf7a70293725efdb567313
-verdict: fail
-blockers: 8
-critical_findings: 8
-requirements: 8/13
-scenarios: 34/43
+evidence_revision: sha256:fbe8aa00e01c94bd55ed10ff46980e2da18f4f5fcf292e80549edb7c3b09c742
+verdict: pass
+blockers: 0
+critical_findings: 0
+requirements: 13/13
+scenarios: 43/43
 test_command: go test -count=1 ./...
 test_exit_code: 0
-test_output_hash: sha256:deb92116a8761bf51e346f6540160e9aa94737e96c642c5f1ab1c559af7d3432
-build_command: go vet ./...; six-target CGO_ENABLED=0 go build plus manifest verification and artifact upload
+test_output_hash: sha256:240d7d86d2773d72476555e80c6b35fb9fb303b4fc481d7ca166d8a2876af13a
+build_command: go vet ./...; formatting and operator-contract check; six-target CGO_ENABLED=0 build and manifest verification; artifact upload
 build_exit_code: 0
-build_output_hash: sha256:63b4c402bcf54cd1466e5452e04a9c9392e6fbec48d8818525d91dab75166b44
+build_output_hash: sha256:44579f2658f27856cf495d0cd6d7cfbb9bac0e96ea11a7f3364b36f7417e683d
 ```
 
 ## Verification Report
 
-**Change**: `v1-mcp-foundation`  
-**Version**: `v0.0.0-ci.295e69773c9cd49c0e76c66ab11468903ec3aaa4`  
-**Mode**: Strict TDD  
-**Candidate**: `295e69773c9cd49c0e76c66ab11468903ec3aaa4` (`main`, clean, equal to `origin/main`)  
-**IBM i status**: `ready_for_controlled_ibmi_validation`; `not_validated_on_ibmi`
+**Change**: `v1-mcp-foundation`
+**Version**: `v0.0.0-ci.ee606444c47e0e4cfd963ee62e1a18867b831901`
+**Mode**: Strict TDD
+**Verified code head**: `0048035a1bf29f8be6df78c0989ec796a886dfa9`
+**Pull request**: #62, draft/open/unmerged
+**Product status**: `ready_for_controlled_ibmi_validation`; `not_validated_on_ibmi`
 
-Live IBM i validation is an external manual rollout gate and is not required for SDD completion. No automated test, fake, package check, or GitHub-hosted runner result in this report is represented as proof of live IBM i behavior. No product IBM i composition was added in this scope.
+Live IBM i validation remains an external rollout gate. This report does not treat GitHub Actions, fakes, source inspection, package checks, or the operator runbook as live IBM i evidence.
 
 ### Completeness
 
@@ -31,215 +32,168 @@ Live IBM i validation is an external manual rollout gate and is not required for
 | Canonical parent tasks | 42 |
 | Tasks checked | 42 |
 | Tasks unchecked | 0 |
-| Requirements | 13 |
-| Runtime-covered compliant scenarios | 34/43 |
-| Deferred external IBM i scenario | 1/43, non-blocking and not claimed compliant |
+| Requirements accounted | 13/13 |
+| SDD-required scenarios with passing runtime coverage | 42/42 |
+| Deferred live IBM i scenarios | 1/1, external and non-blocking by specification |
+| Total scenarios accounted | 43/43 |
 
-Task checkboxes are complete, but the implementation and current strict-TDD evidence do not support final acceptance.
+The two specifications contain 13 requirements and 43 scenarios: 6 requirements/16 scenarios in `local-mcp-security` and 7 requirements/27 scenarios in `ibmi-catalog-context`. The deferred live scenario is accounted as the specification's external rollout gate; it is not represented as runtime-compliant or validated on IBM i.
 
-### Exact Candidate and Runtime Evidence
+### Authoritative Runtime and Build Evidence
 
 | Evidence | Result |
 |---|---|
-| GitHub Actions run | `32517435167`, `Go Verification`, push, success |
-| Candidate binding | Run head and checked-out revision both `295e69773c9cd49c0e76c66ab11468903ec3aaa4` |
-| URL | https://github.com/ddgutierrezc/bac-nexus/actions/runs/32517435167 |
-| Test step | `go test -count=1 ./...`, exit 0; all listed packages passed; no skipped test was reported |
+| GitHub Actions | Go Verification `32528099268`, `pull_request`, success |
+| Code-head binding | GHA `headSha` is `0048035a1bf29f8be6df78c0989ec796a886dfa9` |
+| Executed candidate | PR merge ref `ee606444c47e0e4cfd963ee62e1a18867b831901` |
+| Tests | `go test -count=1 ./...`, exit 0; 14 packages passed and one package had no test files |
 | Static analysis | `go vet ./...`, exit 0 |
-| Package step | Six `CGO_ENABLED=0` targets: linux/darwin/windows × amd64/arm64; exit 0 |
-| Artifact | ID `9459337358`, 12 files, 13,788,510 bytes, archive digest `sha256:734e637f3c0b3deb343e8cb1efaf6dd77af193cbcdd7741f36f9bbc7b2b73672`, unexpired |
-| Full authoritative log | 34,221 bytes; `sha256:7377ee9ebe6b9d08488ff16f7863c125d545bf8f6ccf7a70293725efdb567313` |
+| Formatting/operator contract | Passed tracked-Go formatting and required/prohibited runbook assertions |
+| Package | Six `CGO_ENABLED=0` targets passed for linux/darwin/windows × amd64/arm64 |
+| Artifact | ID `9462932450`, 12 files, 13,807,759 bytes, digest `sha256:e439b512efaa2146207def038a2cb48a3364ebe9226409973515eb989276b617` |
+| Full job log | 28,504 bytes; `sha256:fbe8aa00e01c94bd55ed10ff46980e2da18f4f5fcf292e80549edb7c3b09c742` |
+| Test-step bytes | 1,254 bytes; `sha256:240d7d86d2773d72476555e80c6b35fb9fb303b4fc481d7ca166d8a2876af13a` |
+| Build/check/upload bytes | 8,503 bytes; `sha256:44579f2658f27856cf495d0cd6d7cfbb9bac0e96ea11a7f3364b36f7417e683d` |
+| Local runtime | Not executed; WDAC was not bypassed |
 
-WDAC policy was not bypassed. No local Go test binary was executed. Local `gofmt` was used only as a static formatter check against tracked Git blobs.
+The output hashes cover exact timestamped bytes returned by the GitHub Actions job-log API. The build hash concatenates the static-analysis, formatting/operator-contract, package-build/manifest, and artifact-upload step bytes in job order.
 
-### Build, Package, and Formatting
+### Spec Compliance Matrix
 
-| Check | Result | Evidence |
+| Requirement | Scenario | Passing runtime evidence | Result |
+|---|---|---|---|
+| Local-Principal Authorization | Authorized selector proceeds | `internal/security/policy_test.go`; GHA `32528099268` | ✅ COMPLIANT |
+| Local-Principal Authorization | Unauthorized selector is rejected | `TestServiceResolveCatalogRejectsPolicyDenial`, `TestServiceReadSelectedSourceRejectsPolicyDenial`; no resolver/acquirer work | ✅ COMPLIANT |
+| Native Secret Isolation | Credential is available | Credential package tests and retained platform keyring evidence in `apply-progress.md` | ✅ COMPLIANT |
+| Native Secret Isolation | Credential is unavailable | Keyring/app fail-closed tests; GHA `32528099268` | ✅ COMPLIANT |
+| Native Secret Isolation | Platform secret transport is constrained | Platform adapter tests and retained Windows/macOS/Linux evidence | ✅ COMPLIANT |
+| Native Secret Isolation | Supported-platform evidence is bounded | Platform workflow evidence explicitly preserves unavailable Linux-native success limits | ✅ COMPLIANT |
+| Explicit Native Credential Migration | Migration succeeds only after confirmation | `TestKeyringCredentialStoreMigrationDeletesVaultOnlyAfterExactReadback` | ✅ COMPLIANT |
+| Explicit Native Credential Migration | Migration cannot confirm native storage | `TestKeyringCredentialStoreMigrationRetainsVaultOnNativeUncertainty` | ✅ COMPLIANT |
+| Pinned Host Trust Policy | Explicit TOFU enrollment pins a host | `TestPinnedTrustEnrollsExplicitTOFUAndCopiesEvidence`, fail-closed enrollment table | ✅ COMPLIANT |
+| Pinned Host Trust Policy | Pinned key changes | `TestPinnedTrustFailsClosedOnFingerprintChange`, binding-change coverage | ✅ COMPLIANT |
+| Sanitized Read-Only Surface and Audit | Audit records a successful page | App audit tests plus production `audit.Recorder` allow event and validator | ✅ COMPLIANT |
+| Sanitized Read-Only Surface and Audit | Audit records a denied request | Production `audit.Recorder` deny event; deterministic unauthorized tests | ✅ COMPLIANT |
+| Sanitized Read-Only Surface and Audit | Remote path control is unavailable | MCP structural schema/surface tests | ✅ COMPLIANT |
+| Operator-Ready Field-Validation Package | Operator package is ready without live validation | GHA operator-contract and six-target package steps | ✅ COMPLIANT |
+| Operator-Ready Field-Validation Package | Evidence is safely bounded | GHA required/prohibited runbook assertions and manifest non-claim tests | ✅ COMPLIANT |
+| Operator-Ready Field-Validation Package | Field validation aborts safely | GHA exact-owned-path rollback assertion and runbook contract | ✅ COMPLIANT |
+| Bounded Catalog Resolution | Matching candidates are resolved | Catalog, app, and MCP bounded-query tests | ✅ COMPLIANT |
+| Bounded Catalog Resolution | Query is ambiguous or absent | Catalog ambiguity tests and app deterministic not-found test | ✅ COMPLIANT |
+| Exact Source Page Contract | First page starts a traversal | `TestServiceReadSelectedSourceAcquiresFirstPageWithoutCursor` proves cursor publication and continuation to EOF | ✅ COMPLIANT |
+| Exact Source Page Contract | Empty and final records are deterministic | `TestSnapshotRecognizesEmptyAndFinalRecords` | ✅ COMPLIANT |
+| Immutable Snapshot Lease and Freshness | Cursor access is coherent | Lease replay/order/concurrency tests and app freshness tests | ✅ COMPLIANT |
+| Immutable Snapshot Lease and Freshness | Cursor cannot cross its binding | Lease policy/selection/process-epoch tests | ✅ COMPLIANT |
+| Bounded Lease Lifecycle | Resource limits and acquisition failures are safe | Snapshot, lease, retrieval, and acquisition failure tables | ✅ COMPLIANT |
+| Bounded Lease Lifecycle | Expiry restarts coherent traversal | Lease TTL, eviction, and restart tests | ✅ COMPLIANT |
+| Bounded Lease Lifecycle | Acquisition preserves the source member | `TestAcquirerApprovalCopiesFromButNeverWritesSourceMember` | ✅ COMPLIANT |
+| Durable Temporary Ownership and Recovery | Caller cannot direct temporary handling | MCP schema/surface tests | ✅ COMPLIANT |
+| Durable Temporary Ownership and Recovery | Atomic admission is confirmed | SQLite admission/readback and source ordering tests | ✅ COMPLIANT |
+| Durable Temporary Ownership and Recovery | Ledger admission fails closed | Capacity, contention, corruption, and mismatch tests | ✅ COMPLIANT |
+| Durable Temporary Ownership and Recovery | Quick verification runs every open | New/existing ledger verifier invocation tests | ✅ COMPLIANT |
+| Durable Temporary Ownership and Recovery | Verification ordering respects ledger state | Existing-before-metadata and new-after-initialization tests | ✅ COMPLIANT |
+| Durable Temporary Ownership and Recovery | Eligible verification ends with integrity-check passed | Real integrity-check and ordered-query tests | ✅ COMPLIANT |
+| Durable Temporary Ownership and Recovery | Overflow or an oversized ledger is refused | Overflow and oversized-ledger tests | ✅ COMPLIANT |
+| Durable Temporary Ownership and Recovery | Verification respects deadline/cancellation | Integrity cancellation and bounded context tests | ✅ COMPLIANT |
+| Durable Temporary Ownership and Recovery | Corruption fails closed | Real/mapped corruption tests | ✅ COMPLIANT |
+| Durable Temporary Ownership and Recovery | Inconclusive verification fails closed | Absent, multiple, malformed, and query-failure tests | ✅ COMPLIANT |
+| Durable Temporary Ownership and Recovery | Passed internal verifier result continues opening | `TestOpenAllowsInjectedPassedVerifierResult` | ✅ COMPLIANT |
+| Durable Temporary Ownership and Recovery | Non-success internal verifier results fail closed | Not-run/corrupt/inconclusive/bound-exceeded mapping tests | ✅ COMPLIANT |
+| Durable Temporary Ownership and Recovery | Recovery validates ownership and target | Recovery guard and fresh-identity tests | ✅ COMPLIANT |
+| Durable Temporary Ownership and Recovery | Crash recovery is idempotent | Exact cleanup, already-absent, and repeat recovery tests | ✅ COMPLIANT |
+| Durable Temporary Ownership and Recovery | Historical/privileged risks remain bounded | Historical-path and retargeting rejection tests | ✅ COMPLIANT |
+| Deterministic Page Boundaries and Validation | Invalid range is rejected | Snapshot malformed/range/size/no-partial-content tests | ✅ COMPLIANT |
+| Prefix Compatibility, SDD Completion, and Deferred IBM i Validation | Automated SDD acceptance completes without a live claim | Catalogspike suite, manifest status test, package GHA | ✅ COMPLIANT |
+| Prefix Compatibility, SDD Completion, and Deferred IBM i Validation | Deferred live field validation succeeds | External operator rollout gate; no live evidence exists or is claimed | ➖ EXTERNAL GATE |
+
+**Compliance summary**: All 42 SDD-required scenarios have passing runtime coverage. The remaining scenario is explicitly deferred by the specification and is correctly preserved as an external IBM i rollout gate. All 43 scenarios are accounted without making a live-validation claim.
+
+### Special Remediation Scrutiny
+
+| Previously failed scenario/contract | Independent result | Evidence |
 |---|---|---|
-| Repository tests | ✅ Passed | Exact-head GHA run `32517435167` |
-| `go vet ./...` | ✅ Passed | Exact-head GHA run `32517435167` |
-| Six-target binaries | ✅ Passed | Linux, Darwin, Windows; amd64 and arm64 |
-| Manifest schema/status/path/checksum/byte length | ✅ Passed | Workflow generated and compared the exact nine-field JSON object for every target |
-| Tamper rejection | ✅ Passed | `internal/release.TestManifestRejectsTamperingMismatchAndUnsafePath` in the exact-head suite |
-| Artifact upload | ✅ Passed | Artifact `9459337358`, 12 files |
-| Formatting | ❌ Failed | The workflow has no formatting step; formatting the tracked Git blob identifies `internal/app/service_test.go` as nonconforming |
-| Coverage | ➖ Not available | No coverage command/report is configured in the authoritative workflow |
+| First-page cursor preservation and continuation | ✅ Closed | `source.Page.Cursor` is populated only for non-EOF pages; the test reuses it for line 2 and proves final EOF omits it |
+| Deterministic unauthorized classification | ✅ Closed | Both catalog and source policy denials return `security.ErrUnauthorized` and prove zero resolver/acquirer work |
+| Explicit `PinnedTrust.Enroll` | ✅ Closed | Runtime tests invoke enrollment, verify provenance and defensive binding copy, and cover missing evidence/cancellation |
+| Production audit validation | ✅ Closed | App allow/deny events pass through real `audit.Recorder`, not only the permissive fake |
+| Mandatory allowlisted `PolicyID` | ✅ Closed | App emits `PolicyIDVerifiedReadOnly`; `ValidateEvent` rejects every unregistered identifier with `ErrPolicyRejected` |
 
-### Requirement and Scenario Compliance
+### Correctness (Static Evidence)
 
-| Requirement | Scenario coverage | Result | Runtime/static evidence |
-|---|---:|---|---|
-| Local-Principal Authorization | 2/2 | ✅ COMPLIANT | `internal/security/policy_test.go`, `internal/app/service_test.go` |
-| Native Secret Isolation | 4/4 | ✅ COMPLIANT | Credential package tests plus content-bound Windows/macOS/Linux keyring-gate evidence recorded in apply progress |
-| Explicit Native Credential Migration | 2/2 | ✅ COMPLIANT | `TestKeyringCredentialStoreMigrationDeletesVaultOnlyAfterExactReadback`, retention-on-uncertainty test |
-| Pinned Host Trust Policy | 1/2 | ❌ PARTIAL | Exact-pin/change tests pass, but no explicit enrollment/provenance recording implementation exists |
-| Sanitized Read-Only Surface and Audit | 1/3 | ❌ FAILING | Path-control structural test passes; arbitrary SQL and integrated audit defects remain |
-| Operator-Ready Field-Validation Package | 0/3 | ❌ UNTESTED | Static runbook inspection is complete, but no runtime workflow check covers headings, sanitization, or rollback contract |
-| Bounded Catalog Resolution | 1/2 | ❌ FAILING | Bound tests pass; zero results return empty success instead of deterministic `not_found` |
-| Exact Source Page Contract | 1/2 | ❌ FAILING | Snapshot newline/EOF tests pass; first-page acquisition/cursor contract is absent |
-| Immutable Snapshot Lease and Freshness | 2/2 | ✅ COMPLIANT | Lease replay/binding/restart and app freshness tests |
-| Bounded Lease Lifecycle | 3/3 | ✅ COMPLIANT | Acquisition, quota, expiry, cleanup, and immutable-source tests |
-| Durable Temporary Ownership and Recovery | 15/15 | ✅ COMPLIANT | SQLite integrity/admission/recovery tests and source recovery/coordinator tests |
-| Deterministic Page Boundaries and Validation | 1/1 | ✅ COMPLIANT | Snapshot invalid-range/size/no-partial-content tests |
-| Prefix Compatibility, SDD Completion, Deferred IBM i Validation | 1/2 SDD-runtime; 1 external | ✅ SDD scope / external pending | Catalogspike suite passes and manifest non-claim test passes; live IBM i scenario remains explicitly external |
+| Contract | Result | Notes |
+|---|---|---|
+| Two narrow read-only MCP tools | ✅ Implemented | No arbitrary SQL/path/shell input exists |
+| First-page acquisition and continuation | ✅ Implemented | Exact selection acquires one lease; later pages reuse the opaque cursor |
+| Deterministic denial | ✅ Implemented | Policy detail is not exposed; callers receive the unauthorized sentinel |
+| Explicit host enrollment | ✅ Implemented | Enrollment is explicit and verification never silently enrolls |
+| Sanitized mandatory audit | ✅ Implemented | Fixed policy identifier and validator-backed recorder enforce the allowlist |
+| Bounded ownership and recovery | ✅ Implemented | Exact-path, bounded-list, verification, and fail-closed contracts remain intact |
+| IBM i non-claim | ✅ Implemented | Product and package remain ready/not-validated |
 
-**Scenario accounting**: 34 scenarios have passing runtime coverage, 8 required SDD scenarios are failing/untested, and 1 live IBM i scenario is deliberately deferred and non-blocking. The deferred scenario is not counted as automated compliance and is not an SDD failure by itself.
+### Coherence (Design)
 
-### Critical Findings
-
-1. **CRITICAL — Arbitrary SQL is exposed through the MCP schema.** `internal/mcp/server.go:49-51` accepts caller-controlled `Statement` and `Parameters`; `resolveCatalog` forwards them unchanged to `app.Service`, which forwards the query to `CatalogResolver`. The handler test explicitly uses `SELECT 1`. This violates the prohibition on arbitrary SQL and the narrow catalog-capability contract.
-2. **CRITICAL — A source traversal cannot start through the specified MCP contract.** `ReadSelectedSourceInput` requires only a cursor/range and has no exact selection; `ReadSelectedSourceOutput` omits a cursor. `app.Service.ReadSelectedSource` only looks up a pre-existing cursor. `SnapshotAcquirer.Acquire` and `LeaseStore.Acquire` are never reached by the MCP/app first-page path. Tests mint cursors directly in fixtures, bypassing the missing production behavior.
-3. **CRITICAL — Zero catalog results do not return deterministic `not_found`.** `app.Service.ResolveCatalog` applies only `BoundedCandidates`; an empty resolver result returns an empty successful slice. This contradicts the bounded-resolution requirement and its absent-query scenario.
-4. **CRITICAL — Explicit pinned-TOFU enrollment is not implemented.** `PinnedTrust.Verify` validates a caller-supplied pin but records neither a key nor provenance. Tests prove verification and deliberate non-enrollment, not the required explicit enrollment operation.
-5. **CRITICAL — Integrated audit behavior does not satisfy the contract.** App tests use `fakeAuditor`, bypassing `audit.ValidateEvent`. Production app code uses the profile as `PolicyID`, while `ValidateEvent` does not validate `PolicyID`; `recordDenied` passes raw classified errors and ignores recorder failures. For example, `credentials_unavailable` contains the forbidden substring `credential`, so the real recorder rejects it and the denial is silently absent.
-6. **CRITICAL — Operator-package scenarios have no runtime covering test.** The workflow does not validate required runbook sections, prohibited evidence fields, abort/rollback language, or external-retention boundaries. Static inspection finds the runbook content complete, but strict verification cannot mark scenarios compliant without a passing runtime check.
-7. **CRITICAL — The checked formatting task is false on the final candidate.** `.github/workflows/go-verification.yml` does not run formatting, and a tracked-blob formatter comparison reports `internal/app/service_test.go` as nonconforming. Tasks nevertheless claim GHA formatting completed.
-8. **CRITICAL — Current cumulative strict-TDD evidence is incomplete.** The apply-progress TDD table begins at task 2.11; tasks 1.1–2.10 have no current per-task RED/GREEN/safety-net evidence. The task-4.4 table also omits the required Safety Net and Triangulate columns. Therefore 42/42 checkbox completion cannot be independently reconciled with complete strict-TDD evidence.
-
-### Warnings
-
-1. **WARNING — Design artifact is stale.** `design.md` still says the workflow currently runs only tests/vet and repeatedly describes task 4.4 as future work, although the final candidate packages artifacts.
-2. **WARNING — Package identity verification deviates from design.** The workflow embeds version/revision and verifies manifest values but does not execute `nexus version` or inspect Go build metadata as the design requires. Unit tests cover the formatter-level identity contract, not each packaged binary's reported identity.
-3. **WARNING — Security documentation overstates the MCP output boundary.** `docs/SECURITY.md` says typed outputs never include source, while `read_selected_source` intentionally returns `Page.Lines` containing source text. The correct restriction applies to audit/logging, not the requested MCP source result.
-
-### Suggestions
-
-1. **SUGGESTION — Add end-to-end package-contract tests inside GHA.** Verify runbook markers/prohibited terms, execute the native Linux/amd64 `nexus version --json`, inspect build metadata, and perform a deliberate binary-tamper rejection check.
+| Decision | Followed? | Notes |
+|---|---|---|
+| No product IBM i composition for field validation | ✅ Yes | Live validation remains external |
+| One operator runbook and external completed evidence | ✅ Yes | Only the blank template is committed |
+| Six-target versioned/checksummed package | ✅ Yes | GHA builds and uploads all six targets |
+| Embedded version/VCS identity | ✅ Yes | Build uses linker values and manifests bind the same revision |
+| Workflow executes packaged `nexus version` and inspects Go build metadata | ⚠️ Partial | The workflow verifies embedded inputs/manifests but not packaged command output or Go metadata |
 
 ### TDD Compliance
 
 | Check | Result | Details |
 |---|---|---|
-| TDD evidence reported | ⚠️ Partial | Extensive evidence exists from task 2.11 onward; tasks 1.1–2.10 are absent from the current cumulative table |
-| All tasks have tests | ❌ | Product tests exist broadly, but first-page traversal, explicit enrollment, real integrated audit, and runbook contracts lack covering tests |
-| RED confirmed | ⚠️ Partial | Recorded CI RED runs exist for later slices; current artifact is not complete for all 42 parent tasks |
-| GREEN confirmed | ❌ | Exact-head suite is green, but required scenarios remain bypassed or absent |
-| Triangulation adequate | ⚠️ Partial | Bounds/recovery/security cases are strong; task 4.4 omits triangulation evidence and key MCP gaps are fixture-bypassed |
-| Safety net for modified files | ⚠️ Partial | Later slices record baselines; task 4.4 omits the required Safety Net field |
+| TDD evidence reported | ✅ | Cumulative reconciliation covers tasks 1.1–4.4; remediation has focused RED/GREEN evidence |
+| All tasks have tests | ✅ | 42/42 tasks map to retained tests and GHA evidence |
+| RED confirmed (tests exist) | ✅ | Recorded behavior-first commits/runs exist; all referenced test files remain present |
+| GREEN confirmed (tests pass) | ✅ | Exact code-head GHA `32528099268` passed the complete repository suite |
+| Triangulation adequate | ✅ | Success/failure, bounds, cancellation, replay, and five remediated contracts have distinct cases |
+| Safety net for modified files | ✅ | Full repository tests, vet, formatting, package, and runbook checks passed |
 
-**TDD compliance**: FAIL — the exact-head suite passes, but strict-TDD provenance and scenario coverage are incomplete.
+**TDD compliance**: 6/6 checks passed.
 
 ### Test Layer Distribution
 
-| Layer | Tests | Files | Authority |
+| Layer | Top-level tests | Changed test files | Runtime authority |
 |---|---:|---:|---|
-| Go package unit/component tests | 209 top-level test functions | 30 | Exact-head GHA `go test -count=1 ./...` |
-| Native keyring integration | Platform scenarios recorded in apply progress | 4 credential test files plus keyring workflow | Content-bound prior Windows/macOS/Linux GHA evidence |
-| Live IBM i E2E | 0 | 0 | Deliberately external; not claimed |
+| Unit | 40 | 2 | Go package tests for security and audit |
+| Component/integration | 22 | 2 | App-service and MCP package tests, including real audit recorder integration |
+| Live IBM i E2E | 0 | 0 | External rollout gate, deliberately not claimed |
+| **Total changed-test surface** | **62** | **4** | GHA `32528099268` |
 
 ### Changed File Coverage
 
-Coverage analysis skipped — no authoritative coverage command/report is configured.
+Coverage analysis skipped — no authoritative coverage command or report is configured.
 
 ### Assertion Quality
 
-No tautology, assertion-without-production-call, or ghost-loop pattern was found in the reviewed change tests. However, `internal/app/service_test.go` uses a permissive `fakeAuditor`, so its audit assertions do not exercise production validation; that gap is included as a CRITICAL integrated-audit finding.
+The four changed test files were inspected. No tautology, assertion without a production call, ghost loop, smoke-only assertion, orphan empty assertion, or mock-heavy pattern was found. Reflection checks enforce public security/MCP surface contracts rather than incidental implementation details.
+
+**Assertion quality**: ✅ All changed assertions verify real behavior.
 
 ### Quality Metrics
 
-**Static analysis**: ✅ `go vet ./...` passed in exact-head GHA.  
-**Formatting**: ❌ tracked candidate is not fully gofmt-conforming and GHA has no formatting gate.  
+**Static analysis**: ✅ `go vet ./...` passed in GHA.  
+**Formatting**: ✅ the tracked-Go formatting gate passed.  
+**Operator contract**: ✅ required headings/status/rollback markers passed and prohibited evidence markers were absent.  
 **Coverage**: ➖ Not available.  
-**Secret/surface review**: No credential, private key, generic remote tool, arbitrary shell, generic SSH tool, remote listing/deletion tool, or unbounded traversal was found. Synthetic test values exist but no real secret was identified. Arbitrary SQL remains exposed as finding 1.  
-**Catalogspike preservation**: ✅ `bac-nexus/cmd/catalogspike` passed in exact-head GHA; no task-4.4 change modified that command.
+**Local runtime**: ➖ Not executed because WDAC blocks generated Go test binaries.
 
-### Design Coherence
+### Issues Found
 
-| Decision | Result | Notes |
-|---|---|---|
-| No product IBM i composition in this scope | ✅ Followed | Resolver/acquirer/recovery/lease production dependencies remain unwired; this report does not treat live IBM i validation as required |
-| External sanitized operator evidence | ✅ Followed statically | Blank template committed; completed evidence remains external |
-| Six-target versioned package | ✅ Followed | Exact-head GHA built and uploaded six binaries plus six manifests |
-| Binary/build/manifest identity comparison | ⚠️ Partial | Manifest/checksum verified; packaged `nexus version` and Go metadata comparison omitted |
-| No live IBM i claim | ✅ Followed | Status is explicitly `not_validated_on_ibmi` |
+**CRITICAL**: None.
+
+**WARNING**
+
+1. `design.md` still describes completed task-4.4 workflow work as future/currently absent, so the design narrative is stale even though the implementation and tests satisfy the specifications.
+2. The workflow does not execute each packaged binary's `nexus version` command or inspect Go build metadata as the design describes; manifest/checksum/version inputs are otherwise verified.
+3. MCP comments still say the cursor is never echoed and is the only selection binding, while the actual typed first-page contract now accepts an exact selection and returns the cursor inside `source.Page`.
+
+**SUGGESTION**: Align the stale design and MCP comments in a later documentation-only change; do not broaden this verification candidate.
 
 ### Verdict
 
-**FAIL**
+**PASS WITH WARNINGS**
 
-The exact-head GitHub Actions suite and six-target packaging job pass, and the operator documentation correctly preserves the IBM i non-validation boundary. Final SDD acceptance is nevertheless blocked by substantive MCP/security/audit contract failures, missing runtime coverage, a false formatting completion claim, and incomplete strict-TDD evidence. Live IBM i validation is not one of the blockers.
-
-## Bounded Native Remediation Attempt
-
-This section preserves the original failed report above and records the single authorized correction attempt. It does not claim live IBM i validation.
-
-| Finding | Triage and correction |
-|---|---|
-| Arbitrary SQL | Confirmed candidate defect. MCP input now accepts item/library fields and constructs the bounded catalog query internally. |
-| First-page acquisition | Confirmed candidate defect. The source contract now accepts an exact selection without a cursor; the app resolves, acquires, leases, and reads page one. |
-| Absent catalog result | Confirmed candidate defect. Empty bounded results now return `catalog.ErrCandidateNotFound` and emit a deny event. |
-| TOFU enrollment | Confirmed candidate defect. `PinnedTrust.Enroll` is an explicit operation that returns non-secret provenance; `Verify` never enrolls. |
-| Required audit | Confirmed candidate defect. App operations now propagate required auditor failures and use a fixed sanitized denial classification. |
-| Runbook runtime checks | Confirmed candidate gap. GHA now asserts required headings, prohibited evidence markers, and exact-path rollback wording. |
-| Formatting | Confirmed candidate gap, not yet proven resolved. GHA now has a formatting gate; exact-head GHA must establish its result. |
-| Cumulative strict-TDD evidence | Confirmed artifact gap. Historical evidence remains preserved; this correction adds focused candidate coverage, but complete 42-task provenance requires independent review. |
-
-### Correction Evidence
-
-- Native work unit: `final-verification-v1-mcp-foundation`.
-- Native token: `sha256:9e2d9b57381903e9a6ce1966d7d3956bdc4d4aa715d6249eb65ef96471ac2ed4`.
-- Failed evidence being remediated: `sha256:7377ee9ebe6b9d08488ff16f7863c125d545bf8f6ccf7a70293725efdb567313`.
-- Local compile-only checks passed for `./internal/app`, `./internal/mcp`, and `./cmd/nexus`; no local Go test binary was executed because WDAC remains authoritative.
-- Exact-head GitHub Actions tests, vet, formatting, package, and runbook checks are still required before settlement.
-- IBM i remains `ready_for_controlled_ibmi_validation` / `not_validated_on_ibmi`.
-
-### Exact-head GHA result for this attempt
-
-- Run `32519777214` reached the correction head `ec49d9b3b1acda6a0b935f9c2748a2a525ff818d`; tests and vet passed on reruns, but the formatting gate failed on `internal/app/service.go`.
-- The same run also recorded the pre-existing flaky SQLite contention failure on an earlier rerun (`TestLedgerAdmissionUsesExactRetrySchedule`); it is not attributed to this correction.
-- No passing remediation evidence revision exists. This correction therefore cannot settle `passed`.
-
-## Final correction in progress
-
-The maintainer-authorized final correction is limited to canonical formatting of
-`internal/app/service.go` and cumulative Strict-TDD provenance. The provenance
-reconciliation is recorded in `apply-progress.md`; it preserves the original
-report and does not claim local Go runtime execution or live IBM i validation.
-The exact failed evidence revision remains
-`sha256:351160a11f7aa97c26d4f33d3be8db66ecc2273c05a45570cdc3d853e37f3abf`.
-
-## Independent verification of the eight original blockers
-
-**Candidate:** `d1238cf` / exact workflow head `d1238cf`  
-**GHA:** `32520734406` — success  
-**IBM i:** `ready_for_controlled_ibmi_validation`; `not_validated_on_ibmi`
-
-| Original blocker | Independent result | Evidence |
-|---|---|---|
-| Arbitrary SQL in MCP schema | Resolved | Typed item/library input and bounded internal query; no statement/parameters surface remains. |
-| Missing first-page acquisition | Resolved | Exact selection path resolves, acquires, leases, and reads page one before cursor-only continuation. |
-| Empty catalog result | Resolved | Empty bounded result returns deterministic `catalog.ErrCandidateNotFound` and deny audit. |
-| Missing explicit TOFU enrollment | Resolved | `PinnedTrust.Enroll` is explicit and returns sanitized provenance; `Verify` does not enroll. |
-| Integrated audit contract | Resolved | Production app propagates recorder failures and records fixed sanitized denial classifications. |
-| Operator-package runtime checks | Resolved | GHA validates required runbook headings, prohibited evidence markers, and exact-path rollback wording. |
-| Formatting | Resolved | GHA formatting step passes across all tracked Go files. |
-| Cumulative Strict-TDD provenance | Resolved as documentation reconciliation | `apply-progress.md` now maps tasks 1.1–4.4 to retained RED/GREEN/REFACTOR commits and exact GHA IDs, without inventing local runtime or tests-first claims. |
-
-### Independent result
-
-All eight original blockers are independently closed: **0 blockers**. The
-authoritative GHA run passed repository tests, vet, formatting, six-target
-packaging, manifest verification, artifact upload, and operator runbook
-checks. The sole remaining non-automated scenario is the explicitly external
-live IBM i rollout gate; it is not claimed or treated as an SDD blocker.
-
-## Final maintainer accounting and delivery result
-
-The independent verification above remains authoritative: all eight original
-blockers are closed and the current result is **0 blockers**. The maintainer
-authorized the correction-objective accounting of **201 actual changed lines
-against 150 estimated lines**. This is scoped only to the prior correction
-objective; it does not broaden behavior, scope, issue, or PR #60.
-
-PR #60 remains **522 changed lines against the normal 1000-line budget**. The
-normal budget is unchanged, and no misleading PR-level `size:exception` label
-is applied. The exact green head is `b924e2b9bf25c9d3bafbda95d84a82bca19eb32d`;
-exact-head Go Verification run `32520980549` passed all configured checks.
-
-The native finalization work unit is `final-correction-accounting-and-merge`.
-Its acquired token permits one attempt and 120 changed lines, returned no
-remediates obligation, and is settled exactly once using a distinct request ID
-and evidence revision. No source, test, or workflow behavior changes are part
-of this accounting delivery. WDAC blocks local Go runtime execution, so no
-local test result is claimed. Live IBM i validation is not claimed:
-`ready_for_controlled_ibmi_validation`; `not_validated_on_ibmi`.
+All 13 requirements and all 42 SDD-required scenarios are independently verified with passing authoritative runtime evidence. The one live IBM i scenario remains the explicitly external, non-blocking rollout gate, and no IBM i validation is claimed. There are zero CRITICAL blockers.
