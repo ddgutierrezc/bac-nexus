@@ -85,6 +85,7 @@ Only canonical parent tasks use checkboxes: native count is 42, with 28 complete
 ## Phase 3: Credentials, Policy, and Freshness
 
 - [ ] 3.1 **GATE (PR 5A)**: Verify PoC-exception `github.com/zalando/go-keyring` v0.2.8 (declares Go 1.18): exact module graph/SBOM, checksums, licenses/transitives, `govulncheck`/known vulnerabilities, no DLL/runtime download, platform compile/tests, endpoint policy. Failure blocks 5A.
+  - **Attempt 5A blocked:** GHA Keyring Dependency Gate run `32441478559` on `6c878d88e465c325fffe39144abf26aeef6589b8` passed module verification and six `CGO_ENABLED=0` compile targets on all three runners; native upstream tests passed on macOS and Windows but failed on Ubuntu because `org.freedesktop.secrets` was unavailable. This is actual unavailable Secret Service evidence, not a passing substitute. Task 3.1 remains unchecked; tasks 3.2–3.4 remain untouched.
 - [ ] 3.2 **RED (PR 5A)**: Test `internal/credential/*_test.go` only exact Get/Set/Delete, grammar/1–4096 bounds, redaction/zeroing, unavailable-before-remote, fixed macOS stdin/no argv-env, and Windows/Linux deterministic failures.
 - [ ] 3.3 **GREEN (PR 5A)**: Add `CredentialStore`/keyring adapter: Credential Manager, fixed `/usr/bin/security`, Secret Service D-Bus; explicit vault write/readback/zero/delete migration, retaining vault when native storage fails.
 - [ ] 3.4 **REFACTOR (PR 5A)**: Isolate consumer and per-platform tests; preserve available-runner-only evidence.
