@@ -32,3 +32,58 @@ jobs:
 
       - name: Run static analysis
         run: go vet ./...
+
+      - name: Build and verify handoff package
+        shell: bash
+        env:
+          VERSION: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v0.0.0-ci.{0}', github.sha) }}
+          REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          rm -rf build/v1-mcp-foundation
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            IFS=/ read -r goos goarch <<< "$target"
+            dir="build/v1-mcp-foundation/${VERSION}/${goos}-${goarch}"
+            mkdir -p "$dir"
+            binary="$dir/nexus"
+            if [[ "$goos" == windows ]]; then binary+=".exe"; fi
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build \
+              -trimpath -ldflags "-s -w -X main.releaseVersion=${VERSION} -X main.vcsRevision=${REVISION}" \
+              -o "$binary" ./cmd/nexus
+            python3 - "$binary" "$dir/nexus.manifest.json" "$VERSION" "$REVISION" "$goos" "$goarch" <<'PY'
+          import hashlib, json, pathlib, sys
+          binary, manifest, version, revision, goos, goarch = sys.argv[1:]
+          data = pathlib.Path(binary).read_bytes()
+          payload = {
+              "schema_version": 1, "release_version": version, "vcs_revision": revision,
+              "goos": goos, "goarch": goarch, "byte_length": len(data),
+              "binary_sha256": hashlib.sha256(data).hexdigest(),
+              "status": "ready_for_controlled_ibmi_validation",
+              "ibmi_status": "not_validated_on_ibmi",
+          }
+          pathlib.Path(manifest).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+          PY
+            python3 - "$binary" "$dir/nexus.manifest.json" "$VERSION" "$REVISION" "$goos" "$goarch" <<'PY'
+          import hashlib, json, pathlib, sys
+          binary, manifest, version, revision, goos, goarch = sys.argv[1:]
+          root = pathlib.Path(binary).parent
+          expected = json.loads(pathlib.Path(manifest).read_text(encoding="utf-8"))
+          actual = pathlib.Path(binary).read_bytes()
+          assert pathlib.Path(manifest).name == "nexus.manifest.json"
+          assert expected == {
+              "schema_version": 1, "release_version": version, "vcs_revision": revision,
+              "goos": goos, "goarch": goarch, "byte_length": len(actual),
+              "binary_sha256": hashlib.sha256(actual).hexdigest(),
+              "status": "ready_for_controlled_ibmi_validation",
+              "ibmi_status": "not_validated_on_ibmi",
+          }
+          assert root.name == f"{goos}-{goarch}" and root.parent.name == version
+          PY
+          done
+
+      - name: Upload operator handoff package
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-v1-mcp-foundation-${{ github.sha }}
+          path: build/v1-mcp-foundation
+          if-no-files-found: error

@@ -19,8 +19,12 @@ import (
 	"bac-nexus/internal/audit"
 	"bac-nexus/internal/credential"
 	"bac-nexus/internal/mcp"
+	"bac-nexus/internal/release"
 	"bac-nexus/internal/security"
 )
+
+var releaseVersion = "dev"
+var vcsRevision = "unknown"
 
 func main() {
 	err := runCommand(os.Args[1:], os.Stderr)
@@ -145,6 +149,8 @@ func runCommand(args []string, out io.Writer) error {
 	switch args[0] {
 	case "serve":
 		return runServe(args[1:], out)
+	case "version":
+		return printVersion(args[1:], out)
 	default:
 		return fmt.Errorf("unknown subcommand %q", args[0])
 	}
@@ -161,7 +167,24 @@ func printHelp(args []string, out io.Writer) error {
 	fmt.Fprintln(out, "subcommands:")
 	fmt.Fprintln(out, "  serve    Run the typed stdio MCP server with the two allowed tools.")
 	fmt.Fprintln(out, "  help     Show this help text or the help for a subcommand.")
+	fmt.Fprintln(out, "  version  Show the release version and VCS revision.")
 	return flag.ErrHelp
+}
+
+func printVersion(args []string, out io.Writer) error {
+	if len(args) > 0 && args[0] == "--json" {
+		data, err := release.VersionJSON(release.Identity{Version: releaseVersion, Revision: vcsRevision})
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(out, string(data))
+		return err
+	}
+	if len(args) != 0 {
+		return errors.New("version accepts only --json")
+	}
+	_, err := fmt.Fprintf(out, "nexus version=%s revision=%s\n", releaseVersion, vcsRevision)
+	return err
 }
 
 func printServeHelp(out io.Writer) error {

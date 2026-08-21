@@ -184,12 +184,21 @@ The system MUST cap a response at 200 lines and 128 KiB and reject malformed or 
 - WHEN source is requested
 - THEN it fails with `invalid_request`, `response_too_large`, or `range_start_out_of_bounds` and no lines
 
-### Requirement: Prefix Compatibility and Approved Acceptance
+### Requirement: Prefix Compatibility, SDD Completion, and Deferred IBM i Field Validation
 
-The existing `catalogspike` behavior MUST remain prefix-only outside MCP. Automated tests MUST use controlled fakes or loopback facilities. One approved read-only IBM i acceptance MUST validate newline behavior, traversal from first page to EOF, and cleanup after success and cancellation without retaining source.
+The existing `catalogspike` behavior MUST remain prefix-only outside MCP. Automated SDD acceptance MUST use controlled fakes or loopback facilities and MUST prove internal contracts only; it MUST NOT claim IBM i validation or treat automated evidence as a substitute for live IBM i evidence. On SDD completion, the release status MUST be `ready_for_controlled_ibmi_validation` and MUST explicitly state `not_validated_on_ibmi` until approved external field evidence exists.
 
-#### Scenario: Approved live acceptance succeeds
+An authorized operator MUST later perform the deferred, read-only IBM i field-validation rollout gate. That gate MUST validate traversal from line 1 to EOF, newline behavior, cleanup after successful completion and cancellation, and absence of retained source. SDD completion MUST NOT require this external gate and MUST NOT assert that a live IBM i environment exists.
+
+#### Scenario: Automated SDD acceptance completes without a live claim
+
+- GIVEN implementation and automated internal-contract verification have passed
+- WHEN SDD completion is recorded
+- THEN the release status is `ready_for_controlled_ibmi_validation` and `not_validated_on_ibmi`
+- AND no result claims IBM i validation or live-evidence equivalence
+
+#### Scenario: Deferred live field validation succeeds
 
 - GIVEN an approved target, identity, and validation window
-- WHEN the documented traversal is performed
-- THEN sanitized evidence confirms newline, EOF, and cleanup outcomes without stored source
+- WHEN the operator performs the documented traversal from line 1 to EOF and tests success and cancellation cleanup
+- THEN sanitized external evidence confirms newline, EOF, cleanup, and no retained source

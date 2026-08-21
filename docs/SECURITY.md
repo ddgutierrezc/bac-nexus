@@ -64,7 +64,7 @@ Nexus exposes no generic SSH, SQL, shell, or MCP recovery operation. The MCP ser
 | GitHub Actions | Available runner/package evidence, including available platform and cross-process evidence where recorded | Windows/macOS/Linux runtime behavior on runners that were not available |
 | WDAC-constrained developer environment | A local runtime restriction that is not bypassed | A substitute runtime harness |
 
-Available evidence uses CI, fakes, and temporary SQLite only. There is no live IBM i validation and no claim of unavailable-platform proof. The `nexus serve` runtime is exercised in CI through deterministic fakes and the in-memory transport; a live MCP client and a real IBM i remain out of scope for the v1 PoC.
+Available evidence uses CI, fakes, and temporary SQLite only. The release status is `ready_for_controlled_ibmi_validation` and `not_validated_on_ibmi`. There is no live IBM i validation, and automated evidence is not equivalent to field evidence. A live MCP client and a real IBM i remain an external rollout gate.
 
 Rollout remains blocked on approved IBM i access, source/data classification, audit policy, corporate dependency and endpoint policy, signed/approved Nexus distribution, and an approved local database directory.
 
