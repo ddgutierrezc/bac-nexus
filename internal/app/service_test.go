@@ -376,7 +376,7 @@ func TestServiceReadSelectedSourceReturnsStaleCoordinateOnCoordinateChange(t *te
 	if err != nil {
 		t.Fatalf("NewSnapshot error = %v", err)
 	}
-	cursor, err := lease.Acquire(snap, original, source.ClientPolicy("test"))
+	cursor, err := lease.Acquire(snap, original, source.ClientPolicy("test-profile"))
 	if err != nil {
 		t.Fatalf("Acquire error = %v", err)
 	}
@@ -432,7 +432,7 @@ func TestServiceReadSelectedSourceHonorsPageByteBound(t *testing.T) {
 		Application: "APP", Version: "V1", ProductionLibrary: "PRODLIB",
 		Description: "test program",
 	}
-	cursor, err := lease.Acquire(snap, candidate, source.ClientPolicy("test"))
+	cursor, err := lease.Acquire(snap, candidate, source.ClientPolicy("test-profile"))
 	if err != nil {
 		t.Fatalf("Acquire error = %v", err)
 	}
