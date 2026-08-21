@@ -64,13 +64,17 @@ jobs:
             echo "charm.land/.../v2 imports detected; mixing charm.land/v2 and github.com/charmbracelet v1 is forbidden" >&2
             exit 1
           fi
-          # Resolve the expected version through env, with an
-          # explicit tr-based upper-casing because the default
-          # macos bash (3.2) does not support ${var^^}.
+          # Resolve the expected version through a case statement
+          # rather than bash 4 indirect expansion so the script
+          # works on the default macos bash (3.2) runner.
           for module in bubbletea bubbles lipgloss; do
             actual="$(go list -m -f '{{.Version}}' "github.com/charmbracelet/${module}")"
-            upper="$(printf '%s' "$module" | tr '[:lower:]' '[:upper:]')"
-            expected="${!upper}_VERSION"
+            case "$module" in
+              bubbletea) expected="$BUBBLETEA_VERSION" ;;
+              bubbles)   expected="$BUBBLES_VERSION" ;;
+              lipgloss)  expected="$LIPGLOSS_VERSION" ;;
+              *)         echo "unknown module $module" >&2; exit 1 ;;
+            esac
             if [ "$actual" != "$expected" ]; then
               echo "github.com/charmbracelet/${module} resolved to ${actual}, want ${expected}" >&2
               exit 1
