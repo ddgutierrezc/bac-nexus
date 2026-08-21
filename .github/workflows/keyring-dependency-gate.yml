@@ -7,6 +7,7 @@ on:
       - go.mod
       - go.sum
       - .github/workflows/keyring-dependency-gate.yml
+      - internal/credential/**
 
 permissions:
   contents: read
@@ -67,6 +68,9 @@ jobs:
       - name: Run upstream native keyring tests on this runner
         if: runner.os != 'Linux'
         run: go test -v -count=1 github.com/zalando/go-keyring
+
+      - name: Run BAC Nexus credential package tests
+        run: go test -count=1 ./internal/credential
 
       - name: Scan the candidate runtime package
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 github.com/zalando/go-keyring
