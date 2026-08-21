@@ -72,21 +72,36 @@ type Dependencies struct {
 }
 
 func (d Dependencies) validate() error {
-	fields := map[string]any{
-		"Profiles":    d.Profiles,
-		"Vaults":      d.Vaults,
-		"ReadLine":    d.ReadLine,
-		"ReadSecret":  d.ReadSecret,
-		"DiscoverJAR": d.DiscoverJAR,
-		"VerifyJAR":   d.VerifyJAR,
-		"InspectKey":  d.InspectKey,
-		"Output":      d.Output,
-		"Notices":     d.Notices,
+	// Each field is checked explicitly because Go's nil-interface
+	// semantics make a generic map-iteration check incorrect for
+	// function-typed fields: a nil function stored in an `any` is
+	// not equal to a nil interface.
+	if d.Profiles == nil {
+		return errors.New("configuration dependencies are incomplete: Profiles is required")
 	}
-	for name, value := range fields {
-		if value == nil {
-			return fmt.Errorf("configuration dependencies are incomplete: %s is required", name)
-		}
+	if d.Vaults == nil {
+		return errors.New("configuration dependencies are incomplete: Vaults is required")
+	}
+	if d.ReadLine == nil {
+		return errors.New("configuration dependencies are incomplete: ReadLine is required")
+	}
+	if d.ReadSecret == nil {
+		return errors.New("configuration dependencies are incomplete: ReadSecret is required")
+	}
+	if d.DiscoverJAR == nil {
+		return errors.New("configuration dependencies are incomplete: DiscoverJAR is required")
+	}
+	if d.VerifyJAR == nil {
+		return errors.New("configuration dependencies are incomplete: VerifyJAR is required")
+	}
+	if d.InspectKey == nil {
+		return errors.New("configuration dependencies are incomplete: InspectKey is required")
+	}
+	if d.Output == nil {
+		return errors.New("configuration dependencies are incomplete: Output is required")
+	}
+	if d.Notices == nil {
+		return errors.New("configuration dependencies are incomplete: Notices is required")
 	}
 	return nil
 }
