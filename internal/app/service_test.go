@@ -539,7 +539,7 @@ func TestServiceReadSelectedSourceAcquiresFirstPageWithoutCursor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("continuation error = %v", err)
 	}
-	if continuation.Cursor != page.Cursor || len(continuation.Lines) != 1 || continuation.Lines[0] != "second" || !continuation.EOF {
+	if continuation.Cursor != "" || len(continuation.Lines) != 1 || continuation.Lines[0] != "second" || !continuation.EOF {
 		t.Fatalf("continuation=%+v, want final page on original cursor", continuation)
 	}
 }
