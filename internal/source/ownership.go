@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"os"
 	"path"
 	"regexp"
 	"strings"
@@ -35,11 +36,27 @@ type OwnershipLedger interface {
 	Close() error
 }
 
+// RecoveryLedger permits bounded recovery enumeration and exact ownership deletion.
+// It is separate from acquisition ownership because recovery never admits new rows.
+type RecoveryLedger interface {
+	ListRecovery(context.Context) ([]OwnershipRecord, error)
+	Delete(context.Context, OwnershipRecord) error
+}
+
 type recoveryProfileResolver func(context.Context, string) (profile.Profile, error)
 type recoveryCredentialGetter func(context.Context, string) ([]byte, error)
+
+// RecoveryRemote permits only exact temporary cleanup confirmation.
+type RecoveryRemote interface {
+	io.Closer
+	Remove(context.Context, string) error
+	Stat(context.Context, string) (os.FileInfo, error)
+}
+
 type recoveryCleanupRemote interface{ io.Closer }
 type recoveryCleanupOpener func(context.Context, profile.Profile, []byte) (recoveryCleanupRemote, error)
 type recoveryReady func(context.Context, recoveryCleanupRemote, string) error
+type recoveryRemoteOpener func(context.Context, profile.Profile, []byte) (RecoveryRemote, error)
 
 type recoveryGuards struct {
 	resolveProfile recoveryProfileResolver
@@ -47,6 +64,15 @@ type recoveryGuards struct {
 	openCleanup    recoveryCleanupOpener
 	cleanupReady   recoveryReady
 }
+
+type recoveryCoordinator struct {
+	ledger         RecoveryLedger
+	resolveProfile recoveryProfileResolver
+	getCredential  recoveryCredentialGetter
+	openCleanup    recoveryRemoteOpener
+}
+
+func (r recoveryCoordinator) Recover(context.Context) error { return ErrOwnershipInvalid }
 
 func recoverOwnershipRecord(ctx context.Context, record OwnershipRecord, guards recoveryGuards) (err error) {
 	if err := ctx.Err(); err != nil {
