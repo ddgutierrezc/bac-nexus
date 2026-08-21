@@ -355,3 +355,25 @@ The native `sdd-attempt` runtime issued a finalization attempt for work unit `PR
 | WDAC note | Local Go test runtime remains blocked by Windows Defender Application Control; the docs PR is documentation-only and does not require runtime evidence. |
 
 Task count: 38/42 canonical parent tasks complete. Task 4.1 is next and remains untouched.
+
+## Slice 7 (PR #55) — Delivered
+
+PR #55 (`feat(mcp): add stdio MCP server slice (4.1-4.3)`) is delivered as one coherent strict-TDD slice on `feat/mcp-server-7` → `main` and merged as `c6ab3a8`. The exact delivery head is `10cbaa3`; the docs/evidence update is committed on `main` as a post-merge housekeeping commit so the PR diff stays at 991 additions + 6 deletions = 997 lines, under the 1000-line ceiling without `size:exception`.
+
+| Field | Value |
+|---|---|
+| Authored diff (PR code only) | 991 additions + 6 deletions = 997 lines |
+| Default ceiling | 1000 authored additions + deletions |
+| Approved ceiling for PR #55 | 997 lines (under default, no `size:exception` needed) |
+| Files changed (PR code) | 8 (production: 2; tests: 2; docs: 2; modules: 2) |
+| Exact delivery head | `10cbaa3` |
+| Squash-merge commit | `c6ab3a8` on `main` |
+| Pre-merge GHA proof | `32510069691` (Go Verification, pull_request, success) and `32510069663` (Keyring Dependency Gate, pull_request, success) on `10cbaa3` |
+| Post-merge GHA proof | `32510283292` (Go Verification, push, success) on `c6ab3a8` |
+| Work unit | `7-mcp-stdio-server` (tasks 4.1–4.3) |
+| PR | `#55` `feat(mcp): add stdio MCP server slice (4.1-4.3)` on `feat/mcp-server-7` → `main`, `type:feature`, closes `#54` on merge |
+| Rollback | Revert the `cmd/nexus` and `internal/mcp` packages, restore `README.md` and `docs/SECURITY.md`, and remove the `go-sdk` direct dependency from `go.mod`. No source, ownership, credential, policy, audit, or `cmd/catalogspike` behavior is affected. |
+
+`internal/mcp` exposes only `resolve_catalog_candidates` and `read_selected_source`; the typed input schemas forbid temporary, listing, or delete fields, and the typed output schemas never include source, cursor, raw error, path, host, user, command, SQL, credential, or model content. The composition root in `cmd/nexus/main.go` invokes `source.RecoveryCoordinator.Recover` during real Nexus process start-up through `app.Service.Startup` before the MCP server is exposed to clients. `cmd/catalogspike` prefix behavior remains intact and the package tests still pass.
+
+Task count: 41/42 canonical parent tasks complete. Task 4.4 is next. Corporate endpoint-policy validation remains a deferred rollout prerequisite.

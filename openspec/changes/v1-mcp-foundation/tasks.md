@@ -99,9 +99,9 @@ Only canonical parent tasks use checkboxes: native count is 42, with 29 complete
 
 ## Phase 4: MCP and Acceptance
 
-- [ ] 4.1 **RED (PR 7)**: Test `internal/mcp/server_test.go` and `cmd/nexus/main_test.go` typed tools, no paths, deterministic errors, cancellation, and shutdown.
-- [ ] 4.2 **GREEN (PR 7)**: Create `internal/mcp/server.go` and `cmd/nexus/main.go`; pin SDK, wire 5B/6, and expose no generic remote tool.
-- [ ] 4.3 **REFACTOR (PR 7)**: Update `README.md` and `docs/SECURITY.md`; preserve `catalogspike` and full tests.
+- [x] 4.1 **RED (PR 7)**: Test `internal/mcp/server_test.go` and `cmd/nexus/main_test.go` typed tools, no paths, deterministic errors, cancellation, and shutdown.
+- [x] 4.2 **GREEN (PR 7)**: Create `internal/mcp/server.go` and `cmd/nexus/main.go`; pin SDK, wire 5B/6, and expose no generic remote tool.
+- [x] 4.3 **REFACTOR (PR 7)**: Update `README.md` and `docs/SECURITY.md`; preserve `catalogspike` and full tests.
 - [ ] 4.4 **Acceptance (PR 8)**: Run documented approved IBM i line-1/EOF/newline/success-cancel cleanup evidence without retained source; verify `go test -count=1 ./...`.
 
 Rollback: stop acquisition; revert 3B.3→3B.2→3B.1c→3B.1b→3B.1a while retaining unresolved rows. Revert 5B, then 5A only after preserving accessible secrets and migration state.
