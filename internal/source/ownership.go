@@ -3,10 +3,13 @@ package source
 import (
 	"context"
 	"errors"
+	"io"
 	"path"
 	"regexp"
 	"strings"
 	"time"
+
+	"bac-nexus/internal/profile"
 )
 
 var ErrOwnershipInvalid = errors.New("ownership record is invalid")
@@ -26,6 +29,25 @@ type OwnershipLedger interface {
 	Admit(context.Context, OwnershipRecord) error
 	Delete(context.Context, OwnershipRecord) error
 	Close() error
+}
+
+type recoveryProfileResolver func(context.Context, string) (profile.Profile, error)
+type recoveryCredentialGetter func(context.Context, string) ([]byte, error)
+type recoveryCleanupRemote interface{ io.Closer }
+type recoveryCleanupOpener func(context.Context, profile.Profile, []byte) (recoveryCleanupRemote, error)
+type recoveryReady func(context.Context, recoveryCleanupRemote, string) error
+
+type recoveryGuards struct {
+	resolveProfile recoveryProfileResolver
+	getCredential  recoveryCredentialGetter
+	openCleanup    recoveryCleanupOpener
+	cleanupReady   recoveryReady
+}
+
+// recoverOwnershipRecord is the package-private Slice B seam for fresh recovery guards.
+// It intentionally fails closed until the guard chain is implemented.
+func recoverOwnershipRecord(context.Context, OwnershipRecord, recoveryGuards) error {
+	return ErrOwnershipInvalid
 }
 
 func guardRecoveryRecord(record OwnershipRecord) error {

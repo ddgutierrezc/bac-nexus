@@ -10,13 +10,11 @@
 - [x] 2.14 — private acquisition boundaries.
 - [x] 2.15 — exact private cleanup and transactional ownership deletion.
 - [x] 2.16 — acquisition fixture refactor and final evidence.
-- [x] 2.17a — bounded recovery-list RED contract and row-65 overflow evidence.
-- [x] 2.17b — bounded SQLite recovery-list GREEN boundary and malformed-row fail-closed evidence.
-- [x] 2.17c.1 — authorized initial source recovery seam compile RED.
-- [x] 2.17c.2 — source-only recovery-record guard GREEN.
-- [ ] 2.17c.3 and later — recovery coordination and remaining product scope.
+- [ ] 2.17 — bounded stale-temporary recovery is partial: Slice A merged in PR #40 (`LIMIT 65` listing, no partial results, and `guardRecoveryRecord` RED/GREEN); Slices B–C remain pending.
+- [ ] 2.18 — startup/pre-acquire recovery integration remains pending.
+- [ ] 2.19 — operator/security documentation and evidence refactor remains pending.
 
-Task count: 29/42 complete.
+Task count: 25/42 canonical parent tasks complete.
 
 ## Strict TDD Cycle Evidence
 | Task / microcycle | Test file / layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
@@ -85,13 +83,9 @@ Task count: 29/42 complete.
 | Static / builds | Local `gofmt -w internal/source/ownership.go internal/source/ownership_recovery_test.go`, `git diff --check`, `go vet ./...`, and compile-only `go test -c -o NUL ./internal/source` exited 0. No local Go test binary ran. |
 | Rollback boundary | Revert `a9c17d6` to remove only the package-private source guard and its direct tests. It does not remove the prior 2.17c.1 RED, SQLite list boundary, acquisition behavior, or any later profile/credential/binding/pin/remote cleanup scope. |
 
-## Delivery / exclusions
-- Draft PR #40 is stacked-to-main → `main`, open and draft; issue #39 is approved and linked.
-- Maintainer-selected review ceiling: 800 authored additions + deletions. The 2.17c.1 RED and 2.17c.2 GREEN commits remain under that ceiling; it remains a ceiling, not permission for unrelated scope. Delivery remains `ask-on-risk` resolved as `stacked-to-main`.
-- Excluded: 2.17c.3 and later; source recovery coordination, credential/pin/remote behavior, historical `/tmp` behavior, acquisition/rescope/reset/settle, and merge.
-
-## Settlement Handoff
-- Authorized attempt token: `sha256:ece0dc1b901091f034c26e7b55155fc610c763e55fbbf31d2509c85f17a9f9fd`.
-- Passing settlement obligation retained by parent: `--remediates-evidence-revision sha256:e8ef7c92c82647a0072242a121e465fd187b5a62380e757c89026882b9f35a05` with a distinct passing evidence revision bound to the final artifact head and GHA run.
-- This executor does not acquire, rescope, reset, settle, or merge. The parent/orchestrator retains that authority.
-- Native attempt state remains `proceed`; work unit: `3B.3-2.17c.2-source-guard-green`.
+## Current Delivery and Scope
+- PR #40 is MERGED as `11e1c46c18ca7d8092cbe0babad65aa82486f205`; issue #39 is OPEN and approved.
+- Slice A is settled complete and merged. Its final GHA evidence is 32431834329. Delivery remains `ask-on-risk`, resolved to the `stacked-to-main` chain strategy; the 800-line ceiling remains a boundary, not permission for unrelated scope.
+- The current branch is Slice B. Its next guard order is recorded profile → credential → canonical target binding → pin/trust validation → constrained cleanup-ready callback.
+- Excluded from Slice B: Slices C and D; Phase 3 native credential storage; cleanup `Remove`/`Stat`/`Delete`; historical discovery; startup integration; and docs/MCP. Do not exclude behavior required by the Slice B guard chain.
+- No active settlement token, handoff, or parent-settlement obligation remains.
