@@ -57,6 +57,7 @@ type Page struct {
 	Lines         []string `json:"lines"`
 	EOF           bool     `json:"eof"`
 	NextStartLine int      `json:"nextStartLine,omitempty"`
+	Cursor        string   `json:"cursor,omitempty"`
 }
 
 // NewSnapshot copies the supplied member bytes (never retaining the caller's slice),

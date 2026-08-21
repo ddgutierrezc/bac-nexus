@@ -270,6 +270,9 @@ func (s *Service) ReadSelectedSource(ctx context.Context, selection catalog.Cand
 	if err != nil {
 		return source.Page{}, err
 	}
+	if !pageResult.EOF {
+		pageResult.Cursor = cursor
+	}
 	if auditErr := s.recordAllowed(ctx, audit.CapabilitySourceRead, audit.TargetClassIBMiSource, pageResult.LineCount); auditErr != nil {
 		return source.Page{}, auditErr
 	}
@@ -329,7 +332,7 @@ func (s *Service) recordAllowed(ctx context.Context, capability audit.Capability
 		Capability:  capability,
 		Connector:   audit.ConnectorIBMi,
 		TargetClass: target,
-		PolicyID:    audit.PolicyID(s.deps.Profile),
+		PolicyID:    audit.PolicyIDVerifiedReadOnly,
 		Result:      audit.ResultClassAllow,
 		Requested:   0,
 		Returned:    returned,
@@ -348,7 +351,7 @@ func (s *Service) recordDenied(ctx context.Context, capability audit.Capability,
 		Capability:  capability,
 		Connector:   audit.ConnectorIBMi,
 		TargetClass: target,
-		PolicyID:    audit.PolicyID(s.deps.Profile),
+		PolicyID:    audit.PolicyIDVerifiedReadOnly,
 		Result:      audit.ResultClassDeny,
 		Requested:   0,
 		Returned:    0,
@@ -362,10 +365,7 @@ func (s *Service) recordDenied(ctx context.Context, capability audit.Capability,
 // message is the policy's own bounded classification; the service
 // never appends a sensitive identifier.
 func errReason(reason string) error {
-	if reason == "" {
-		return errors.New("unauthorized")
-	}
-	return errors.New(reason)
+	return security.ErrUnauthorized
 }
 
 // sanitizeReason returns a bounded, non-sensitive reason string safe
