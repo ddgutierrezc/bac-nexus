@@ -535,6 +535,6 @@ remediation evidence only and does not alter the canonical verify report.
 | Changed lines | 126 PR additions + deletions, below the 1000-line budget; no size exception |
 | Native token | `sha256:c01fc86aff0393b037be65bf8a30020a2c093a53606fac04f359ee2cd2291352` (acquired; not reacquired) |
 | Remediated revision | `sha256:f22b56746130700156d316e634357dcdd613c36d27a8a9a389132e76f51843f3` |
-| Exact-head final GHA | Pending the evidence-only apply-progress commit; the prior code-head GHA is `32527536024` and passed |
-| Settlement | Pending exactly one native settlement after final exact-head GHA; no verify report PASS is recorded |
+| Exact-head final GHA | Go Verification `32527789878`, exact head `351bcf9`, passed `go test -count=1 ./...`, vet, formatting, packaging, manifest checks, and artifact upload; log evidence revision `sha256:39eee15adf65ca7d1967d40713a165c31d6002f14cd16c3104fb059625957dd3` |
+| Settlement | Passed exactly once with request ID `final-five-scenario-remediation-20260821`; remediates failed revision `sha256:f22b56746130700156d316e634357dcdd613c36d27a8a9a389132e76f51843f3`; native state is complete |
 | IBM i | `ready_for_controlled_ibmi_validation`; `not_validated_on_ibmi`; no live validation claimed |
