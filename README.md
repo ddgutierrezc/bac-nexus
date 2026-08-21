@@ -13,16 +13,14 @@ The v1 surface is read-only and intentionally narrow. It does not provide a gene
 | `resolve_catalog_candidates` | Resolve up to 50 catalog candidates for a bounded query. Returns no source content. |
 | `read_selected_source` | Read a single source page for the exact selection bound to a cursor. Cursor is opaque and never echoed. |
 
-Both tools are typed, fail closed, and honor `context.Context` cancellation. Source content is never returned by the catalog resolve; only the bounded coordinate set. Source read requires an opaque cursor issued by an earlier `resolve_catalog_candidates` call that targeted the same selection.
+Both tools are typed, fail closed, and honor `context.Context` cancellation. The server uses the official [`github.com/modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk) (v1.2.0) and the standard Model Context Protocol wire format. No Nexus-specific transport is added.
 
 ## Quick path
 
 1. Build: `go build ./...`
-2. Test (available runners only): `go test -count=1 ./...`
+2. Test: `go test -count=1 ./...`
 3. Run: `nexus serve -profile <name>`
 4. Wire any MCP-compatible client (Copilot, OpenCode, Codex, etc.) to the resulting `nexus` binary over stdio.
-
-The server uses the official [`github.com/modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk) (v1.2.0) and `mcp.NewServer` + `mcp.AddTool` + `StdioTransport`. The wire protocol is the standard Model Context Protocol; no Nexus-specific transport is added.
 
 ## Project layout
 
@@ -34,7 +32,7 @@ The server uses the official [`github.com/modelcontextprotocol/go-sdk`](https://
 | `internal/app` | The local-OS-principal catalog-context service. Owns recovery, freshness, credential, and policy wiring. |
 | `internal/source` | Snapshot, lease, ownership, and bounded recovery. No remote/path/shell surface. |
 | `internal/security` | Local-principal policy, pinned host trust, no clientInfo, no parent verification. |
-| `internal/audit` | Sanitized, allowlisted audit events. Excludes source, paths, credentials, commands, host, user, model content. |
+| `internal/audit` | Sanitized, allowlisted audit events. |
 | `internal/credential` | Consumer-owned native-keyring adapter. Windows Credential Manager, macOS Keychain, Linux Secret Service. Fails closed before any remote work. |
 | `internal/ownership/sqlite` | Portable SQLite ownership ledger. Rollback-journal `DELETE` + `synchronous=EXTRA`, no WAL. |
 | `docs/SECURITY.md` | Canonical threat model, trust boundary, and incident guidance. |
@@ -45,7 +43,7 @@ The server uses the official [`github.com/modelcontextprotocol/go-sdk`](https://
 - Not a generic SSH client. There is no shell, command, or remote execution tool.
 - Not a SQL client. There is no SQL execution tool, no read/write/delete, no administrative path.
 - Not a mutation tool. v1 is read-only by design.
-- Not authenticated against Copilot, OpenCode, or any specific product. The current local OS principal is the trust boundary; advisory selectors are not product authentication.
+- Not authenticated against Copilot, OpenCode, or any specific product. The current local OS principal is the trust boundary.
 
 ## Verification
 
@@ -55,7 +53,7 @@ go vet ./...
 gofmt -l .  # must produce no output
 ```
 
-The Go test suite uses deterministic fakes and, where policy allows, temporary SQLite databases. The exact-head GitHub Actions run is the canonical runtime evidence; local Windows Defender Application Control may block the test binary and is not bypassed.
+GitHub Actions is the canonical runtime evidence; local Windows Defender Application Control may block the test binary and is not bypassed.
 
 ## Documentation
 
