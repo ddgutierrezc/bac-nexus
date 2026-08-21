@@ -61,9 +61,19 @@ The following non-blocking warnings remain final-state facts:
 
 These warnings do not block this archive and do not change the product status. A later documentation-only change may address the stale design narrative and packaging-observability gap; it must not represent automated evidence as live IBM i validation.
 
-## Verification-Report Hash Discrepancy
+## Authoritative Git-Blob Identity
 
-The archived `verify-report.md` bytes hash to `9e629a07bf29b62cd5e2108ad7c99a442c02754e0326ebee83d77484b4e732d8`, while the archive-launch final-state fact identifies canonical report hash `6f6f7ec41cca454da5232c5e7329538c8e33b93ae375949fa9a0cd6dcd647075`. This report records both values without silently resolving the discrepancy. The archived report is an intermediate verification snapshot: its PR/open-head and warning wording describe its verification-time state, not the post-merge closure recorded above.
+There is no verification-report hash discrepancy. The following authoritative committed Git-blob commands both produce canonical SHA-256 `6f6f7ec41cca454da5232c5e7329538c8e33b93ae375949fa9a0cd6dcd647075`:
+
+```text
+git show 909d5e1e7296a9dc44eb0acde57e18ef0a1f02d3:openspec/changes/v1-mcp-foundation/verify-report.md | sha256sum
+6f6f7ec41cca454da5232c5e7329538c8e33b93ae375949fa9a0cd6dcd647075 *-
+
+git show 27293e8d188bd82474b73dc586a4e977499db3b0:openspec/changes/archive/2026-08-21-v1-mcp-foundation/verify-report.md | sha256sum
+6f6f7ec41cca454da5232c5e7329538c8e33b93ae375949fa9a0cd6dcd647075 *-
+```
+
+The shared committed blob is `91f3b0506e1ba6af57f84437fc7df368fd8a093f`. A local `Get-FileHash` result over the Windows checked-out CRLF representation is non-authoritative for committed archive identity. The archived report remains an intermediate verification snapshot: its PR/open-head and warning wording describe its verification-time state, not the post-merge closure recorded above.
 
 ## Engram Traceability
 
