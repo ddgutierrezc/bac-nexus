@@ -4,9 +4,9 @@
 
 | Field | Value |
 |---|---|
-| Estimated changed lines | 2,970–3,750 authored; remaining recovery slices are independently bounded to ≤800 lines |
+| Estimated changed lines | 2,970–3,750 authored; active remaining slices are independently bounded to ≤1000 lines |
 | 400-line budget risk | High |
-| Maintainer-selected active PR review ceiling | 800 authored additions + deletions; a ceiling, not permission for unrelated scope |
+| Maintainer-selected active PR review ceiling | 1000 authored additions + deletions; a ceiling, not permission for unrelated scope |
 | Suggested split | 1→2→3A→3B.1a→3B.1b→3B.1c-T→3B.1c-I→3B.2→3B.3→5A→5B→6→7→8 to `main` |
 | Delivery strategy | ask-on-risk (resolved: stacked-to-main) |
 | Chain strategy | stacked-to-main |

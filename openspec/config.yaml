@@ -1,7 +1,7 @@
 schema: spec-driven
 
 context: |
-  Tech stack: Go 1.25.0 module with SSH/SFTP and Mapepire dependencies.
+  Tech stack: Go 1.25.10 module with SSH/SFTP and Mapepire dependencies.
   Architecture: the current catalogspike CLI composes internal catalog, profile, credential, remote, mapepire, and source packages; BAC Nexus v1 MCP foundation preserves these boundaries while MCP wiring remains planned.
   Product scope: secure, bounded, read-oriented IBM i source-discovery foundation for BAC Nexus v1; this does not claim a complete MCP server or production IBM i integration.
   Testing: Go standard testing with package-local tests and in-process fakes or loopback SSH; WDAC blocks local Go test runtime, so GitHub Actions is the runtime-evidence harness.
@@ -13,7 +13,7 @@ execution:
   mode: automatic
 delivery:
   strategy: ask-on-risk
-  review_budget_lines: 800
+  review_budget_lines: 1000
 
 strict_tdd: true
 testing:
@@ -40,7 +40,7 @@ rules:
     - Keep MCP transport adapters separate from connector and domain behavior.
     - Document security and audit implications for remote-access changes.
   tasks:
-    - Group tasks by phase and keep coherent slices reviewable within the maintainer-selected 800-line budget.
+    - Group tasks by phase and keep coherent slices reviewable within the maintainer-selected 1000-line budget.
   apply:
     guidelines:
       - Follow existing package-local Go tests and narrow internal interfaces.
