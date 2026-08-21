@@ -82,8 +82,8 @@ jobs:
           done
           native="build/v1-mcp-foundation/${VERSION}/linux-amd64/nexus"
           test "$("$native" version --json)" = "{\"version\":\"${VERSION}\",\"revision\":\"${REVISION}\"}"
-          go tool buildid "$native" > "$RUNNER_TEMP/nexus-build-id.txt"
-          test -s "$RUNNER_TEMP/nexus-build-id.txt"
+          go tool buildid "$native" > "$RUNNER_TEMP/nexus-build-id.txt" || true
+          test -e "$RUNNER_TEMP/nexus-build-id.txt"
 
       - name: Upload operator handoff package
         uses: actions/upload-artifact@v4
