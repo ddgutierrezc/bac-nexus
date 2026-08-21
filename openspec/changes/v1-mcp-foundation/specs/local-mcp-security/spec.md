@@ -105,3 +105,29 @@ The system MUST expose only the defined catalog-context read operations and MUST
 - GIVEN an MCP caller requests catalog context
 - WHEN it attempts to specify a temporary, delete, or listing path
 - THEN the request is rejected as unsupported and no generic remote operation occurs
+
+### Requirement: Operator-Ready Field-Validation Package
+
+Before SDD completion, the release package MUST provide an operator-ready, read-only IBM i field-validation runbook and checklist. It MUST identify the exact binary version and checksum; list authorized operator, identity, reachable supported IBM i, approved libraries, policies, validation window, endpoint acceptance, and no-control-bypass prerequisites; define successful and cancelled traversal checks and rollback actions; and state `ready_for_controlled_ibmi_validation` with `not_validated_on_ibmi`. The package MUST NOT claim a live environment exists or that automated tests/fakes prove live IBM i behavior.
+
+The package MUST define a sanitized external-evidence contract that proves only bounded outcome classifications, line/count bounds, lifecycle outcome, binary version/checksum, and checklist completion. Evidence, logs, attachments, and retained artifacts MUST exclude and MUST NOT retain source content, source text, paths, credentials, host or user identifiers, raw errors, commands, SQL, coordinates, cursors, hashes, remote-cleanup details, or other sensitive data. The runbook MUST require immediate stop, lease invalidation, restoration of the approved binary/configuration, affected-credential revocation, and cleanup only of exact recorded paths when validation is aborted or fails.
+
+#### Scenario: Operator package is ready without live validation
+
+- GIVEN automated internal-contract verification and release identity checks pass
+- WHEN the operator package is assembled
+- THEN it contains prerequisites, version/checksum identity, runbook, checklist, evidence contract, cancellation/cleanup checks, and rollback
+- AND it states `not_validated_on_ibmi` without claiming live IBM i evidence
+
+#### Scenario: Evidence is safely bounded
+
+- GIVEN an operator records a field-validation result
+- WHEN the evidence is reviewed or retained
+- THEN it contains only the approved sanitized outcome metadata
+- AND prohibited source, identifier, credential, path, raw-error, and remote-detail data is absent
+
+#### Scenario: Field validation aborts safely
+
+- GIVEN a prerequisite fails, cancellation is requested, or a validation check fails
+- WHEN the operator stops the runbook
+- THEN the rollback checklist invalidates leases, restores the approved binary/configuration, revokes affected credentials, and cleans only exact recorded paths
