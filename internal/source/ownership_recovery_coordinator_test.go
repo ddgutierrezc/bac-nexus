@@ -3,7 +3,6 @@ package source
 import (
 	"bytes"
 	"context"
-	"errors"
 	"io/fs"
 	"reflect"
 	"testing"
@@ -46,18 +45,23 @@ func TestRecoveryCoordinatorRetainsRowsOnUncertainOrInvalidRecovery(t *testing.T
 	record := recoveryRecordForProfile(fresh)
 	tests := []struct {
 		name       string
-		configure  func(*recoveryCoordinator, *recoveryLedgerFake, *recoveryRemoteFake)
+		ctx        context.Context
+		configure  func(*RecoveryCoordinator, *recoveryLedgerFake, *recoveryRemoteFake)
 		wantEvents []string
 	}{
 		{
+			name: "cancelled context makes no remote call",
+			ctx:  cancelledRecoveryContext(),
+		},
+		{
 			name: "list failure makes no remote call",
-			configure: func(_ *recoveryCoordinator, ledger *recoveryLedgerFake, _ *recoveryRemoteFake) {
+			configure: func(_ *RecoveryCoordinator, ledger *recoveryLedgerFake, _ *recoveryRemoteFake) {
 				ledger.listErr = errRecoveryGuard
 			},
 		},
 		{
 			name: "corrupt row makes no remote call",
-			configure: func(_ *recoveryCoordinator, ledger *recoveryLedgerFake, _ *recoveryRemoteFake) {
+			configure: func(_ *RecoveryCoordinator, ledger *recoveryLedgerFake, _ *recoveryRemoteFake) {
 				bad := record
 				bad.RemotePath = "/tmp/bac-nexus-catalog-historical.utf8"
 				ledger.records = []OwnershipRecord{bad}
@@ -65,8 +69,8 @@ func TestRecoveryCoordinatorRetainsRowsOnUncertainOrInvalidRecovery(t *testing.T
 		},
 		{
 			name: "retargeted profile makes no remote call",
-			configure: func(coordinator *recoveryCoordinator, _ *recoveryLedgerFake, _ *recoveryRemoteFake) {
-				coordinator.resolveProfile = func(context.Context, string) (profile.Profile, error) {
+			configure: func(coordinator *RecoveryCoordinator, _ *recoveryLedgerFake, _ *recoveryRemoteFake) {
+				coordinator.ResolveProfile = func(context.Context, string) (profile.Profile, error) {
 					retargeted := fresh
 					retargeted.Host = "other.example.test"
 					return retargeted, nil
@@ -75,7 +79,7 @@ func TestRecoveryCoordinatorRetainsRowsOnUncertainOrInvalidRecovery(t *testing.T
 		},
 		{
 			name: "remove uncertainty retains row",
-			configure: func(_ *recoveryCoordinator, _ *recoveryLedgerFake, remote *recoveryRemoteFake) {
+			configure: func(_ *RecoveryCoordinator, _ *recoveryLedgerFake, remote *recoveryRemoteFake) {
 				remote.removeErrors = []error{errRecoveryGuard}
 				remote.statErrors = []error{ErrRemoteNotFound}
 			},
@@ -83,14 +87,21 @@ func TestRecoveryCoordinatorRetainsRowsOnUncertainOrInvalidRecovery(t *testing.T
 		},
 		{
 			name: "present path retains row",
-			configure: func(_ *recoveryCoordinator, _ *recoveryLedgerFake, remote *recoveryRemoteFake) {
+			configure: func(_ *RecoveryCoordinator, _ *recoveryLedgerFake, remote *recoveryRemoteFake) {
 				remote.statErrors = []error{nil}
 			},
 			wantEvents: []string{"remove:" + record.RemotePath, "stat:" + record.RemotePath, "close"},
 		},
 		{
+			name: "stat error retains row",
+			configure: func(_ *RecoveryCoordinator, _ *recoveryLedgerFake, remote *recoveryRemoteFake) {
+				remote.statErrors = []error{errRecoveryGuard}
+			},
+			wantEvents: []string{"remove:" + record.RemotePath, "stat:" + record.RemotePath, "close"},
+		},
+		{
 			name: "ledger delete failure retains row after confirmed absence",
-			configure: func(_ *recoveryCoordinator, ledger *recoveryLedgerFake, remote *recoveryRemoteFake) {
+			configure: func(_ *RecoveryCoordinator, ledger *recoveryLedgerFake, remote *recoveryRemoteFake) {
 				ledger.deleteErr = errRecoveryGuard
 				remote.statErrors = []error{ErrRemoteNotFound}
 			},
@@ -105,7 +116,11 @@ func TestRecoveryCoordinatorRetainsRowsOnUncertainOrInvalidRecovery(t *testing.T
 			coordinator := recoveryCoordinatorFor(fresh, ledger, remote)
 			tt.configure(&coordinator, ledger, remote)
 
-			if err := coordinator.Recover(context.Background()); err == nil {
+			ctx := tt.ctx
+			if ctx == nil {
+				ctx = context.Background()
+			}
+			if err := coordinator.Recover(ctx); err == nil {
 				t.Fatal("recovery unexpectedly deleted an unsafe row")
 			}
 			if len(ledger.deleted) != 0 || len(ledger.records) != 1 {
@@ -178,16 +193,16 @@ func (r *recoveryRemoteFake) next(errors *[]error) error {
 	return err
 }
 
-func recoveryCoordinatorFor(fresh profile.Profile, ledger RecoveryLedger, remote RecoveryRemote) recoveryCoordinator {
-	return recoveryCoordinator{
-		ledger: ledger,
-		resolveProfile: func(context.Context, string) (profile.Profile, error) {
+func recoveryCoordinatorFor(fresh profile.Profile, ledger RecoveryLedger, remote RecoveryRemote) RecoveryCoordinator {
+	return RecoveryCoordinator{
+		Ledger: ledger,
+		ResolveProfile: func(context.Context, string) (profile.Profile, error) {
 			return fresh, nil
 		},
-		getCredential: func(context.Context, string) ([]byte, error) {
+		GetCredential: func(context.Context, string) ([]byte, error) {
 			return []byte("recovery-secret"), nil
 		},
-		openCleanup: func(context.Context, profile.Profile, []byte) (RecoveryRemote, error) {
+		OpenCleanup: func(context.Context, profile.Profile, []byte) (RecoveryRemote, error) {
 			return remote, nil
 		},
 	}
@@ -195,5 +210,3 @@ func recoveryCoordinatorFor(fresh profile.Profile, ledger RecoveryLedger, remote
 
 var _ RecoveryLedger = (*recoveryLedgerFake)(nil)
 var _ RecoveryRemote = (*recoveryRemoteFake)(nil)
-
-var _ = errors.Is
