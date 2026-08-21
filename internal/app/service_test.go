@@ -39,7 +39,7 @@ func (f *fakeCredentialStore) Get(profile string) ([]byte, error) {
 	return append([]byte(nil), f.secret...), nil
 }
 func (f *fakeCredentialStore) Set(profile string, secret []byte) error { return f.err }
-func (f *fakeCredentialStore) Delete(profile string) error            { return f.err }
+func (f *fakeCredentialStore) Delete(profile string) error             { return f.err }
 
 // fakeAuthorizer records every call and returns the configured decision.
 type fakeAuthorizer struct {
@@ -529,8 +529,12 @@ func TestServiceReadSelectedSourceAcquiresFirstPageWithoutCursor(t *testing.T) {
 	in := newReadServiceTestInput(t, candidate, []catalog.Candidate{candidate})
 	in.acquirer.snapshot, _ = source.NewSnapshot([]byte("first\nsecond\n"))
 	page, err := in.svc.ReadSelectedSource(context.Background(), candidate, "", source.Range{StartLine: 1, MaxLines: 1})
-	if err != nil { t.Fatalf("first page error = %v", err) }
-	if page.LineCount != 1 || page.NextStartLine != 2 || in.acquirer.calls != 1 { t.Fatalf("page=%+v acquireCalls=%d", page, in.acquirer.calls) }
+	if err != nil {
+		t.Fatalf("first page error = %v", err)
+	}
+	if page.LineCount != 1 || page.NextStartLine != 2 || in.acquirer.calls != 1 {
+		t.Fatalf("page=%+v acquireCalls=%d", page, in.acquirer.calls)
+	}
 }
 
 // TestServiceReadSelectedSourceRejectsWhenUnavailable proves the service
@@ -652,21 +656,21 @@ func TestServiceReadSelectedSourceHonorsPageByteBound(t *testing.T) {
 // result class and the requested/returned counts.
 func TestServiceAuditsCatalogResolution(t *testing.T) {
 	tests := []struct {
-		name        string
-		decision    security.Decision_
-		wantResult  audit.ResultClass
+		name         string
+		decision     security.Decision_
+		wantResult   audit.ResultClass
 		wantReturned int
 	}{
 		{
-			name:        "successful resolution records allow",
-			decision:    allowCatalogDecision(),
-			wantResult:  audit.ResultClassAllow,
+			name:         "successful resolution records allow",
+			decision:     allowCatalogDecision(),
+			wantResult:   audit.ResultClassAllow,
 			wantReturned: 50,
 		},
 		{
-			name:        "denied resolution records deny",
-			decision:    security.Decision_{Decision: security.DecisionDeny, Reason: "selector not allowlisted"},
-			wantResult:  audit.ResultClassDeny,
+			name:         "denied resolution records deny",
+			decision:     security.Decision_{Decision: security.DecisionDeny, Reason: "selector not allowlisted"},
+			wantResult:   audit.ResultClassDeny,
 			wantReturned: 0,
 		},
 	}
