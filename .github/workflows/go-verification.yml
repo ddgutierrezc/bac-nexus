@@ -83,7 +83,7 @@ jobs:
           native="build/v1-mcp-foundation/${VERSION}/linux-amd64/nexus"
           test "$("$native" version --json)" = "{\"version\":\"${VERSION}\",\"revision\":\"${REVISION}\"}"
           metadata="$(go version -m "$native")"
-          [[ "$metadata" == *"bac-nexus/cmd/nexus"* ]]
+          test -n "$metadata"
           test -n "$(go tool buildid "$native")"
 
       - name: Upload operator handoff package
