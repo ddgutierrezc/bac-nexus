@@ -72,7 +72,7 @@ func validCandidate() catalog.Candidate {
 
 func validConfig() (Config, *fakeService) {
 	svc := &fakeService{}
-	return Config{Info: Info{Name: "bac-nexus", Version: "v0.0.0"}, Service: svc, Profile: "test-profile"}, svc
+	return Config{Info: Info{Name: "bac-nexus", Version: "v0.0.0"}, Service: svc}, svc
 }
 
 func validBuildInput() ResolveCatalogInput {

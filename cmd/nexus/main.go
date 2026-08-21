@@ -120,7 +120,6 @@ func newMCPServer(s *service) (runner, error) {
 	server, err := mcp.New(mcp.Config{
 		Info:    mcp.Info{Name: "bac-nexus", Version: "v0.0.0"},
 		Service: s.app,
-		Profile: s.profile,
 	})
 	if err != nil {
 		return nil, err
