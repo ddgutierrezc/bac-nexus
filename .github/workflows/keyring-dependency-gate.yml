@@ -35,7 +35,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y dbus gnome-keyring libglib2.0-bin
+          sudo apt-get install --no-install-recommends -y dbus gnome-keyring libglib2.0-bin libsecret-tools
 
       - name: Verify candidate module integrity
         run: |
@@ -62,10 +62,18 @@ jobs:
             export XDG_RUNTIME_DIR="$runtime_dir"
             export XDG_DATA_HOME="$runtime_dir/data"
             export XDG_CONFIG_HOME="$runtime_dir/config"
+            export GOMODCACHE="$RUNNER_TEMP/bac-nexus-go-mod-cache"
+            export GOCACHE="$RUNNER_TEMP/bac-nexus-go-build-cache"
             mkdir -p "$HOME" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME"
-            trap "rm -rf \"$runtime_dir\"" EXIT
+            trap "unset collection_check; rm -rf \"$runtime_dir\"" EXIT
+            set +x
             printf "\n" | gnome-keyring-daemon --unlock --components=secrets --control-directory="$XDG_RUNTIME_DIR/keyring" >/dev/null
             gdbus call --session --dest org.freedesktop.secrets --object-path /org/freedesktop/secrets --method org.freedesktop.DBus.Peer.Ping
+            collection_check="$(head -c 32 /dev/urandom | base64 | tr -d "\n")"
+            printf "%s" "$collection_check" | secret-tool store --label="BAC Nexus ephemeral CI collection" nexus-ci-collection default
+            test "$(secret-tool lookup nexus-ci-collection default)" = "$collection_check"
+            secret-tool clear nexus-ci-collection default
+            unset collection_check
             go test -v -count=1 github.com/zalando/go-keyring
           '
 
