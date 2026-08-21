@@ -53,10 +53,8 @@ type RecoveryRemote interface {
 	Stat(context.Context, string) (os.FileInfo, error)
 }
 
-type recoveryCleanupRemote interface{ io.Closer }
-type recoveryCleanupOpener func(context.Context, profile.Profile, []byte) (recoveryCleanupRemote, error)
-type recoveryReady func(context.Context, recoveryCleanupRemote, string) error
-type recoveryRemoteOpener func(context.Context, profile.Profile, []byte) (RecoveryRemote, error)
+type recoveryCleanupOpener func(context.Context, profile.Profile, []byte) (RecoveryRemote, error)
+type recoveryReady func(context.Context, RecoveryRemote, string) error
 
 type recoveryGuards struct {
 	resolveProfile recoveryProfileResolver
@@ -69,10 +67,37 @@ type recoveryCoordinator struct {
 	ledger         RecoveryLedger
 	resolveProfile recoveryProfileResolver
 	getCredential  recoveryCredentialGetter
-	openCleanup    recoveryRemoteOpener
+	openCleanup    recoveryCleanupOpener
 }
 
-func (r recoveryCoordinator) Recover(context.Context) error { return ErrOwnershipInvalid }
+func (r recoveryCoordinator) Recover(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if r.ledger == nil || r.resolveProfile == nil || r.getCredential == nil || r.openCleanup == nil {
+		return ErrOwnershipInvalid
+	}
+	records, err := r.ledger.ListRecovery(ctx)
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
+		if err := recoverOwnershipRecord(ctx, record, recoveryGuards{
+			resolveProfile: r.resolveProfile,
+			getCredential:  r.getCredential,
+			openCleanup:    r.openCleanup,
+			cleanupReady: func(ctx context.Context, remote RecoveryRemote, path string) error {
+				return removeConfirmed(ctx, remote, path)
+			},
+		}); err != nil {
+			return err
+		}
+		if err := r.ledger.Delete(ctx, record); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func recoverOwnershipRecord(ctx context.Context, record OwnershipRecord, guards recoveryGuards) (err error) {
 	if err := ctx.Err(); err != nil {

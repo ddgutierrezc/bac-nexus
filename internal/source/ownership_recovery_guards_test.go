@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
-	"io"
+	"io/fs"
 	"reflect"
 	"testing"
 	"time"
@@ -39,7 +39,7 @@ func TestRecoverOwnershipRecordRunsFreshGuardsBeforeExactPathCallback(t *testing
 			}
 			return secret, nil
 		},
-		openCleanup: func(_ context.Context, got profile.Profile, password []byte) (recoveryCleanupRemote, error) {
+		openCleanup: func(_ context.Context, got profile.Profile, password []byte) (RecoveryRemote, error) {
 			events = append(events, "open")
 			if got != fresh {
 				t.Fatalf("fresh profile = %#v, want %#v", got, fresh)
@@ -47,7 +47,7 @@ func TestRecoverOwnershipRecordRunsFreshGuardsBeforeExactPathCallback(t *testing
 			receivedSecret = password
 			return recoveryCloser{onClose: func() { events = append(events, "close") }}, nil
 		},
-		cleanupReady: func(_ context.Context, _ recoveryCleanupRemote, path string) error {
+		cleanupReady: func(_ context.Context, _ RecoveryRemote, path string) error {
 			events = append(events, "ready")
 			if path != record.RemotePath {
 				t.Fatalf("cleanup-ready path = %q, want exact recorded path %q", path, record.RemotePath)
@@ -139,7 +139,7 @@ func TestRecoverOwnershipRecordRetainsOwnershipBeforeCleanupReady(t *testing.T) 
 			record: validRecord,
 			guards: func(events *[]string) recoveryGuards {
 				guards := recoveryWorkingGuards(valid)(events)
-				guards.openCleanup = func(context.Context, profile.Profile, []byte) (recoveryCleanupRemote, error) {
+				guards.openCleanup = func(context.Context, profile.Profile, []byte) (RecoveryRemote, error) {
 					*events = append(*events, "open")
 					return nil, errRecoveryGuard
 				}
@@ -174,11 +174,11 @@ func recoveryWorkingGuards(fresh profile.Profile) func(*[]string) recoveryGuards
 				*events = append(*events, "credential")
 				return []byte("recovery-secret"), nil
 			},
-			openCleanup: func(context.Context, profile.Profile, []byte) (recoveryCleanupRemote, error) {
+			openCleanup: func(context.Context, profile.Profile, []byte) (RecoveryRemote, error) {
 				*events = append(*events, "open")
 				return recoveryCloser{}, nil
 			},
-			cleanupReady: func(context.Context, recoveryCleanupRemote, string) error {
+			cleanupReady: func(context.Context, RecoveryRemote, string) error {
 				*events = append(*events, "ready")
 				return nil
 			},
@@ -231,4 +231,10 @@ func (c recoveryCloser) Close() error {
 	return nil
 }
 
-var _ io.Closer = recoveryCloser{}
+func (recoveryCloser) Remove(context.Context, string) error { return ErrRemoteNotFound }
+
+func (recoveryCloser) Stat(context.Context, string) (fs.FileInfo, error) {
+	return nil, ErrRemoteNotFound
+}
+
+var _ RecoveryRemote = recoveryCloser{}

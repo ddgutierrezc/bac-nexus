@@ -240,8 +240,8 @@ func (l *Ledger) listRecovery(ctx context.Context) ([]source.OwnershipRecord, er
 }
 
 // ListRecovery exposes only the bounded, validated recovery rows required by source.
-func (l *Ledger) ListRecovery(context.Context) ([]source.OwnershipRecord, error) {
-	return nil, source.ErrOwnershipInvalid
+func (l *Ledger) ListRecovery(ctx context.Context) ([]source.OwnershipRecord, error) {
+	return l.listRecovery(ctx)
 }
 
 func recordFromRecoveryRow(token []byte, remotePath string, version int, profile string, digest []byte, created string) (source.OwnershipRecord, error) {
