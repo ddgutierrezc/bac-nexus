@@ -229,7 +229,7 @@ func TestResolveCatalogHandlerBehavior(t *testing.T) {
 	}
 }
 
-func TestResolveCatalogHandlerHonorsContextCancellation(t *testing.T) {
+func TestResolveCatalogHandlerHonorsPreCancelledContext(t *testing.T) {
 	cfg, _ := validConfig()
 	srv, err := New(cfg)
 	if err != nil {

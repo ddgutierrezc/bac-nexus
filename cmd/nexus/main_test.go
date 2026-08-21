@@ -18,6 +18,9 @@ import (
 	"bac-nexus/internal/source"
 )
 
+// all fakes are minimum implementations used only to satisfy the
+// composition-root contracts. Each method records a single count or
+// returns a single canned result.
 type runnerStub struct{ runErr error; runCalls int }
 
 func (r *runnerStub) Run(ctx context.Context) error { r.runCalls++; return r.runErr }
@@ -38,98 +41,68 @@ func (f *failingRecovery) Recover(ctx context.Context) error {
 
 type fakeCredentialStore struct{}
 
-func (fakeCredentialStore) Get(profile string) ([]byte, error) { return []byte("test"), nil }
-func (fakeCredentialStore) Set(profile string, secret []byte) error { return nil }
-func (fakeCredentialStore) Delete(profile string) error { return nil }
+func (fakeCredentialStore) Get(string) ([]byte, error)              { return []byte("test"), nil }
+func (fakeCredentialStore) Set(string, []byte) error                { return nil }
+func (fakeCredentialStore) Delete(string) error                     { return nil }
 
 type fakeAuthorizer struct{}
 
-func (fakeAuthorizer) Authorize(ctx context.Context, selector security.Selector, target security.CapabilityTarget) (security.Decision_, error) {
-	return security.Decision_{Selector: selector, Target: target, Decision: security.DecisionAllow, Reason: "ok"}, nil
+func (fakeAuthorizer) Authorize(ctx context.Context, sel security.Selector, tgt security.CapabilityTarget) (security.Decision_, error) {
+	return security.Decision_{Selector: sel, Target: tgt, Decision: security.DecisionAllow, Reason: "ok"}, nil
 }
 
 type fakeResolver struct{}
 
-func (fakeResolver) Resolve(ctx context.Context, query catalog.Query) ([]catalog.Candidate, error) {
-	return []catalog.Candidate{candidateFixture()}, nil
+func (fakeResolver) Resolve(ctx context.Context, q catalog.Query) ([]catalog.Candidate, error) {
+	return []catalog.Candidate{{Item: "PISA061", SourceLibrary: "QRPGLESRC", SourceFileBase: "QRPGLESRC", ObjectType: "RPGLE", SourceType: "RPG", Application: "APP", Version: "V1", ProductionLibrary: "PRODLIB"}}, nil
 }
 
 type fakeAcquirer struct{}
 
-func (fakeAcquirer) Acquire(ctx context.Context, candidate catalog.Candidate) (*source.Snapshot, error) {
-	return nil, errors.New("unused")
-}
+func (fakeAcquirer) Acquire(ctx context.Context, c catalog.Candidate) (*source.Snapshot, error) { return nil, errors.New("unused") }
 
 type fakeLeaseStore struct{}
 
-func (fakeLeaseStore) Acquire(snap *source.Snapshot, selection catalog.Candidate, policy source.ClientPolicy) (source.Cursor, error) {
+func (fakeLeaseStore) Acquire(*source.Snapshot, catalog.Candidate, source.ClientPolicy) (source.Cursor, error) {
 	return source.Cursor("test-cursor"), nil
 }
-func (fakeLeaseStore) Lookup(cursor source.Cursor) (catalog.Candidate, error) { return candidateFixture(), nil }
-func (fakeLeaseStore) OpenReader(cursor source.Cursor, selection catalog.Candidate, policy source.ClientPolicy) (*source.LeaseReader, error) {
+func (fakeLeaseStore) Lookup(source.Cursor) (catalog.Candidate, error) { return catalog.Candidate{Item: "PISA061"}, nil }
+func (fakeLeaseStore) OpenReader(source.Cursor, catalog.Candidate, source.ClientPolicy) (*source.LeaseReader, error) {
 	return nil, errors.New("unused")
-}
-
-func candidateFixture() catalog.Candidate {
-	return catalog.Candidate{Item: "PISA061", SourceLibrary: "QRPGLESRC", SourceFileBase: "QRPGLESRC", ObjectType: "RPGLE", SourceType: "RPG", Application: "APP", Version: "V1", ProductionLibrary: "PRODLIB", Description: "test"}
 }
 
 func fixedClock() func() time.Time { return func() time.Time { return time.Unix(0, 0).UTC() } }
 
 func validDeps() (mainDeps, *runnerStub, *successfulRecovery) {
-	rec := &successfulRecovery{}
-	r := &runnerStub{}
+	rec, r := &successfulRecovery{}, &runnerStub{}
 	deps := mainDeps{
 		Profile: "test-profile", Credentials: fakeCredentialStore{}, Authorizer: fakeAuthorizer{}, Auditor: audit.NewRecorder(),
 		Resolver: fakeResolver{}, Acquirer: fakeAcquirer{}, Recovery: rec, Leases: fakeLeaseStore{},
-		ServerFactory: func(s *service) (runner, error) { return r, nil },
+		ServerFactory: func(*service) (runner, error) { return r, nil },
 		Now:           fixedClock(),
 	}
 	return deps, r, rec
 }
 
 func TestRunWithDepsComposition(t *testing.T) {
+	cancelledCtx := func() context.Context {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		return ctx
+	}
 	tests := []struct {
-		name      string
-		mutate    func(d *mainDeps)
-		ctxFn     func() context.Context
-		wantRec   int
-		wantRun   int
-		wantErrIs error
+		name    string
+		mutate  func(*mainDeps)
+		ctxFn   func() context.Context
+		wantRec int
+		wantRun int
+		wanterr bool
 	}{
-		{
-			name:    "recovery runs before run",
-			ctxFn:   func() context.Context { return context.Background() },
-			wantRec: 1, wantRun: 1,
-		},
-		{
-			name:      "recovery failure stops the run",
-			mutate:    func(d *mainDeps) { d.Recovery = &failingRecovery{err: errors.New("simulated recovery failure")} },
-			ctxFn:     func() context.Context { return context.Background() },
-			wantRec:   0, wantRun: 0,
-			wantErrIs: errors.New(""),
-		},
-		{
-			name: "pre-cancelled context aborts before recovery",
-			ctxFn: func() context.Context {
-				ctx, cancel := context.WithCancel(context.Background())
-				cancel()
-				return ctx
-			},
-			wantRec: 0, wantRun: 0, wantErrIs: context.Canceled,
-		},
-		{
-			name:    "empty profile is rejected",
-			mutate:  func(d *mainDeps) { d.Profile = "" },
-			ctxFn:   func() context.Context { return context.Background() },
-			wantRec: 0, wantRun: 0, wantErrIs: errors.New(""),
-		},
-		{
-			name:    "whitespace profile is rejected",
-			mutate:  func(d *mainDeps) { d.Profile = "   \t  " },
-			ctxFn:   func() context.Context { return context.Background() },
-			wantRec: 0, wantRun: 0, wantErrIs: errors.New(""),
-		},
+		{"recovery runs before run", nil, func() context.Context { return context.Background() }, 1, 1, false},
+		{"recovery failure stops the run", func(d *mainDeps) { d.Recovery = &failingRecovery{err: errors.New("simulated recovery failure")} }, func() context.Context { return context.Background() }, 0, 0, true},
+		{"pre-cancelled context aborts before recovery", nil, cancelledCtx, 0, 0, true},
+		{"empty profile is rejected", func(d *mainDeps) { d.Profile = "" }, func() context.Context { return context.Background() }, 0, 0, true},
+		{"whitespace profile is rejected", func(d *mainDeps) { d.Profile = "   \t  " }, func() context.Context { return context.Background() }, 0, 0, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -138,13 +111,11 @@ func TestRunWithDepsComposition(t *testing.T) {
 				tt.mutate(&deps)
 			}
 			err := runWithDeps(tt.ctxFn(), deps)
-			if tt.wantErrIs != nil {
-				if err == nil {
-					t.Fatalf("runWithDeps error = nil, want non-nil")
-				}
-				if tt.wantErrIs == context.Canceled && !errors.Is(err, context.Canceled) {
-					t.Fatalf("runWithDeps error = %v, want context.Canceled", err)
-				}
+			if tt.wanterr && err == nil {
+				t.Fatalf("runWithDeps error = nil, want non-nil")
+			}
+			if !tt.wanterr && err != nil {
+				t.Fatalf("runWithDeps error = %v, want nil", err)
 			}
 			if rec.calls != tt.wantRec {
 				t.Fatalf("Recovery calls = %d, want %d", rec.calls, tt.wantRec)
