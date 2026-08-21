@@ -10,11 +10,11 @@
 - [x] 2.14 — private acquisition boundaries.
 - [x] 2.15 — exact private cleanup and transactional ownership deletion.
 - [x] 2.16 — acquisition fixture refactor and final evidence.
-- [x] 2.17 — bounded stale-temporary recovery is complete through Slice C: Slice A merged in PR #40 (`LIMIT 65` listing, no partial results, and `guardRecoveryRecord` RED/GREEN); Slice B merged in PR #41 (fresh identity guards); Slice C draft PR #42 completes exact cleanup and exact-record deletion.
+- [ ] 2.17 — bounded stale-temporary recovery remains partial pending final Slice C artifact-head GREEN verification: Slice A merged in PR #40 (`LIMIT 65` listing, no partial results, and `guardRecoveryRecord` RED/GREEN); Slice B merged in PR #41 (fresh identity guards); Slice C draft PR #42 implements exact cleanup and exact-record deletion.
 - [ ] 2.18 — startup/pre-acquire recovery integration remains pending.
 - [ ] 2.19 — operator/security documentation and evidence refactor remains pending.
 
-Task count: 26/42 canonical parent tasks complete.
+Task count: 25/42 canonical parent tasks complete.
 
 ## Strict TDD Cycle Evidence
 | Task / microcycle | Test file / layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
@@ -103,5 +103,5 @@ Task count: 26/42 canonical parent tasks complete.
 - PR #40 is MERGED as `11e1c46c18ca7d8092cbe0babad65aa82486f205` and PR #41 is MERGED as `7d57617c6a5270d6949c25b4baa0943ddcbf3468`; issue #39 is OPEN and approved.
 - Slice A is settled complete and merged. Its final GHA evidence is 32431834329. Delivery remains `ask-on-risk`, resolved to the `stacked-to-main` chain strategy; the 800-line ceiling remains a boundary, not permission for unrelated scope.
 - Draft PR #42 (`test/recovery-3b3-slice-c` → `main`) completes Slice C at code-head GREEN commit `46577df33f78aecb314a5aebd948989522c40513`; GHA CI 32435646241 passed full test and vet commands. `RecoveryLedger` is consumer-owned and has only bounded `ListRecovery` plus exact `Delete`; SQLite's exported adapter delegates to its tested package-private `LIMIT 65` list. `RecoveryRemote` has only `Close`, exact `Remove`, and exact `Stat`. The coordinator lists once, runs every record through Slice B guards, confirms absence before deletion, and stops on any uncertain result.
-- Slice C excludes Slice D startup/pre-acquire invocation, tasks 2.18/2.19, Phase 3 native credential storage, MCP, docs, remote discovery/list/glob, and historical `/tmp` handling. Parent 2.17 is checked; Slice D is next.
+- Slice C excludes Slice D startup/pre-acquire invocation, tasks 2.18/2.19, Phase 3 native credential storage, MCP, docs, remote discovery/list/glob, and historical `/tmp` handling. Parent 2.17 remains unchecked until final artifact-head verification is green; Slice D follows settlement.
 - Native attempt remains parent-owned and untouched: state `proceed`, token `sha256:90ac00d2afdf77f48e75ae6ef106c785eeeb5860898d2ba5d0cb4330bdb72c1c`, work unit `3B.3-Slice-C-exact-cleanup-recovery`. Final artifact-head/run evidence belongs only in the phase result and PR metadata.

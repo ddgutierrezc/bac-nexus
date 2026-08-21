@@ -114,7 +114,9 @@ func TestRecoveryCoordinatorRetainsRowsOnUncertainOrInvalidRecovery(t *testing.T
 			ledger := &recoveryLedgerFake{records: []OwnershipRecord{record}}
 			remote := &recoveryRemoteFake{statErrors: []error{ErrRemoteNotFound}}
 			coordinator := recoveryCoordinatorFor(fresh, ledger, remote)
-			tt.configure(&coordinator, ledger, remote)
+			if tt.configure != nil {
+				tt.configure(&coordinator, ledger, remote)
+			}
 
 			ctx := tt.ctx
 			if ctx == nil {
