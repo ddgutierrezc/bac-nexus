@@ -13,9 +13,10 @@
 - [x] 2.17a — bounded recovery-list RED contract and row-65 overflow evidence.
 - [x] 2.17b — bounded SQLite recovery-list GREEN boundary and malformed-row fail-closed evidence.
 - [x] 2.17c.1 — authorized initial source recovery seam compile RED.
-- [ ] 2.17c.2 and later — recovery coordination and remaining product scope.
+- [x] 2.17c.2 — source-only recovery-record guard GREEN.
+- [ ] 2.17c.3 and later — recovery coordination and remaining product scope.
 
-Task count: 28/42 complete.
+Task count: 29/42 complete.
 
 ## Strict TDD Cycle Evidence
 | Task / microcycle | Test file / layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
@@ -27,6 +28,7 @@ Task count: 28/42 complete.
 | 2.17a bounded recovery list RED | `internal/ownership/sqlite/ledger_recovery_test.go`, package-private SQLite boundary | New test file; prior GHA CI 32425813926 was green on the preceding 3B.2 head; WDAC blocks local test execution. | GHA CI 32428048429 and the evidence-commit CI 32428236175 compiled the suite and failed only both new subtests because `Ledger does not implement bounded recovery listing`. | Not assigned — task 2.17b is the paired GREEN. | Exact valid rows in creation order and row 65 overflow are independent RED scenarios. | Not assigned — RED-only task; no production code changed. |
 | 2.17b bounded recovery list GREEN | `internal/ownership/sqlite/ledger_recovery_test.go`, package-private SQLite/temporary-DB boundary | The 2.17a RED evidence provides the pre-production baseline: GHA CI 32428355060 failed only the absent-boundary subtests; WDAC blocks local Go test execution. | 2.17a supplied the original exact-order and row-65 RED; a malformed canonical-time row was added before production code and compile-checked locally without running a test binary. | GHA CI 32429026447 passed `go test -count=1 ./...` and `go vet ./...` on `464bfac67666e9d5ff6abb571baf356e123143df`. | Exact ordered rows, row 65 overflow, and malformed-row no-partial-result cases exercise distinct success and fail-closed paths. | None needed — the minimum package-private query/row mapping is clear and independently bounded. |
 | 2.17c.1 initial source recovery seam compile RED | `internal/source/ownership_recovery_test.go`, package-local compiler boundary | N/A (new test file); WDAC blocks local Go test execution. | GHA CI 32430525136 ran the test first on `1ed0b167a05e7321808a46fa9983acc99c9eab80` and failed only `internal/source/ownership_recovery_test.go:18:12: undefined: guardRecoveryRecord`. | N/A — authorized RED-only work unit; 2.17c.2 owns the minimal production seam. | N/A — one canonical exact record establishes the first absent seam; malformed/unavailable behavior belongs to 2.17c.2. | N/A — no production code exists to refactor. |
+| 2.17c.2 source recovery-record guard GREEN | `internal/source/ownership_recovery_test.go`, package-private source validation | 2.17c.1 authorized absent-symbol RED; WDAC blocks local Go test execution. | GHA CI 32431142613 on clean head `033409867f399c2434ff032ab2a0223327384024` failed only the absent `guardRecoveryRecord` symbol. The malformed/unavailable table was added before production code and compile-checked without executing a local test binary. | GHA CI 32431657989 passed `go test -count=1 ./...` and `go vet ./...` on `a9c17d629752bcf2b7a60851022bf6f2e1779896`. | One exact valid immutable record passes; malformed token, relative/traversal/historical paths, malformed profile, unavailable digest, and unavailable/non-canonical times return `ErrOwnershipInvalid`. The guard accepts only an `OwnershipRecord`, so it has no ledger mutation or remote dependency. | None needed — the source-only record guard remains package-private and has no recovery coordination. |
 
 ## Work Unit Evidence: 3B.2 task 2.14
 | Evidence | Result |
@@ -75,15 +77,21 @@ Task count: 28/42 complete.
 | Static / builds | Local `gofmt -d internal/source/ownership_recovery_test.go` and `git diff --check` exited 0. Compile-only `go test -c -o NUL ./internal/source` exited 1 only with `undefined: guardRecoveryRecord`; no local Go test binary ran. |
 | Rollback boundary | Revert `1ed0b16` and this evidence commit to remove only `internal/source/ownership_recovery_test.go`, the 2.17c microcycle planning correction, and this progress evidence. No source guard, profile/credential/binding/pin/remote logic, cleanup, or production behavior exists. |
 
+## Work Unit Evidence: 3B.3 task 2.17c.2 GREEN
+| Evidence | Result |
+|---|---|
+| Focused test command | GHA CI 32431657989 executed `go test -count=1 ./...` with exit 0 on `a9c17d629752bcf2b7a60851022bf6f2e1779896`; it includes `internal/source/ownership_recovery_test.go`. The same run executed `go vet ./...` with exit 0. |
+| Runtime harness | GHA Ubuntu exercised the package-local source validation through the real Go test binary. No remote-runtime boundary exists for this pure value guard: it receives only `OwnershipRecord` and has no ledger or remote callback, so invalid records retain ownership by returning before later recovery stages and make zero remote calls. WDAC was not bypassed. |
+| Static / builds | Local `gofmt -w internal/source/ownership.go internal/source/ownership_recovery_test.go`, `git diff --check`, `go vet ./...`, and compile-only `go test -c -o NUL ./internal/source` exited 0. No local Go test binary ran. |
+| Rollback boundary | Revert `a9c17d6` to remove only the package-private source guard and its direct tests. It does not remove the prior 2.17c.1 RED, SQLite list boundary, acquisition behavior, or any later profile/credential/binding/pin/remote cleanup scope. |
+
 ## Delivery / exclusions
 - Draft PR #40 is stacked-to-main → `main`, open and draft; issue #39 is approved and linked.
-- Maintainer-selected review ceiling: 800 authored additions + deletions. The RED code/planning commit is 116 additions + 3 deletions = 119, under the ceiling; it remains a ceiling, not permission for unrelated scope. Delivery remains `ask-on-risk` resolved as `stacked-to-main`.
-- The 2.17c.1 code/planning commit is an authorized one-time absent-symbol compile RED; the final evidence commit remains under the 800-line ceiling. Delivery remains `ask-on-risk` resolved as `stacked-to-main`.
-- Excluded: 2.17c.2 and later; source recovery coordination, credential/pin/remote behavior, historical `/tmp` behavior, acquisition/rescope/reset/settle, and merge.
+- Maintainer-selected review ceiling: 800 authored additions + deletions. The 2.17c.1 RED and 2.17c.2 GREEN commits remain under that ceiling; it remains a ceiling, not permission for unrelated scope. Delivery remains `ask-on-risk` resolved as `stacked-to-main`.
+- Excluded: 2.17c.3 and later; source recovery coordination, credential/pin/remote behavior, historical `/tmp` behavior, acquisition/rescope/reset/settle, and merge.
 
 ## Settlement Handoff
-- Authorized attempt token: `sha256:54c4e688316ff4f75bd6ec17380c343246bb2a3fcf57053866d018c11d02d3e5`.
-- Passing settlement obligation retained by parent: `--remediates-evidence-revision sha256:5a12bd8fbdc02a10b6be03dd4e084704e7310e3a109dbad9002bd91ec5a09b38`.
-- The distinct passing evidence revision and final-head GHA receipt are returned to the parent after the artifact-evidence commit completes; this executor does not acquire, rescope, reset, settle, or merge.
-- The parent/orchestrator retains acquire, rescope, reset, settle, recovery, and merge authority.
-- Native attempt state remains `proceed`; this executor did not invoke native attempt operations. Authorized token: `sha256:ae920c69023cb620b3380c714bff543c5e212ccb1d4c8b736acc9efb7191f9be`. Work unit: `3B.3-2.17c.1-initial-seam-compile-red`.
+- Authorized attempt token: `sha256:ece0dc1b901091f034c26e7b55155fc610c763e55fbbf31d2509c85f17a9f9fd`.
+- Passing settlement obligation retained by parent: `--remediates-evidence-revision sha256:e8ef7c92c82647a0072242a121e465fd187b5a62380e757c89026882b9f35a05` with a distinct passing evidence revision bound to the final artifact head and GHA run.
+- This executor does not acquire, rescope, reset, settle, or merge. The parent/orchestrator retains that authority.
+- Native attempt state remains `proceed`; work unit: `3B.3-2.17c.2-source-guard-green`.
