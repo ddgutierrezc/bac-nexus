@@ -82,7 +82,8 @@ jobs:
           done
           native="build/v1-mcp-foundation/${VERSION}/linux-amd64/nexus"
           test "$("$native" version --json)" = "{\"version\":\"${VERSION}\",\"revision\":\"${REVISION}\"}"
-          test "$(go version -m "$native" | grep -c "vcs.revision.*${REVISION}")" -eq 1
+          test "$(go version -m "$native" | grep -c "path[[:space:]]\+bac-nexus")" -eq 1
+          test -n "$(go tool buildid "$native")"
 
       - name: Upload operator handoff package
         uses: actions/upload-artifact@v4
