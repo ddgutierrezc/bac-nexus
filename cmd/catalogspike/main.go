@@ -306,10 +306,13 @@ type vaultReader interface {
 	Get(string, []byte) ([]byte, error)
 }
 
-type secretReader func(string) ([]byte, error)
+// secretReader is a type alias for configuration.SecretReader so
+// the existing test contract compiles unchanged while the
+// orchestration is owned by the configuration package.
+type secretReader = configuration.SecretReader
 
 func acquireLivePassword(vault vaultReader, profileName string, mode profile.CredentialMode, prompt secretReader) ([]byte, error) {
-	return configuration.AcquireLivePassword(vault, profileName, mode, prompt)
+	return configuration.AcquireLivePassword(vault, profileName, mode, configuration.SecretPromptFunc(prompt))
 }
 
 func runCredentials(args []string) error {
