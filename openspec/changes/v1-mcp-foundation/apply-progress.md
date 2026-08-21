@@ -445,7 +445,9 @@ is authorized.
 
 This bounded work unit is `final-format-and-tdd-provenance`. It is limited to
 canonical `gofmt` output and truthful cumulative provenance; it introduces no
-behavioral change and remains under the 150-line native correction budget.
+behavioral change. The maintainer-authorized correction-objective accounting is
+201 actual changed lines against 150 estimated lines. This overrun applies only
+to the prior correction objective; it does not change the normal PR budget.
 
 ### Cumulative Strict-TDD provenance reconciliation
 
@@ -481,3 +483,18 @@ and `not_validated_on_ibmi`.
 | Focused test command and exact result | Exact-head GHA is required: `go test -count=1 ./...`, `go vet ./...`, formatting, packaging, manifest, and runbook checks. No local Go runtime is claimed under WDAC. |
 | Runtime harness command/scenario and exact result | GitHub Actions is the runtime authority; the exact-head workflow must pass tests, six-target packaging, manifest checks, and runbook assertions. Live IBM i is N/A and external. |
 | Rollback boundary | Revert the formatting-only `internal/app/service.go` change and the final provenance sections in these two SDD artifacts; no product behavior or prior evidence is removed. |
+
+### Final maintainer accounting and delivery evidence
+
+| Field | Value |
+|---|---|
+| Correction objective | Final verification formatting/provenance correction only; no behavior, scope, issue, or PR expansion |
+| Authorized correction accounting | 201 actual changed lines / 150 estimated lines; the maintainer authorized this scoped objective overrun |
+| PR-level accounting | PR #60 remains 522 changed lines / 1000-line normal budget; the normal budget is unchanged |
+| PR label decision | No misleading PR-level `size:exception` label applied; the authorization is objective-scoped, not PR-scoped |
+| Exact green head | `b924e2b9bf25c9d3bafbda95d84a82bca19eb32d` |
+| Exact-head GHA | Go Verification `32520980549`, `pull_request`, success; tests, vet, formatting, packaging, manifest, artifact upload, and runbook checks passed |
+| Independent verification | 8/8 original blockers closed; 0 blockers |
+| Native finalization | Token acquired for `final-correction-accounting-and-merge`, max attempts 1, max changed lines 120, no remediates obligation; settlement is performed exactly once with a distinct request ID and evidence revision |
+| IBM i status | `ready_for_controlled_ibmi_validation`; `not_validated_on_ibmi` |
+| Runtime authority | WDAC blocks local Go runtime; GitHub Actions is the authoritative runtime evidence. No local tests or live IBM i validation are claimed. |

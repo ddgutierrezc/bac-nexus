@@ -222,3 +222,24 @@ authoritative GHA run passed repository tests, vet, formatting, six-target
 packaging, manifest verification, artifact upload, and operator runbook
 checks. The sole remaining non-automated scenario is the explicitly external
 live IBM i rollout gate; it is not claimed or treated as an SDD blocker.
+
+## Final maintainer accounting and delivery result
+
+The independent verification above remains authoritative: all eight original
+blockers are closed and the current result is **0 blockers**. The maintainer
+authorized the correction-objective accounting of **201 actual changed lines
+against 150 estimated lines**. This is scoped only to the prior correction
+objective; it does not broaden behavior, scope, issue, or PR #60.
+
+PR #60 remains **522 changed lines against the normal 1000-line budget**. The
+normal budget is unchanged, and no misleading PR-level `size:exception` label
+is applied. The exact green head is `b924e2b9bf25c9d3bafbda95d84a82bca19eb32d`;
+exact-head Go Verification run `32520980549` passed all configured checks.
+
+The native finalization work unit is `final-correction-accounting-and-merge`.
+Its acquired token permits one attempt and 120 changed lines, returned no
+remediates obligation, and is settled exactly once using a distinct request ID
+and evidence revision. No source, test, or workflow behavior changes are part
+of this accounting delivery. WDAC blocks local Go runtime execution, so no
+local test result is claimed. Live IBM i validation is not claimed:
+`ready_for_controlled_ibmi_validation`; `not_validated_on_ibmi`.
