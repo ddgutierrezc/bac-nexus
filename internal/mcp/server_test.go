@@ -10,8 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-
 	"bac-nexus/internal/catalog"
 	"bac-nexus/internal/credential"
 	"bac-nexus/internal/security"
@@ -58,8 +56,7 @@ func validConfig() (Config, *fakeService) {
 	return Config{Info: Info{Name: "bac-nexus", Version: "v0.0.0"}, Service: svc}, svc
 }
 
-// forbiddenSurfaceSubstrings is the structural guard list. Adding
-// an entry requires an explicit decision and a matching red test.
+// forbiddenSurfaceSubstrings is the structural guard list.
 var forbiddenSurfaceSubstrings = []string{"path", "command", "shell", "exec", "sql", "ssh", "dial", "connect", "remote", "clientinfo", "parent"}
 
 func hasFieldContaining(typ reflect.Type, substring string) (bool, string) {
@@ -172,11 +169,9 @@ func TestResolveCatalogHandlerBehavior(t *testing.T) {
 			},
 		},
 		{
-			name: "forwards selector and parameters",
-			resolveFn: func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) {
-				return nil, nil
-			},
-			input: ResolveCatalogInput{Statement: "SELECT 1", Parameters: []string{"%PISA%"}},
+			name:      "forwards selector and parameters",
+			resolveFn: func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) { return nil, nil },
+			input:     ResolveCatalogInput{Statement: "SELECT 1", Parameters: []string{"%PISA%"}},
 			check: func(t *testing.T, out ResolveCatalogOutput, svc *fakeService, err error) {
 				if err != nil {
 					t.Fatalf("error = %v", err)
@@ -184,11 +179,8 @@ func TestResolveCatalogHandlerBehavior(t *testing.T) {
 				if svc.lastSelector != security.SelectorResolveCatalog {
 					t.Fatalf("selector = %q, want resolve_catalog_candidates", svc.lastSelector)
 				}
-				if svc.lastQuery.Statement != "SELECT 1" {
-					t.Fatalf("statement = %q, want %q", svc.lastQuery.Statement, "SELECT 1")
-				}
-				if !slices.Equal(svc.lastQuery.Parameters, []string{"%PISA%"}) {
-					t.Fatalf("parameters = %v, want [%%PISA%%]", svc.lastQuery.Parameters)
+				if svc.lastQuery.Statement != "SELECT 1" || !slices.Equal(svc.lastQuery.Parameters, []string{"%PISA%"}) {
+					t.Fatalf("query = %+v, want SELECT 1 [%%PISA%%]", svc.lastQuery)
 				}
 			},
 		},
@@ -231,7 +223,7 @@ func TestResolveCatalogHandlerBehavior(t *testing.T) {
 			if err != nil {
 				t.Fatalf("New error = %v", err)
 			}
-			_, out, err := callResolveCatalog(t, srv, tt.input)
+			_, out, err := srv.resolveCatalog(context.Background(), nil, tt.input)
 			tt.check(t, out, svc, err)
 		})
 	}
@@ -245,14 +237,14 @@ func TestResolveCatalogHandlerHonorsContextCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, _, err = callResolveCatalogWithContext(t, srv, ctx, ResolveCatalogInput{Statement: "SELECT 1"})
+	_, _, err = srv.resolveCatalog(ctx, nil, ResolveCatalogInput{Statement: "SELECT 1"})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("resolveCatalog error = %v, want context.Canceled", err)
 	}
 }
 
 func TestReadSelectedSourceHandlerBehavior(t *testing.T) {
-	page := source.Page{StartLine: 1, LineCount: 2, Lines: []string{"line-one", "line-two"}, EOF: false, NextStartLine: 3}
+	expected := source.Page{StartLine: 1, LineCount: 2, Lines: []string{"line-one", "line-two"}, EOF: false, NextStartLine: 3}
 	tests := []struct {
 		name   string
 		readFn func(ctx context.Context, cursor string, page source.Range) (source.Page, error)
@@ -261,14 +253,14 @@ func TestReadSelectedSourceHandlerBehavior(t *testing.T) {
 	}{
 		{
 			name:   "returns service result",
-			readFn: func(ctx context.Context, cursor string, _ source.Range) (source.Page, error) { return page, nil },
+			readFn: func(ctx context.Context, cursor string, _ source.Range) (source.Page, error) { return expected, nil },
 			input:  ReadSelectedSourceInput{Cursor: "opaque-cursor", StartLine: 1, MaxLines: 50},
 			check: func(t *testing.T, out ReadSelectedSourceOutput, svc *fakeService, err error) {
 				if err != nil {
 					t.Fatalf("error = %v", err)
 				}
-				if !reflect.DeepEqual(out.Page, page) {
-					t.Fatalf("Page = %+v, want %+v", out.Page, page)
+				if !reflect.DeepEqual(out.Page, expected) {
+					t.Fatalf("Page = %+v, want %+v", out.Page, expected)
 				}
 				if svc.readCalls != 1 {
 					t.Fatalf("readCalls = %d, want 1", svc.readCalls)
@@ -293,7 +285,7 @@ func TestReadSelectedSourceHandlerBehavior(t *testing.T) {
 		},
 		{
 			name:   "maps context cancelled",
-			readFn: func(ctx context.Context, cursor string, page source.Range) (source.Page, error) { return source.Page{}, context.Canceled },
+			readFn: func(ctx context.Context, cursor string, _ source.Range) (source.Page, error) { return source.Page{}, context.Canceled },
 			input:  ReadSelectedSourceInput{Cursor: "opaque-cursor", StartLine: 1, MaxLines: 50},
 			check: func(t *testing.T, out ReadSelectedSourceOutput, svc *fakeService, err error) {
 				if !errors.Is(err, context.Canceled) {
@@ -303,7 +295,7 @@ func TestReadSelectedSourceHandlerBehavior(t *testing.T) {
 		},
 		{
 			name:   "maps stale coordinate",
-			readFn: func(ctx context.Context, cursor string, page source.Range) (source.Page, error) { return source.Page{}, source.ErrStaleCoordinate },
+			readFn: func(ctx context.Context, cursor string, _ source.Range) (source.Page, error) { return source.Page{}, source.ErrStaleCoordinate },
 			input:  ReadSelectedSourceInput{Cursor: "opaque-cursor", StartLine: 1, MaxLines: 50},
 			check: func(t *testing.T, out ReadSelectedSourceOutput, svc *fakeService, err error) {
 				if !errors.Is(err, source.ErrStaleCoordinate) {
@@ -313,7 +305,7 @@ func TestReadSelectedSourceHandlerBehavior(t *testing.T) {
 		},
 		{
 			name:   "maps invalid request",
-			readFn: func(ctx context.Context, cursor string, page source.Range) (source.Page, error) { return source.Page{}, source.ErrInvalidRequest },
+			readFn: func(ctx context.Context, cursor string, _ source.Range) (source.Page, error) { return source.Page{}, source.ErrInvalidRequest },
 			input:  ReadSelectedSourceInput{Cursor: "opaque-cursor", StartLine: 1, MaxLines: 50},
 			check: func(t *testing.T, out ReadSelectedSourceOutput, svc *fakeService, err error) {
 				if !errors.Is(err, source.ErrInvalidRequest) {
@@ -330,44 +322,8 @@ func TestReadSelectedSourceHandlerBehavior(t *testing.T) {
 			if err != nil {
 				t.Fatalf("New error = %v", err)
 			}
-			_, out, err := callReadSelectedSource(t, srv, tt.input)
+			_, out, err := srv.readSelectedSource(context.Background(), nil, tt.input)
 			tt.check(t, out, svc, err)
 		})
 	}
-}
-
-func callResolveCatalog(t *testing.T, srv *Server, input ResolveCatalogInput) (*mcp.CallToolResult, ResolveCatalogOutput, error) {
-	t.Helper()
-	return callResolveCatalogWithContext(t, srv, context.Background(), input)
-}
-
-func callResolveCatalogWithContext(t *testing.T, srv *Server, ctx context.Context, input ResolveCatalogInput) (*mcp.CallToolResult, ResolveCatalogOutput, error) {
-	t.Helper()
-	raw, ok := srv.handlers["resolve_catalog_candidates"]
-	if !ok {
-		t.Fatalf("resolve_catalog_candidates handler is not registered")
-	}
-	handler, ok := raw.(resolveCatalogFn)
-	if !ok {
-		t.Fatalf("resolve_catalog_candidates handler has wrong type %T", raw)
-	}
-	return handler(ctx, input)
-}
-
-func callReadSelectedSource(t *testing.T, srv *Server, input ReadSelectedSourceInput) (*mcp.CallToolResult, ReadSelectedSourceOutput, error) {
-	t.Helper()
-	return callReadSelectedSourceWithContext(t, srv, context.Background(), input)
-}
-
-func callReadSelectedSourceWithContext(t *testing.T, srv *Server, ctx context.Context, input ReadSelectedSourceInput) (*mcp.CallToolResult, ReadSelectedSourceOutput, error) {
-	t.Helper()
-	raw, ok := srv.handlers["read_selected_source"]
-	if !ok {
-		t.Fatalf("read_selected_source handler is not registered")
-	}
-	handler, ok := raw.(readSelectedSourceFn)
-	if !ok {
-		t.Fatalf("read_selected_source handler has wrong type %T", raw)
-	}
-	return handler(ctx, input)
 }

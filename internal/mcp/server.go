@@ -42,16 +42,10 @@ type Server struct {
 	service   Service
 	transport mcp.Transport
 	toolNames []string
-	handlers  map[string]any
 }
 
-type resolveCatalogFn func(ctx context.Context, input ResolveCatalogInput) (*mcp.CallToolResult, ResolveCatalogOutput, error)
-type readSelectedSourceFn func(ctx context.Context, input ReadSelectedSourceInput) (*mcp.CallToolResult, ReadSelectedSourceOutput, error)
-
 // ResolveCatalogInput is the typed MCP request for
-// resolve_catalog_candidates. The shape is bounded: the caller
-// supplies a SQL statement and positional parameters, and never any
-// temporary, listing, or delete path.
+// resolve_catalog_candidates.
 type ResolveCatalogInput struct {
 	Statement  string   `json:"statement" jsonschema:"bounded SQL statement to execute"`
 	Parameters []string `json:"parameters,omitempty" jsonschema:"positional query parameters"`
@@ -65,9 +59,8 @@ type ResolveCatalogOutput struct {
 }
 
 // ReadSelectedSourceInput is the typed MCP request for
-// read_selected_source. The caller supplies the opaque cursor and
-// the one-based inclusive page range. The cursor is the only
-// selection binding; no path, listing, or delete field exists.
+// read_selected_source. The cursor is the only selection binding;
+// no path, listing, or delete field exists.
 type ReadSelectedSourceInput struct {
 	Cursor    string `json:"cursor" jsonschema:"opaque snapshot cursor"`
 	StartLine int    `json:"startLine" jsonschema:"one-based inclusive start line"`
@@ -96,14 +89,11 @@ func New(cfg Config) (*Server, error) {
 	srv := &Server{
 		service:   cfg.Service,
 		transport: cfg.Transport,
-		handlers:  make(map[string]any, 2),
+		impl:      mcp.NewServer(&mcp.Implementation{Name: cfg.Info.Name, Version: cfg.Info.Version}, nil),
 	}
-	srv.impl = mcp.NewServer(&mcp.Implementation{Name: cfg.Info.Name, Version: cfg.Info.Version}, nil)
 	srv.toolNames = []string{"resolve_catalog_candidates", "read_selected_source"}
-	mcp.AddTool(srv.impl, &mcp.Tool{Name: "resolve_catalog_candidates", Description: "Resolve up to 50 catalog candidates for a bounded query."}, srv.resolveCatalogSDK)
-	mcp.AddTool(srv.impl, &mcp.Tool{Name: "read_selected_source", Description: "Read a single page of source for the exact selection bound to the supplied cursor."}, srv.readSelectedSourceSDK)
-	srv.handlers["resolve_catalog_candidates"] = resolveCatalogFn(srv.resolveCatalogDirect)
-	srv.handlers["read_selected_source"] = readSelectedSourceFn(srv.readSelectedSourceDirect)
+	mcp.AddTool(srv.impl, &mcp.Tool{Name: "resolve_catalog_candidates", Description: "Resolve up to 50 catalog candidates for a bounded query."}, srv.resolveCatalog)
+	mcp.AddTool(srv.impl, &mcp.Tool{Name: "read_selected_source", Description: "Read a single page of source for the exact selection bound to the supplied cursor."}, srv.readSelectedSource)
 	return srv, nil
 }
 
@@ -125,11 +115,7 @@ func (s *Server) Run(ctx context.Context) error {
 	return s.impl.Run(ctx, transport)
 }
 
-func (s *Server) resolveCatalogSDK(ctx context.Context, _ *mcp.CallToolRequest, input ResolveCatalogInput) (*mcp.CallToolResult, ResolveCatalogOutput, error) {
-	return s.resolveCatalogDirect(ctx, input)
-}
-
-func (s *Server) resolveCatalogDirect(ctx context.Context, input ResolveCatalogInput) (*mcp.CallToolResult, ResolveCatalogOutput, error) {
+func (s *Server) resolveCatalog(ctx context.Context, _ *mcp.CallToolRequest, input ResolveCatalogInput) (*mcp.CallToolResult, ResolveCatalogOutput, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, ResolveCatalogOutput{}, err
 	}
@@ -144,18 +130,11 @@ func (s *Server) resolveCatalogDirect(ctx context.Context, input ResolveCatalogI
 	return nil, ResolveCatalogOutput{Candidates: candidates}, nil
 }
 
-func (s *Server) readSelectedSourceSDK(ctx context.Context, _ *mcp.CallToolRequest, input ReadSelectedSourceInput) (*mcp.CallToolResult, ReadSelectedSourceOutput, error) {
-	return s.readSelectedSourceDirect(ctx, input)
-}
-
-func (s *Server) readSelectedSourceDirect(ctx context.Context, input ReadSelectedSourceInput) (*mcp.CallToolResult, ReadSelectedSourceOutput, error) {
+func (s *Server) readSelectedSource(ctx context.Context, _ *mcp.CallToolRequest, input ReadSelectedSourceInput) (*mcp.CallToolResult, ReadSelectedSourceOutput, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, ReadSelectedSourceOutput{}, err
 	}
-	page, err := s.service.ReadSelectedSource(ctx, input.Cursor, source.Range{
-		StartLine: input.StartLine,
-		MaxLines:  input.MaxLines,
-	})
+	page, err := s.service.ReadSelectedSource(ctx, input.Cursor, source.Range{StartLine: input.StartLine, MaxLines: input.MaxLines})
 	if err != nil {
 		return nil, ReadSelectedSourceOutput{}, err
 	}
