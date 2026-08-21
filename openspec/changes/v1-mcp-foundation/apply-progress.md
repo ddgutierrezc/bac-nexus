@@ -211,8 +211,18 @@ The maintainer approved an isolated real D-Bus Secret Service implementation in 
 - Task 3.1 is checked at 29/42; exact-head verification is required before settlement, then task 3.2 is next.
 - The historical failures (`32441478559`, absent Secret Service; `32442290696`, GO-2026-4971 before Go 1.25.10) remain preserved above.
 
-## Attempt 5A: Tasks 3.2–3.4 CredentialStore/keyring adapter — BLOCKED
+## Attempt 5A: Tasks 3.2–3.4 CredentialStore/keyring adapter
 
 - RED tests were committed before production code. GHA Go Verification `32488962873` and Keyring Dependency Gate `32488962889` on `8ac6c12dd5816e44d258753592f2c5f07d19ca86` failed only because the new `KeyringStore`, `ErrCredentialsUnavailable`, and macOS command seam were intentionally absent; unrelated packages remained green.
 - GREEN code head `2dbccaabb9333df8761684f4b682b0bb555e278c` passed GHA Go Verification `32489347195`, but its Keyring Dependency Gate `32489347181` failed in the pre-existing Ubuntu upstream native test before the BAC Nexus credential-package step. Isolating XDG data/home did not repair the upstream collection-unlock failure: exact head `7c45ad5238cd43bb38a129c454e6988f020531d7` passed Go Verification `32489887806` while Keyring Dependency Gate `32489888263` again failed at the upstream Ubuntu native test.
-- Tasks 3.2–3.4 remain unchecked at 29/42. No refactor, task completion, or 3.5+ work is authorized until a stable real Linux Secret Service harness supplies exact-head GREEN evidence.
+- The authorized correction `b855e127d67016c00fa2e0dde4230c5ab5432ad9` installs `libsecret-tools`, starts GNOME Keyring in an isolated `dbus-run-session`, generates a runtime-only collection value, sends it only through stdin to a labeled ephemeral Secret Service item, reads it back exactly, clears it, and then runs upstream v0.2.8 Set/Get/Delete plus BAC Nexus credential tests. Go Verification `32492527395` and Keyring Dependency Gate `32492527278` passed on this precursor, including Ubuntu, Windows, and macOS jobs. The final artifact head must receive its own exact GitHub Actions evidence; no later commit may embed those run IDs.
+
+## Work Unit Evidence: 5A CredentialStore/keyring adapter
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | Pre-final GHA Go Verification `32492527395` passed `go test -count=1 ./...` and `go vet ./...` on `b855e127d67016c00fa2e0dde4230c5ab5432ad9`. |
+| Runtime harness command/scenario and exact result | Pre-final Keyring Dependency Gate `32492527278` passed all three runners. Ubuntu used an isolated real D-Bus/GNOME Keyring session, proved an ephemeral labeled Secret Service item by stdin store → exact lookup → clear, then passed upstream v0.2.8 native tests and `go test -count=1 ./internal/credential`. Windows and macOS passed native upstream and package tests. |
+| Rollback boundary | Revert `460efc6` through this final artifact commit to remove only active 5A budget/evidence, the keyring adapter/tests, and its CI harness. Legacy catalogspike vault, remote, app, MCP, security, and audit behavior remain unchanged. |
+
+Task count: 32/42 canonical parent tasks complete. Task 3.5 is next. Corporate endpoint-policy validation remains a deferred rollout prerequisite.
