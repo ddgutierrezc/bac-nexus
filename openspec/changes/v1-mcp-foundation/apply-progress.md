@@ -87,13 +87,13 @@ Task count: 25/42 canonical parent tasks complete.
 ## Work Unit Evidence: 3B.3 Slice B fresh identity guards
 | Evidence | Result |
 |---|---|
-| Focused test command | GHA CI 32433893468: `go test -count=1 ./...` exited 0, including `internal/source` fresh-guard coverage; `go vet ./...` exited 0 on `a54871d76a8c99d55a53f4b4b2c5381f29659f4d`. |
+| Focused test command | GREEN implementation GHA CI 32433893468: `go test -count=1 ./...` exited 0, including `internal/source` fresh-guard coverage; `go vet ./...` exited 0 on `a54871d76a8c99d55a53f4b4b2c5381f29659f4d`. |
 | Runtime harness | GHA Ubuntu executed package-local fake profile, credential, constrained remote, and cleanup-ready callbacks. It proved exact-stage failure stopping and zero cleanup-ready calls; no `Remove`, `Stat`, or `Delete` contract exists in Slice B. WDAC blocked local test binaries and was not bypassed. |
-| Rollback boundary | Revert `43a92b1` and `a54871d` to remove only Slice B package-private guard seams/tests and the included planning correction; Slice A listing/record validation remains and unresolved ownership rows are retained. |
+| Rollback boundary | Revert `43a92b1` and `a54871d` plus the Slice B artifact-evidence correction commit to remove only Slice B package-private guard seams/tests and its progress wording; Slice A listing/record validation remains and unresolved ownership rows are retained. |
 
 ## Current Delivery and Scope
 - PR #40 is MERGED as `11e1c46c18ca7d8092cbe0babad65aa82486f205`; issue #39 is OPEN and approved.
 - Slice A is settled complete and merged. Its final GHA evidence is 32431834329. Delivery remains `ask-on-risk`, resolved to the `stacked-to-main` chain strategy; the 800-line ceiling remains a boundary, not permission for unrelated scope.
-- Draft PR #41 (`test/recovery-identity-guards` → `main`) completes Slice B at `a54871d76a8c99d55a53f4b4b2c5381f29659f4d`; final GHA CI 32433893468 passed the full test and vet commands. Its package-private order is record → fresh profile → credential → canonical length-prefixed target binding → pin/trust validation → constrained opener → cleanup-ready exact path. The credential buffer is zeroed after use.
+- Draft PR #41 (`test/recovery-identity-guards` → `main`) completed Slice B implementation at GREEN commit `a54871d76a8c99d55a53f4b4b2c5381f29659f4d`; GHA CI 32433893468 passed the full test and vet commands as GREEN implementation evidence. Final artifact-head verification is recorded externally in the phase result and PR metadata. Its package-private order is record → fresh profile → credential → canonical length-prefixed target binding → pin/trust validation → constrained opener → cleanup-ready exact path. The credential buffer is zeroed after use.
 - Slice B excludes Slices C and D; Phase 3 native credential storage; cleanup `Remove`/`Stat`/`Delete`; historical discovery; startup integration; and docs/MCP. Parent 2.17 remains unchecked/partial because Slice C is pending.
 - Native attempt remains parent-owned and untouched: state `proceed`, token `sha256:6d325e2fe1bb7707e613a749b162d2fd6d686ff63a45c25ce445320aac3cc3fa`, work unit `3B.3-Slice-B-fresh-identity-guards`.
