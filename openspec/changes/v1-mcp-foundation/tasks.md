@@ -30,11 +30,11 @@ Chain strategy: stacked-to-main
 - [x] 3.1 dependency gate; [x] 3.2–3.4 credentials; [x] 3.5–3.7 policy/audit; [x] 3.8–3.10 application service.
 - [x] 4.1–4.3 MCP server, wiring, and refactor/documentation.
 
-Current progress: **41/42**. Only canonical task 4.4 remains pending.
+Current progress: **42/42**. Canonical task 4.4 is complete; live IBM i validation remains an external rollout gate.
 
 ## Phase 4: MCP and Acceptance
 
-- [ ] 4.4 **Acceptance correction (final PR, strict TDD):**
+- [x] 4.4 **Acceptance correction (final PR, strict TDD):**
   - **RED:** Add focused tests in `cmd/nexus/main_test.go` (or a package-local manifest test) for schema fields, checksum/byte length, embedded version/VCS identity, exact `build/v1-mcp-foundation/<version>/<goos>-<goarch>/nexus[.exe]` semantics, sidecar naming, and both status strings; assert no IBM i claim.
   - **GREEN:** Modify `cmd/nexus/main.go` and `.github/workflows/go-verification.yml` to build the platform-specific binary, generate/recompute/verify deterministic `nexus.manifest.json`, and publish the handoff directory at the design paths. Do not add IBM i composition.
   - **GREEN:** Create `docs/IBM_I_VALIDATION.md` with prerequisites, manual line-1→EOF/newline/success-cleanup/cancellation-cleanup/no-retention checklist, sanitized evidence template, abort/rollback, and explicit `ready_for_controlled_ibmi_validation` / `not_validated_on_ibmi` language. Completed evidence remains external and never stores source or sensitive data.

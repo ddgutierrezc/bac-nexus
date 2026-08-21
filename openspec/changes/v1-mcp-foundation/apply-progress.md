@@ -396,3 +396,23 @@ PR #55 is covered by a maintainer-approved, scoped `size:exception`. The default
 | Scope | PR #55 only. Future work remains subject to the normal 1,000-line ceiling unless separately authorized. |
 
 No source or test files changed. Task checkboxes are unchanged: 41/42 canonical parent tasks remain complete, task 4.4 is next and untouched.
+
+## Slice 8 (PR #59) — Task 4.4 Operator Handoff
+
+Task 4.4 is complete at **42/42**. The final slice preserves the planning corrections in the worktree, adds deterministic release identity and manifest verification, extends Go Verification to build and upload the six-target handoff package, and adds the external IBM i validation runbook. No IBM i composition or live validation was added.
+
+### Strict TDD Cycle Evidence
+
+| Task / microcycle | Test file / layer | RED | GREEN | REFACTOR |
+|---|---|---|---|---|
+| 4.4 manifest and identity | `internal/release/manifest_test.go`, `cmd/nexus/main_test.go`; GHA package/unit layer | GHA `32514453480` on `73601f9` failed at the intentionally absent release manifest symbols; unrelated packages compiled/passed. | GHA `32517001781` on exact head `e69fcb69cd7ffa3b0adf91a8d7691d76adbf07bc` passed `go test -count=1 ./...`, `go vet ./...`, six builds, deterministic manifest/checksum/path/status checks, and artifact upload. | Removed brittle runner-specific post-build metadata assertions while retaining native build/version identity in the product contract and deterministic package verification. |
+
+### Work Unit Evidence: PR8-operator-handoff-task-4.4
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | GHA `32517001781`, exact head `e69fcb69cd7ffa3b0adf91a8d7691d76adbf07bc`: `go test -count=1 ./...` and `go vet ./...` exited 0. |
+| Runtime harness command/scenario and exact result | GHA package job built Linux/macOS/Windows amd64/arm64 binaries, recomputed SHA-256/byte length, verified manifest fields/path/status, and uploaded the handoff artifact. Live IBM i is N/A and explicitly external. |
+| Rollback boundary | Revert PR8 commits `73601f9`, `ce7bc7c`, `d75ef07`, `f52af09`, `6e793db`, `2246fe9`, `b8ecc08`, `3fc13f6`, `a983448`, `c98142c`, `a2ec93b`, and `cfb0bc3`/`e69fcb6` as applicable to remove only task-4.4 release identity, workflow packaging, runbook, status wording, tests, and planning-artifact updates. |
+
+Generated package paths are `build/v1-mcp-foundation/<version>/<goos>-<goarch>/nexus` (or `nexus.exe`) and the adjacent `nexus.manifest.json`. Completed operator evidence remains outside the repository and release bundle. Release status is `ready_for_controlled_ibmi_validation`; validation status is `not_validated_on_ibmi`.
