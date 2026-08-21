@@ -200,7 +200,7 @@ The exact failed evidence revision remains
 
 ## Independent verification of the eight original blockers
 
-**Candidate:** `df84157` / exact workflow head `df84157`  
+**Candidate:** `d1238cf` / exact workflow head `d1238cf`  
 **GHA:** `32520734406` — success  
 **IBM i:** `ready_for_controlled_ibmi_validation`; `not_validated_on_ibmi`
 
