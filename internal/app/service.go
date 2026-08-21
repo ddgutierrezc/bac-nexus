@@ -204,9 +204,6 @@ func (s *Service) ReadSelectedSource(ctx context.Context, selection catalog.Cand
 	}
 	var original catalog.Candidate
 	if cursor == "" {
-		if _, err := selection.MemberPath(); err != nil {
-			return source.Page{}, source.ErrInvalidRequest
-		}
 		query, err := catalog.BuildQuery(selection.Item, selection.ProductionLibrary)
 		if err != nil { return source.Page{}, source.ErrInvalidRequest }
 		candidates, err := s.deps.Resolver.Resolve(ctx, query)
