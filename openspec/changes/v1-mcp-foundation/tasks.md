@@ -90,9 +90,9 @@ Only canonical parent tasks use checkboxes: native count is 42, with 29 complete
 - [x] 3.2 **RED (PR 5A)**: Test `internal/credential/*_test.go` only exact Get/Set/Delete, grammar/1–4096 bounds, redaction/zeroing, unavailable-before-remote, fixed macOS stdin/no argv-env, and Windows/Linux deterministic failures.
 - [x] 3.3 **GREEN (PR 5A)**: Add `CredentialStore`/keyring adapter: Credential Manager, fixed `/usr/bin/security`, Secret Service D-Bus; explicit vault write/readback/zero/delete migration, retaining vault when native storage fails.
 - [x] 3.4 **REFACTOR (PR 5A)**: Isolate consumer and per-platform tests; preserve available-runner-only evidence.
-- [ ] 3.5 **RED (PR 5B)**: Test `internal/{security,audit}/*_test.go` selector and spoofed `clientInfo`, TOFU changes, allowlisted audit redaction, and no remote/generic path operations.
-- [ ] 3.6 **GREEN (PR 5B)**: Add `internal/security/policy.go` and `internal/audit/audit.go` pinned trust and sanitized outcomes, depending on 5A credentials.
-- [ ] 3.7 **REFACTOR (PR 5B)**: Table-drive policy/audit fakes and rerun both package commands.
+- [x] 3.5 **RED (PR 5B)**: Test `internal/{security,audit}/*_test.go` selector and spoofed `clientInfo`, TOFU changes, allowlisted audit redaction, and no remote/generic path operations.
+- [x] 3.6 **GREEN (PR 5B)**: Add `internal/security/policy.go` and `internal/audit/audit.go` pinned trust and sanitized outcomes, depending on 5A credentials.
+- [x] 3.7 **REFACTOR (PR 5B)**: Table-drive policy/audit fakes and rerun both package commands.
 - [ ] 3.8 **RED (PR 6)**: Test `internal/app/service_test.go` 50-result bound, re-query/stale, page bytes, and credential/policy denial before remote work.
 - [ ] 3.9 **GREEN (PR 6)**: Create deterministic `internal/app/service.go` over 2, 3B.3, and 5B; invoke `source.RecoveryCoordinator.Recover` during real Nexus process startup before service availability, retaining the 3.8 freshness/credential/policy service scope.
 - [ ] 3.10 **REFACTOR (PR 6)**: Consolidate service fakes and freshness cases.
