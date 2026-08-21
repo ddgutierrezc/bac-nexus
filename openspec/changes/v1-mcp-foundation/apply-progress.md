@@ -288,4 +288,22 @@ Slice 5B is delivered as one coherent strict-TDD PR targeting `main` from `feat/
 - The slice is independently revertible. Reverting `cd92473`–`d680b63` removes only the new `internal/security` and `internal/audit` files; no credential, source, ownership, remote, or MCP behavior is affected.
 - Tasks 3.8+ remain untouched. No MCP tool, no app service, no startup composition, and no remote call was added.
 
-Task count: 35/42 canonical parent tasks complete. Task 3.8 is next. The 1275-line authored-additions ceiling for this single 5B PR exceeds the 1000-line maintainer-selected review ceiling; this is the natural strict-TDD RED+GREEN+REFACTOR+test-fix footprint for two new packages with full allowlist and sanitization coverage. Corporate endpoint-policy validation remains a deferred rollout prerequisite.
+Task count: 35/42 canonical parent tasks complete. Task 3.8 is next. Corporate endpoint-policy validation remains a deferred rollout prerequisite.
+
+### Maintainer-Approved Size Exception — Finalized for PR #49
+
+The maintainer explicitly selected a scoped `size:exception` for the coherent 5B tasks 3.5–3.7 slice on PR #49 rather than splitting it. PR #49 carries the `size:exception` label in addition to `type:feature`; the default 1000-line review ceiling remains in force for every future slice and is not relaxed by this exception.
+
+| Field | Value |
+|---|---|
+| PR | `#49` (`feat(security,audit): add 5B local-principal policy and sanitized audit slice`) on `feat/security-policy-audit-5b` → `main` |
+| Labels | `type:feature`, `size:exception` |
+| Authored diff | 1324 additions + 3 deletions = 1327 lines |
+| Default ceiling | 1000 authored additions + deletions |
+| Approved ceiling for PR #49 | 1327 lines (+327 over default) |
+| Rationale | Single coherent strict-TDD RED+GREEN+REFACTOR+test-fix footprint for two new packages with full allowlist and sanitization coverage; artificial compaction would erase independent behavioral cases. |
+| Compensating controls | Independently revertible (`cd92473`–`37d1960`); tasks 3.8+ remain untouched; no MCP, app, startup, or remote behavior added; no secret, source, hash, cursor, path, host, user, command, SQL, model content, or `clientInfo` in errors, audit records, fixtures, or artifacts. |
+| Final GHA proof | `32502410476` on exact head `37d1960d0a73ee203b66e91bd8c177d109b20b24` passed `go test -count=1 ./...` and `go vet ./...`. |
+| Scope | This PR only. Future slices revert to the 1000-line default unless re-authorized through an explicit decision. |
+
+The OpenSpec tasks.md already records tasks 3.5–3.7 as checked on the exact delivery head after final GHA proof; task 3.8 remains the next pending canonical task.
