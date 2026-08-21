@@ -197,3 +197,28 @@ reconciliation is recorded in `apply-progress.md`; it preserves the original
 report and does not claim local Go runtime execution or live IBM i validation.
 The exact failed evidence revision remains
 `sha256:351160a11f7aa97c26d4f33d3be8db66ecc2273c05a45570cdc3d853e37f3abf`.
+
+## Independent verification of the eight original blockers
+
+**Candidate:** `df84157` / exact workflow head `df84157`  
+**GHA:** `32520734406` — success  
+**IBM i:** `ready_for_controlled_ibmi_validation`; `not_validated_on_ibmi`
+
+| Original blocker | Independent result | Evidence |
+|---|---|---|
+| Arbitrary SQL in MCP schema | Resolved | Typed item/library input and bounded internal query; no statement/parameters surface remains. |
+| Missing first-page acquisition | Resolved | Exact selection path resolves, acquires, leases, and reads page one before cursor-only continuation. |
+| Empty catalog result | Resolved | Empty bounded result returns deterministic `catalog.ErrCandidateNotFound` and deny audit. |
+| Missing explicit TOFU enrollment | Resolved | `PinnedTrust.Enroll` is explicit and returns sanitized provenance; `Verify` does not enroll. |
+| Integrated audit contract | Resolved | Production app propagates recorder failures and records fixed sanitized denial classifications. |
+| Operator-package runtime checks | Resolved | GHA validates required runbook headings, prohibited evidence markers, and exact-path rollback wording. |
+| Formatting | Resolved | GHA formatting step passes across all tracked Go files. |
+| Cumulative Strict-TDD provenance | Resolved as documentation reconciliation | `apply-progress.md` now maps tasks 1.1–4.4 to retained RED/GREEN/REFACTOR commits and exact GHA IDs, without inventing local runtime or tests-first claims. |
+
+### Independent result
+
+All eight original blockers are independently closed: **0 blockers**. The
+authoritative GHA run passed repository tests, vet, formatting, six-target
+packaging, manifest verification, artifact upload, and operator runbook
+checks. The sole remaining non-automated scenario is the explicitly external
+live IBM i rollout gate; it is not claimed or treated as an SDD blocker.
