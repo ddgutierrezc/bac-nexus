@@ -524,11 +524,20 @@ func TestServiceRejectsContextCancellationOnResolveCatalog(t *testing.T) {
 // Source read tests
 // ---------------------------------------------------------------------------
 
+func TestServiceReadSelectedSourceAcquiresFirstPageWithoutCursor(t *testing.T) {
+	candidate := freshCandidate()
+	in := newReadServiceTestInput(t, candidate, []catalog.Candidate{candidate})
+	in.acquirer.snapshot, _ = source.NewSnapshot([]byte("first\nsecond\n"))
+	page, err := in.svc.ReadSelectedSource(context.Background(), candidate, "", source.Range{StartLine: 1, MaxLines: 1})
+	if err != nil { t.Fatalf("first page error = %v", err) }
+	if page.LineCount != 1 || page.NextStartLine != 2 || in.acquirer.calls != 1 { t.Fatalf("page=%+v acquireCalls=%d", page, in.acquirer.calls) }
+}
+
 // TestServiceReadSelectedSourceRejectsWhenUnavailable proves the service
 // refuses source reads before recovery has been completed.
 func TestServiceReadSelectedSourceRejectsWhenUnavailable(t *testing.T) {
 	in := newServiceTestInput()
-	_, err := in.svc.ReadSelectedSource(context.Background(), "ignored-cursor", source.Range{StartLine: 1, MaxLines: 10})
+	_, err := in.svc.ReadSelectedSource(context.Background(), freshCandidate(), "ignored-cursor", source.Range{StartLine: 1, MaxLines: 10})
 	if err == nil {
 		t.Fatal("ReadSelectedSource error = nil, want unavailability")
 	}
@@ -542,7 +551,7 @@ func TestServiceReadSelectedSourceRejectsCredentialsUnavailable(t *testing.T) {
 		t.Fatalf("Startup error = %v", err)
 	}
 	in.creds.err = credential.ErrCredentialsUnavailable
-	_, err := in.svc.ReadSelectedSource(context.Background(), "cursor", source.Range{StartLine: 1, MaxLines: 10})
+	_, err := in.svc.ReadSelectedSource(context.Background(), freshCandidate(), "cursor", source.Range{StartLine: 1, MaxLines: 10})
 	if !errors.Is(err, credential.ErrCredentialsUnavailable) {
 		t.Fatalf("ReadSelectedSource error = %v, want ErrCredentialsUnavailable", err)
 	}
@@ -560,7 +569,7 @@ func TestServiceReadSelectedSourceRejectsPolicyDenial(t *testing.T) {
 	}
 	in.authz.decision = security.Decision_{Decision: security.DecisionDeny, Reason: "selector not allowlisted"}
 
-	_, err := in.svc.ReadSelectedSource(context.Background(), "cursor", source.Range{StartLine: 1, MaxLines: 10})
+	_, err := in.svc.ReadSelectedSource(context.Background(), freshCandidate(), "cursor", source.Range{StartLine: 1, MaxLines: 10})
 	if err == nil {
 		t.Fatal("ReadSelectedSource error = nil, want denial")
 	}
@@ -599,7 +608,7 @@ func TestServiceReadSelectedSourceFreshnessCases(t *testing.T) {
 			original := freshCandidate()
 			in := newReadServiceTestInput(t, original, tt.currentCatalog)
 			cursor := mintCursor(t, in.lease, []byte("line1\nline2\n"), original, source.ClientPolicy(testProfile))
-			_, err := in.svc.ReadSelectedSource(context.Background(), string(cursor), source.Range{StartLine: 1, MaxLines: 200})
+			_, err := in.svc.ReadSelectedSource(context.Background(), original, string(cursor), source.Range{StartLine: 1, MaxLines: 200})
 			if tt.wantErr == nil && err != nil {
 				t.Fatalf("ReadSelectedSource error = %v, want nil", err)
 			}
@@ -625,7 +634,7 @@ func TestServiceReadSelectedSourceHonorsPageByteBound(t *testing.T) {
 	}
 	cursor := mintCursor(t, in.lease, huge, candidate, source.ClientPolicy(testProfile))
 
-	page, err := in.svc.ReadSelectedSource(context.Background(), string(cursor), source.Range{StartLine: 1, MaxLines: 1})
+	page, err := in.svc.ReadSelectedSource(context.Background(), candidate, string(cursor), source.Range{StartLine: 1, MaxLines: 1})
 	if !errors.Is(err, source.ErrResponseTooLarge) {
 		t.Fatalf("ReadSelectedSource error = %v, want ErrResponseTooLarge", err)
 	}

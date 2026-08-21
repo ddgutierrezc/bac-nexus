@@ -130,16 +130,16 @@ func (s *Service) ResolveCatalog(ctx context.Context, query catalog.Query, selec
 		return nil, ErrServiceUnavailable
 	}
 	if err := s.requireCredentials(ctx); err != nil {
-		s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, err)
+		if auditErr := s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, err); auditErr != nil { return nil, auditErr }
 		return nil, err
 	}
 	decision, err := s.deps.Authorizer.Authorize(ctx, selector, security.TargetIBMiCatalog)
 	if err != nil {
-		s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, err)
+		if auditErr := s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, err); auditErr != nil { return nil, auditErr }
 		return nil, fmt.Errorf("authorize catalog resolve: %w", err)
 	}
 	if decision.Decision != security.DecisionAllow {
-		s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, errReason(decision.Reason))
+		if auditErr := s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, errReason(decision.Reason)); auditErr != nil { return nil, auditErr }
 		return nil, errReason(decision.Reason)
 	}
 	if err := ctx.Err(); err != nil {
@@ -150,15 +150,19 @@ func (s *Service) ResolveCatalog(ctx context.Context, query catalog.Query, selec
 	}
 	raw, err := s.deps.Resolver.Resolve(ctx, query)
 	if err != nil {
-		s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, err)
+		if auditErr := s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, err); auditErr != nil { return nil, auditErr }
 		return nil, fmt.Errorf("resolve catalog: %w", err)
 	}
 	bounded, err := catalog.BoundedCandidates(raw)
 	if err != nil {
-		s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, err)
+		if auditErr := s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, err); auditErr != nil { return nil, auditErr }
 		return nil, err
 	}
-	s.recordAllowed(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, len(bounded))
+	if len(bounded) == 0 {
+		if auditErr := s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, catalog.ErrCandidateNotFound); auditErr != nil { return nil, auditErr }
+		return nil, catalog.ErrCandidateNotFound
+	}
+		if auditErr := s.recordAllowed(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, len(bounded)); auditErr != nil { return nil, auditErr }
 	return bounded, nil
 }
 
@@ -169,7 +173,7 @@ func (s *Service) ResolveCatalog(ctx context.Context, query catalog.Query, selec
 // coordinate, missing or invalid cursor, or a response that would
 // exceed the marshaled byte bound. No partial content is ever
 // returned.
-func (s *Service) ReadSelectedSource(ctx context.Context, cursor string, page source.Range) (source.Page, error) {
+func (s *Service) ReadSelectedSource(ctx context.Context, selection catalog.Candidate, cursor string, page source.Range) (source.Page, error) {
 	if err := ctx.Err(); err != nil {
 		return source.Page{}, err
 	}
@@ -177,16 +181,16 @@ func (s *Service) ReadSelectedSource(ctx context.Context, cursor string, page so
 		return source.Page{}, ErrServiceUnavailable
 	}
 	if err := s.requireCredentials(ctx); err != nil {
-		s.recordDenied(ctx, audit.CapabilitySourceRead, audit.TargetClassIBMiSource, err)
+		if auditErr := s.recordDenied(ctx, audit.CapabilitySourceRead, audit.TargetClassIBMiSource, err); auditErr != nil { return source.Page{}, auditErr }
 		return source.Page{}, err
 	}
 	decision, err := s.deps.Authorizer.Authorize(ctx, security.SelectorReadSource, security.TargetIBMiSource)
 	if err != nil {
-		s.recordDenied(ctx, audit.CapabilitySourceRead, audit.TargetClassIBMiSource, err)
+		if auditErr := s.recordDenied(ctx, audit.CapabilitySourceRead, audit.TargetClassIBMiSource, err); auditErr != nil { return source.Page{}, auditErr }
 		return source.Page{}, fmt.Errorf("authorize source read: %w", err)
 	}
 	if decision.Decision != security.DecisionAllow {
-		s.recordDenied(ctx, audit.CapabilitySourceRead, audit.TargetClassIBMiSource, errReason(decision.Reason))
+		if auditErr := s.recordDenied(ctx, audit.CapabilitySourceRead, audit.TargetClassIBMiSource, errReason(decision.Reason)); auditErr != nil { return source.Page{}, auditErr }
 		return source.Page{}, errReason(decision.Reason)
 	}
 	if err := ctx.Err(); err != nil {
@@ -198,9 +202,27 @@ func (s *Service) ReadSelectedSource(ctx context.Context, cursor string, page so
 	if s.deps.Resolver == nil {
 		return source.Page{}, errors.New("service catalog resolver is required")
 	}
-	original, err := s.deps.Leases.Lookup(source.Cursor(cursor))
-	if err != nil {
-		return source.Page{}, err
+	var original catalog.Candidate
+	if cursor == "" {
+		if _, err := selection.MemberPath(); err != nil {
+			return source.Page{}, source.ErrInvalidRequest
+		}
+		query, err := catalog.BuildQuery(selection.Item, selection.ProductionLibrary)
+		if err != nil { return source.Page{}, source.ErrInvalidRequest }
+		candidates, err := s.deps.Resolver.Resolve(ctx, query)
+		if err != nil { return source.Page{}, source.ErrStaleCoordinate }
+		original, err = catalog.Select(candidates, selection)
+		if err != nil { return source.Page{}, err }
+		if s.deps.Acquirer == nil { return source.Page{}, errors.New("service snapshot acquirer is required") }
+		snap, err := s.deps.Acquirer.Acquire(ctx, original)
+		if err != nil { return source.Page{}, err }
+		var acquired source.Cursor
+		acquired, err = s.deps.Leases.Acquire(snap, original, source.ClientPolicy(s.deps.Profile))
+		cursor = string(acquired)
+		if err != nil { return source.Page{}, err }
+	} else {
+		original, err = s.deps.Leases.Lookup(source.Cursor(cursor))
+		if err != nil { return source.Page{}, err }
 	}
 	if err := s.freshnessCheck(ctx, original); err != nil {
 		return source.Page{}, err
@@ -217,7 +239,7 @@ func (s *Service) ReadSelectedSource(ctx context.Context, cursor string, page so
 	if err != nil {
 		return source.Page{}, err
 	}
-	s.recordAllowed(ctx, audit.CapabilitySourceRead, audit.TargetClassIBMiSource, pageResult.LineCount)
+	if auditErr := s.recordAllowed(ctx, audit.CapabilitySourceRead, audit.TargetClassIBMiSource, pageResult.LineCount); auditErr != nil { return source.Page{}, auditErr }
 	return pageResult, nil
 }
 
@@ -266,11 +288,11 @@ func (s *Service) requireCredentials(ctx context.Context) error {
 }
 
 // recordAllowed records an allow audit event with the supplied counts.
-func (s *Service) recordAllowed(ctx context.Context, capability audit.Capability, target audit.TargetClass, returned int) {
+func (s *Service) recordAllowed(ctx context.Context, capability audit.Capability, target audit.TargetClass, returned int) error {
 	if s.deps.Auditor == nil {
-		return
+		return errors.New("audit dependency is required")
 	}
-	_ = s.deps.Auditor.Record(ctx, audit.Event{
+	return s.deps.Auditor.Record(ctx, audit.Event{
 		Capability:  capability,
 		Connector:   audit.ConnectorIBMi,
 		TargetClass: target,
@@ -285,15 +307,11 @@ func (s *Service) recordAllowed(ctx context.Context, capability audit.Capability
 }
 
 // recordDenied records a deny audit event.
-func (s *Service) recordDenied(ctx context.Context, capability audit.Capability, target audit.TargetClass, cause error) {
+func (s *Service) recordDenied(ctx context.Context, capability audit.Capability, target audit.TargetClass, _ error) error {
 	if s.deps.Auditor == nil {
-		return
+		return errors.New("audit dependency is required")
 	}
-	reason := "request denied before remote work"
-	if cause != nil {
-		reason = sanitizeReason(cause.Error())
-	}
-	_ = s.deps.Auditor.Record(ctx, audit.Event{
+	return s.deps.Auditor.Record(ctx, audit.Event{
 		Capability:  capability,
 		Connector:   audit.ConnectorIBMi,
 		TargetClass: target,
@@ -303,7 +321,7 @@ func (s *Service) recordDenied(ctx context.Context, capability audit.Capability,
 		Returned:    0,
 		Timestamp:   s.deps.Now(),
 		Duration:    0,
-		Reason:      reason,
+		Reason:      "request denied before remote work",
 	})
 }
 

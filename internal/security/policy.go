@@ -172,6 +172,7 @@ type PinnedTarget struct {
 	Trust       HostKeyTrust
 	Fingerprint string
 	Binding     []byte
+	Provenance  string
 }
 
 // PinnedTrust verifies observed host evidence against a pinned
@@ -182,6 +183,14 @@ type PinnedTrust struct{}
 // NewPinnedTrust returns a value-typed pinned TOFU seam. The seam has
 // no state and performs no I/O.
 func NewPinnedTrust() PinnedTrust { return PinnedTrust{} }
+
+// Enroll is the explicit TOFU operation. It records only non-secret
+// provenance in the returned pin; Verify never calls it implicitly.
+func (PinnedTrust) Enroll(ctx context.Context, fingerprint string, binding []byte, provenance string) (PinnedTarget, error) {
+	if err := ctx.Err(); err != nil { return PinnedTarget{}, err }
+	if fingerprint == "" || len(binding) == 0 || provenance == "" { return PinnedTarget{}, ErrTrustEvidenceMissing }
+	return PinnedTarget{Trust: HostKeyTrustTOFU, Fingerprint: fingerprint, Binding: append([]byte(nil), binding...), Provenance: provenance}, nil
+}
 
 // Verify applies the pinned TOFU policy. It fails closed on missing,
 // malformed, mismatched, or ambiguous evidence. The comparison uses

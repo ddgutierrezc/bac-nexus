@@ -416,3 +416,21 @@ Task 4.4 is complete at **42/42**. The final slice preserves the planning correc
 | Rollback boundary | Revert PR8 commits `73601f9`, `ce7bc7c`, `d75ef07`, `f52af09`, `6e793db`, `2246fe9`, `b8ecc08`, `3fc13f6`, `a983448`, `c98142c`, `a2ec93b`, and `cfb0bc3`/`e69fcb6` as applicable to remove only task-4.4 release identity, workflow packaging, runbook, status wording, tests, and planning-artifact updates. |
 
 Generated package paths are `build/v1-mcp-foundation/<version>/<goos>-<goarch>/nexus` (or `nexus.exe`) and the adjacent `nexus.manifest.json`. Completed operator evidence remains outside the repository and release bundle. Release status is `ready_for_controlled_ibmi_validation`; validation status is `not_validated_on_ibmi`.
+
+## Native bounded remediation — final-verification-v1-mcp-foundation
+
+The single authorized correction opportunity is in progress against failed
+evidence revision `sha256:7377ee9ebe6b9d08488ff16f7863c125d545bf8f6ccf7a70293725efdb567313`.
+The candidate changes remove the MCP SQL input, add production first-page
+resolution/acquisition, map empty catalog results to `not_found`, add explicit
+TOFU enrollment, make required audit failures visible, and add GHA runbook and
+format gates. The original findings remain preserved in `verify-report.md`.
+
+| Evidence | Result |
+|---|---|
+| Focused test command | Compile-only `go test -c -o NUL ./internal/app`, `./internal/mcp`, and `./cmd/nexus` exited 0. Local runtime tests are prohibited by WDAC. |
+| Runtime harness | Pending exact-head GHA; it must run repository tests, vet, formatting, package checks, and the runbook contract assertions. Live IBM i is external and N/A. |
+| Rollback boundary | Revert the correction commit to restore only `internal/app`, `internal/mcp`, `internal/security`, their focused tests, the workflow contract gate, security wording, and remediation evidence. |
+
+Strict-TDD correction evidence is limited to focused candidate coverage and
+must not be treated as complete historical 42-task provenance.

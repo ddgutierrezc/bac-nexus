@@ -17,7 +17,7 @@ The `nexus serve` subcommand runs the typed MCP stdio server built on the offici
 | Boundary | Decision and residual risk |
 |---|---|
 | Local caller | The current local OS principal is the v1 trust boundary. Profile and client selectors are advisory capability selectors, not product authentication. A malicious same-principal process remains a residual risk. |
-| MCP wire surface | The two allowed tools are the only path between an MCP client and the Nexus service. The typed input schemas forbid temporary, listing, or delete fields; the typed output schemas never include source, cursor, raw error, path, host, user, command, SQL, credential, or model content. |
+| MCP wire surface | The two allowed tools are the only path between an MCP client and the Nexus service. The typed input schemas forbid temporary, listing, or delete fields; audit and retained artifacts never include source, cursor, raw error, path, host, user, command, SQL, credential, or model content. The requested source page is the sole bounded MCP source result. |
 | IBM i target | A fresh profile, credential, canonical target binding, and pinned host key are checked before recovery opens a cleanup connection. A privileged IBM i operator can still race or replace remote files; Nexus does not claim absolute protection from a privileged account. |
 | Local ownership data | SQLite records only ownership metadata: version, 16-byte token, exact private path, profile selector, target digest, and canonical creation time. It never stores secrets, source, commands, cursors, or model content. |
 | Uncertainty | Missing, malformed, conflicting, unavailable, corrupt, or inconclusive evidence fails closed. |
