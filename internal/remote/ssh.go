@@ -21,6 +21,7 @@ import (
 var ErrUnknownHostKey = errors.New("SSH host key fingerprint is not configured")
 var ErrHostKeyCaptured = errors.New("SSH host key captured; stop before authentication")
 var ErrProbeDeadlineRequired = errors.New("SSH host-key inspection requires a context deadline")
+var ErrHostKeyChanged = errors.New("host_key_changed")
 
 type HostKeyObservation struct {
 	Algorithm      string               `json:"algorithm"`
