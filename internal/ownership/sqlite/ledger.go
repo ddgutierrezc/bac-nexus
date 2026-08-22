@@ -114,7 +114,10 @@ func verificationFailure(err error) verificationOutcome {
 	return verificationInconclusive
 }
 
-type Ledger struct{ db *sql.DB }
+type Ledger struct {
+	db        *sql.DB
+	retryWait func(context.Context, time.Duration) error
+}
 
 type proof uint8
 
@@ -278,7 +281,11 @@ func (l *Ledger) Admit(ctx context.Context, record source.OwnershipRecord) error
 		if attempt == len(transactionRetryDelays) {
 			return err
 		}
-		if err := waitForRetry(ctx, transactionRetryDelays[attempt]); err != nil {
+		wait := l.retryWait
+		if wait == nil {
+			wait = waitForRetry
+		}
+		if err := wait(ctx, transactionRetryDelays[attempt]); err != nil {
 			return err
 		}
 	}

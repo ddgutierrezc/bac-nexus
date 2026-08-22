@@ -1,12 +1,20 @@
 package integrationpreview_test
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"bac-nexus/internal/configuration"
 	"bac-nexus/internal/integrationpreview/copilot"
 	"bac-nexus/internal/integrationpreview/opencode"
 )
+
+type recordingClipboard struct{ value string }
+
+func (c *recordingClipboard) Copy(_ context.Context, value string) error { c.value = value; return nil }
 
 func TestClientPreviewsAreDeterministicAndSecretFree(t *testing.T) {
 	const sentinel = "sentinel-secret"
@@ -42,5 +50,25 @@ func TestClientPreviewsRejectUnsupportedVersionsAndNeverWriteFiles(t *testing.T)
 	}
 	if _, err := opencode.Build(opencode.Request{Profile: "dev", Version: "v99"}); err == nil {
 		t.Fatal("unsupported OpenCode version was accepted")
+	}
+}
+
+func TestPreviewCopyUsesDeterministicPayloadWithoutExternalWrites(t *testing.T) {
+	root := t.TempDir()
+	before, _ := os.ReadDir(root)
+	preview, err := copilot.Build(copilot.Request{Profile: "dev"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clipboard := &recordingClipboard{}
+	if err := configuration.CopySecretFree(context.Background(), clipboard, preview.Payload); err != nil {
+		t.Fatal(err)
+	}
+	if clipboard.value != preview.Payload {
+		t.Fatalf("copied payload = %q, want %q", clipboard.value, preview.Payload)
+	}
+	after, _ := os.ReadDir(root)
+	if len(before) != len(after) || len(after) != 0 {
+		t.Fatalf("preview copy changed external files in %s", filepath.Base(root))
 	}
 }

@@ -17,6 +17,7 @@ type securityServiceStub struct {
 	deleted   string
 	enrolled  string
 	inspected bool
+	evidence  string
 }
 
 func (s *securityServiceStub) Status(context.Context, string) (credential.Presence, error) {
@@ -32,7 +33,7 @@ func (s *securityServiceStub) Rotate(context.Context, string) (configuration.Cre
 	return configuration.CredentialOutcomeRotated, nil
 }
 func (s *securityServiceStub) Delete(_ context.Context, name, confirmation string) (configuration.CredentialOutcome, error) {
-	if confirmation != "delete "+name {
+	if confirmation != "delete credential "+name {
 		return "", configuration.ErrConfirmationRequired
 	}
 	s.deleted = name
@@ -56,6 +57,18 @@ func (s *securityServiceStub) InspectAndEnroll(_ context.Context, name string, w
 		return "", configuration.ErrConfirmationRequired
 	}
 	s.inspected = true
+	return configuration.TrustOutcomeEnrolled, nil
+}
+
+func (s *securityServiceStub) InspectTOFU(context.Context, string) (string, error) {
+	s.evidence = "SHA256:observed"
+	return s.evidence, nil
+}
+func (s *securityServiceStub) EnrollTOFU(_ context.Context, name, evidence, confirmation string) (configuration.TrustOutcome, error) {
+	if confirmation != "enroll "+evidence {
+		return "", configuration.ErrConfirmationRequired
+	}
+	s.inspected, s.enrolled = true, name
 	return configuration.TrustOutcomeEnrolled, nil
 }
 
@@ -86,6 +99,10 @@ func TestSecurityModelRequiresExactCredentialConfirmationAndSupportsCancellation
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
 	if updated.(SecurityModel).screen != securityConfirmCredential {
 		t.Fatalf("delete did not enter credential confirmation: %v", updated.(SecurityModel).screen)
+	}
+	updated, cmd := updated.(SecurityModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	if cmd != nil || updated.(SecurityModel).screen != securityConfirmCredential || services.deleted != "" {
+		t.Fatal("single-key credential confirmation triggered deletion")
 	}
 	updated, cmd := updated.(SecurityModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
 	if cmd != nil || updated.(SecurityModel).screen != securityMenu {
@@ -121,22 +138,40 @@ func TestSecurityModelShowsStatusAndTrustActionsWithoutPersistingInspection(t *t
 		t.Fatalf("status classification missing: %q", updated.(SecurityModel).View())
 	}
 	updated, cmd = updated.(SecurityModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
-	if cmd != nil || updated.(SecurityModel).screen != securityConfirmTOFU {
-		t.Fatalf("TOFU inspection did not enter confirmation: screen=%v cmd=%v", updated.(SecurityModel).screen, cmd != nil)
-	}
-	updated, cmd = updated.(SecurityModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
-	if cmd == nil {
-		t.Fatal("TOFU inspection did not start")
+	if cmd == nil || updated.(SecurityModel).screen != securityProgress {
+		t.Fatalf("TOFU inspection did not start: screen=%v cmd=%v", updated.(SecurityModel).screen, cmd != nil)
 	}
 	msg := cmd()
-	if _, ok := msg.(securityOutcomeMsg); !ok {
-		t.Fatalf("inspection returned %T, want opaque outcome", msg)
-	}
-	if services.inspected {
-		t.Fatal("inspection must not persist trust before explicit confirmation")
+	updated, _ = updated.(SecurityModel).Update(msg)
+	if services.inspected || !strings.Contains(updated.(SecurityModel).View(), services.evidence) {
+		t.Fatal("inspection must show evidence without persisting trust")
 	}
 	if _, err := services.InspectAndEnroll(context.Background(), "dev", false, "enroll inspected"); !errors.Is(err, configuration.ErrWarningRequired) {
 		t.Fatalf("unwarned inspection error = %v", err)
+	}
+}
+
+func TestSecurityModelTOFUShowsEvidenceBeforeExactEnrollment(t *testing.T) {
+	services := &securityServiceStub{status: credential.PresenceAbsent}
+	m := NewSecurityModel(context.Background(), "dev", services)
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	updated, cmd := updated.(SecurityModel).Update(tea.KeyEnter)
+	if cmd == nil || updated.(SecurityModel).screen != securityProgress {
+		t.Fatal("TOFU inspection did not start as a separate step")
+	}
+	updated, _ = updated.(SecurityModel).Update(cmd())
+	if !strings.Contains(updated.(SecurityModel).View(), services.evidence) || services.inspected {
+		t.Fatalf("evidence was not displayed before enrollment: %q", updated.(SecurityModel).View())
+	}
+	for _, r := range []rune("enroll SHA256:observed") {
+		updated, _ = updated.(SecurityModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	updated, cmd = updated.(SecurityModel).Update(tea.KeyEnter)
+	if cmd == nil {
+		t.Fatal("exact TOFU confirmation did not start enrollment")
+	}
+	if _, ok := cmd().(securityOutcomeMsg); !ok || !services.inspected {
+		t.Fatal("TOFU enrollment did not complete with opaque outcome")
 	}
 }
 

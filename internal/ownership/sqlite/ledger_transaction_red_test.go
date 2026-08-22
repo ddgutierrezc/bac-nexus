@@ -68,18 +68,26 @@ func TestLedgerAdmissionUsesExactRetrySchedule(t *testing.T) {
 
 func TestLedgerAdmissionCancellationInterruptsRetryBackoff(t *testing.T) {
 	ledger := openTransactionLedger(t)
-
-	startLedgerLock(t, ledger, "exclusive", time.Second)
 	ctx, cancel := context.WithCancel(context.Background())
-	time.AfterFunc(275*time.Millisecond, cancel)
+	waiting := make(chan struct{})
+	ledger.retryWait = func(ctx context.Context, _ time.Duration) error {
+		close(waiting)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	startLedgerLock(t, ledger, "exclusive", time.Second)
 	started := time.Now()
+	go func() {
+		<-waiting
+		cancel()
+	}()
 	err := ledger.Admit(ctx, transactionRecord(2))
 	elapsed := time.Since(started)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Admit cancellation error = %v; want context.Canceled while retrying", err)
 	}
-	if elapsed < 250*time.Millisecond || elapsed > 500*time.Millisecond {
-		t.Fatalf("Admit cancellation elapsed %s; want prompt interruption of retry backoff", elapsed)
+	if elapsed > 250*time.Millisecond {
+		t.Fatalf("Admit cancellation elapsed %s; want deterministic interruption of retry backoff", elapsed)
 	}
 }
 

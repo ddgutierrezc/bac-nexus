@@ -127,7 +127,10 @@ func validateHost(host string) error {
 	return nil
 }
 
-type Store struct{ Root string }
+type Store struct {
+	Root    string
+	replace func(string, string) error
+}
 
 func DefaultRoot() (string, error) {
 	root, err := os.UserConfigDir()

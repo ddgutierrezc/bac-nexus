@@ -121,7 +121,7 @@ func (s *CredentialService) write(ctx context.Context, profileName string, outco
 }
 
 func (s *CredentialService) Delete(ctx context.Context, profileName, confirmation string) (CredentialOutcome, error) {
-	if confirmation != "delete "+profileName {
+	if confirmation != "delete credential "+profileName {
 		return "", ErrConfirmationRequired
 	}
 	if err := ctx.Err(); err != nil {
@@ -180,6 +180,36 @@ type TrustService struct {
 	inspect  func(context.Context, string, int) (remote.HostKeyObservation, error)
 }
 
+// InspectTOFU returns only the observed fingerprint. It never persists trust.
+func (s *TrustService) InspectTOFU(ctx context.Context, name string) (string, error) {
+	if s.inspect == nil {
+		return "", errors.New("host inspection unavailable")
+	}
+	stored, err := s.profiles.Read(name)
+	if err != nil {
+		return "", err
+	}
+	observation, err := s.inspect(ctx, stored.Host, stored.Port)
+	if err != nil {
+		return "", err
+	}
+	if observation.Verified || observation.TrustCandidate != profile.HostKeyTrustTOFU {
+		return "", errors.New("host inspection is not an unverified TOFU observation")
+	}
+	return observation.Fingerprint, nil
+}
+
+// EnrollTOFU persists only after the operator confirms the displayed evidence.
+func (s *TrustService) EnrollTOFU(ctx context.Context, name, fingerprint, confirmation string) (TrustOutcome, error) {
+	if confirmation != "enroll "+fingerprint {
+		return "", ErrConfirmationRequired
+	}
+	if err := profile.ValidateHostKey(fingerprint, profile.HostKeyTrustTOFU); err != nil {
+		return "", err
+	}
+	return s.persist(ctx, name, fingerprint, profile.HostKeyTrustTOFU, "unverified TOFU inspection")
+}
+
 func NewTrustService(profiles ProfileTrustStore, inspect func(context.Context, string, int) (remote.HostKeyObservation, error)) *TrustService {
 	return &TrustService{profiles: profiles, inspect: inspect}
 }
@@ -204,21 +234,11 @@ func (s *TrustService) InspectAndEnroll(ctx context.Context, name string, warned
 	if s.inspect == nil {
 		return "", errors.New("host inspection unavailable")
 	}
-	stored, err := s.profiles.Read(name)
+	fingerprint, err := s.InspectTOFU(ctx, name)
 	if err != nil {
 		return "", err
 	}
-	observation, err := s.inspect(ctx, stored.Host, stored.Port)
-	if err != nil {
-		return "", err
-	}
-	if observation.Verified || observation.TrustCandidate != profile.HostKeyTrustTOFU {
-		return "", errors.New("host inspection is not an unverified TOFU observation")
-	}
-	if confirmation != "enroll "+observation.Fingerprint {
-		return "", ErrConfirmationRequired
-	}
-	return s.persist(ctx, name, observation.Fingerprint, profile.HostKeyTrustTOFU, "unverified TOFU inspection")
+	return s.EnrollTOFU(ctx, name, fingerprint, confirmation)
 }
 
 func (s *TrustService) Verify(ctx context.Context, name, observed string) error {

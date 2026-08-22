@@ -365,3 +365,47 @@ behavior, tests, dependencies, or Slice 4 implementation facts.
 - This artifact-only correction follows the last validated Slice 6 baseline `de92762bf842a77211620c202a94d5baaca6bba3`; it changes evidence wording only and does not revalidate or modify production behavior.
 - Parent must settle/merge PR #80 first using the supplied native transaction; this apply does not acquire, settle, reset, or merge native state.
 - After settlement/merge, run the final `sdd-verify` only; do not archive from apply.
+
+## Maintainer-Authorized Bounded Remediation
+
+### Binding and Scope
+
+| Field | Value |
+|---|---|
+| Change | `nexus-configuration-tui` |
+| Historical failed verification | PR #82; evidence revision `sha256:e47be1bf40960650442d8b2c5bcf815a54db87c89cfa0f47aee7de66d0f05368` |
+| Native binding | Reset revision `sha256:37bbc1a82d0fd72c62f4c937dcf2f1c923233b9c8403b19a251f2462dda79dc8`; parent token `sha256:6a7fcb2127e0b2ad310470eb78309b2ae4369c1499577f93bb0e8b2be6e3b414`; request `remediation-acquire-20260822-01`; one attempt; 1000-line maximum |
+| Delivery | One issue-first `type:bug` PR from clean `main`; no archive, merge, settlement, reset, or final verification in this apply |
+| Historical task state | All 13 task checkboxes remain `[x]`; this section is additive remediation evidence only |
+
+### Remediation TDD Evidence
+
+Historical RED metadata for the deficient final-verification tasks cannot be
+proven from the admitted report alone and is not reconstructed here. The
+following current remediation cycles are truthful RED/GREEN/REFACTOR evidence;
+the GREEN columns require exact-head GitHub Actions because WDAC forbids local
+Go runtime evidence.
+
+| Finding / task scope | Test-first RED | GREEN | REFACTOR / limitation |
+|---|---|---|---|
+| Destructive profile and credential confirmation | New runtime assertions written first for exact text, mismatch, cancellation, and no single-key action | Pending exact-head GHA | Input remains secret-free; historical RED not provable |
+| Two-step TOFU | New runtime assertions written first for inspect-only evidence, mismatch/cancel, and post-evidence enrollment | Pending exact-head GHA | Split inspect/enroll service seam; historical RED not provable |
+| Complete TUI CRUD reload | New runtime assertion written first for committed state reloading into list visibility | Pending exact-head GHA | Uses the existing store boundary; historical RED not provable |
+| Replacement restoration and preview copy-only | New replacement-failure seam and copy-only runtime assertions written first | Pending exact-head GHA | No external files are touched; historical RED not provable |
+| Ledger cancellation race | Deterministic observable retry-wait synchronization written first | Pending exact-head race GHA | Removes timing threshold dependence without weakening cancellation; historical RED not provable |
+
+### Remediation Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | Pending exact-head GHA: `go test -count=1 ./internal/tui ./internal/configuration ./internal/profile ./internal/integrationpreview/... ./internal/ownership/sqlite` |
+| Runtime harness command/scenario and exact result | Pending exact-head GHA on Linux, race-enabled suite, and Windows profile coverage; local runtime explicitly prohibited by WDAC |
+| Rollback boundary | Revert only the remediation PR commits and the additive remediation section in this file; preserve PR #82, all 13 completed tasks, merged Slices 1–6, and `safety/profile-recovery-wip@55ed60b73e4a5b612750c9b362d8485991191edb` |
+
+### Parent Routing
+
+- Parent owns native settlement using the exact bound failed evidence revision
+  and distinct new verification evidence; this apply does not acquire, settle,
+  reset, or synthesize native state.
+- Parent must merge the remediation PR before a newly authorized final
+  `sdd-verify`; no final verification or archive is performed here.

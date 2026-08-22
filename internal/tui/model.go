@@ -53,19 +53,20 @@ type field struct {
 // Model is the deterministic shell model. It contains profile metadata only;
 // credential material is intentionally not accepted by this adapter.
 type Model struct {
-	store    profileStore
-	screen   screen
-	profiles []profile.Profile
-	selected int
-	form     []field
-	formEdit string
-	confirm  string
-	width    int
-	height   int
-	noColor  bool
-	status   string
-	err      error
-	security *SecurityModel
+	store        profileStore
+	screen       screen
+	profiles     []profile.Profile
+	selected     int
+	form         []field
+	formEdit     string
+	confirm      string
+	confirmInput textinput.Model
+	width        int
+	height       int
+	noColor      bool
+	status       string
+	err          error
+	security     *SecurityModel
 }
 
 func NewModel(store configuration.ProfilesStore) Model {
@@ -175,6 +176,7 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "d":
 			if len(m.profiles) > 0 {
 				m.confirm = m.profiles[m.selected].Name
+				m.confirmInput = newConfirmationInput()
 				m.screen = screenConfirm
 			}
 		}
@@ -189,6 +191,7 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "d":
 			if len(m.profiles) > 0 {
 				m.confirm = m.profiles[m.selected].Name
+				m.confirmInput = newConfirmationInput()
 				m.screen = screenConfirm
 			}
 		case "s":
@@ -203,8 +206,11 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch key {
 		case "esc", "n", "b":
 			m.screen = screenList
-		case "y", "enter":
+		case "enter":
 			name := m.confirm
+			if strings.TrimSpace(m.confirmInput.Value()) != "delete "+name {
+				return m, nil
+			}
 			return m, func() tea.Msg {
 				_, err := m.store.Delete(name, profile.DeleteConfirmation("delete "+name))
 				if err != nil {
@@ -212,6 +218,11 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				return operationMsg{text: "Profile deleted"}
 			}
+		}
+		if m.screen == screenConfirm {
+			var cmd tea.Cmd
+			m.confirmInput, cmd = m.confirmInput.Update(msg)
+			return m, cmd
 		}
 	case screenSecurity:
 		// Security child input is handled before shell dispatch.
@@ -287,6 +298,14 @@ func (m *Model) beginForm(p profile.Profile) {
 	m.err = nil
 }
 
+func newConfirmationInput() textinput.Model {
+	input := textinput.New()
+	input.Prompt = "Confirmation: "
+	input.CharLimit = 256
+	input.Focus()
+	return input
+}
+
 func (m Model) formProfile() (profile.Profile, error) {
 	values := make([]string, len(m.form))
 	for i := range m.form {
@@ -331,7 +350,7 @@ func (m Model) View() string {
 		}
 		b.WriteString("\nenter save  esc cancel\n")
 	case screenConfirm:
-		fmt.Fprintf(&b, "Delete profile %q?\nThis retains a recoverable backup.\n\ny confirm  n/esc cancel\n", m.confirm)
+		fmt.Fprintf(&b, "Delete profile %q?\nThis retains a recoverable backup.\nType delete %s exactly, then press enter.\n%s\nn/esc cancel\n", m.confirm, m.confirm, m.confirmInput.View())
 	case screenSecurity:
 		if m.security != nil {
 			return m.security.View()
