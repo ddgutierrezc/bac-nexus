@@ -428,6 +428,11 @@ func writeCredentialSetResult(stdout, stderr io.Writer, profileName string, resu
 
 type profileStore interface {
 	Save(profile.Profile) (string, error)
+	List(int) ([]profile.Profile, error)
+	Read(string) (profile.Profile, error)
+	Update(profile.Profile, string) (profile.ProfileUpdateResult, error)
+	Delete(string, profile.DeleteConfirmation) (profile.ProfileDeleteResult, error)
+	Restore(string) error
 }
 
 type vaultStore interface {

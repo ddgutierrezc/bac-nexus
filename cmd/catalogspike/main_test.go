@@ -121,7 +121,18 @@ func (f *fakeProfiles) Save(p profile.Profile) (string, error) {
 	f.saved = p
 	return "profile", nil
 }
-func (f *fakeProfiles) Delete(name string) (bool, error) { f.deleted = name; return true, nil }
+func (f *fakeProfiles) List(int) ([]profile.Profile, error) { return nil, nil }
+func (f *fakeProfiles) Read(string) (profile.Profile, error) {
+	return profile.Profile{}, profile.ErrProfileNotFound
+}
+func (f *fakeProfiles) Update(profile.Profile, string) (profile.ProfileUpdateResult, error) {
+	return profile.ProfileUpdateResult{ReplacementCommitted: true}, nil
+}
+func (f *fakeProfiles) Delete(name string, _ profile.DeleteConfirmation) (profile.ProfileDeleteResult, error) {
+	f.deleted = name
+	return profile.ProfileDeleteResult{Deleted: true, CredentialOutcome: profile.CredentialOutcomeUntouched}, nil
+}
+func (f *fakeProfiles) Restore(string) error { return nil }
 
 type fakeVaults struct {
 	setProfile string

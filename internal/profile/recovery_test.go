@@ -167,3 +167,55 @@ func TestStoreUpdateRestoresWhenReplacementCannotCommit(t *testing.T) {
 		t.Fatalf("old profile was not retained: %#v, %v", got, err)
 	}
 }
+
+func TestStoreDeleteRequiresExactConfirmationAndRetainsBackup(t *testing.T) {
+	root := t.TempDir()
+	store := Store{Root: root}
+	p := validProfile()
+	if _, err := store.Save(p); err != nil {
+		t.Fatal(err)
+	}
+	for _, confirmation := range []DeleteConfirmation{"", "yes", "delete DEV", "delete dev "} {
+		if _, err := store.Delete(p.Name, confirmation); err == nil {
+			t.Fatalf("Delete accepted %q", confirmation)
+		}
+		if _, err := os.Stat(filepath.Join(root, p.Name+".json")); err != nil {
+			t.Fatalf("rejected delete removed live profile: %v", err)
+		}
+	}
+	result, err := store.Delete(p.Name, DeleteConfirmation("delete "+p.Name))
+	if err != nil || !result.Deleted || result.CredentialOutcome != CredentialOutcomeUntouched {
+		t.Fatalf("Delete() = %#v, %v", result, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, p.Name+".json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("live profile still exists: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, p.Name+".bak")); err != nil {
+		t.Fatalf("backup missing: %v", err)
+	}
+	if err := store.Restore(p.Name); err != nil {
+		t.Fatalf("Restore() = %v", err)
+	}
+	if got, err := store.Read(p.Name); err != nil || got != p {
+		t.Fatalf("restored profile = %#v, %v", got, err)
+	}
+}
+
+func TestStoreDeleteRejectsUnsafeRecoveryArtifactsWithoutLeakage(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink privileges vary on Windows runners")
+	}
+	root := t.TempDir()
+	target := t.TempDir()
+	p := validProfile()
+	if _, err := (Store{Root: target}).Save(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(target, p.Name+".json"), filepath.Join(root, p.Name+".json")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := (Store{Root: root}).Delete(p.Name, DeleteConfirmation("delete "+p.Name))
+	if !errors.Is(err, ErrInvalidUpdateTarget) || strings.Contains(err.Error(), root) || strings.Contains(err.Error(), p.Name) {
+		t.Fatalf("unsafe delete error = %v", err)
+	}
+}

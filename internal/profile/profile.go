@@ -19,6 +19,7 @@ import (
 
 const appDirectory = "BAC Nexus"
 const maxProfileBytes = 16 * 1024
+const MaxListLimit = 128
 
 type CredentialMode string
 type HostKeyTrust string
@@ -217,15 +218,4 @@ func (s Store) Load(name string) (Profile, error) {
 		return Profile{}, fmt.Errorf("invalid stored profile: %w", err)
 	}
 	return p, nil
-}
-
-func (s Store) Delete(name string) (bool, error) {
-	if !namePattern.MatchString(name) {
-		return false, errors.New("invalid profile name")
-	}
-	err := os.Remove(filepath.Join(s.Root, name+".json"))
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	return err == nil, err
 }

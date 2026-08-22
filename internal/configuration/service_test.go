@@ -30,6 +30,17 @@ import (
 type stubProfiles struct{}
 
 func (stubProfiles) Save(profile.Profile) (string, error) { return "profile", nil }
+func (stubProfiles) List(int) ([]profile.Profile, error)  { return nil, nil }
+func (stubProfiles) Read(string) (profile.Profile, error) {
+	return profile.Profile{}, profile.ErrProfileNotFound
+}
+func (stubProfiles) Update(profile.Profile, string) (profile.ProfileUpdateResult, error) {
+	return profile.ProfileUpdateResult{ReplacementCommitted: true}, nil
+}
+func (stubProfiles) Delete(string, profile.DeleteConfirmation) (profile.ProfileDeleteResult, error) {
+	return profile.ProfileDeleteResult{Deleted: true, CredentialOutcome: profile.CredentialOutcomeUntouched}, nil
+}
+func (stubProfiles) Restore(string) error { return nil }
 
 type stubVaults struct{}
 
