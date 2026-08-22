@@ -309,3 +309,8 @@ behavior, tests, dependencies, or Slice 4 implementation facts.
 - No Slice 6 readiness, diagnostics, integration preview, or platform evidence.
 - No arbitrary SSH/SQL/shell, external-client writes, `nexus serve` composition changes, MCP lifecycle changes, or live IBM i validation.
 - The committed baseline wording identifies the last validated code/evidence baseline; later artifact publication head is reported externally rather than mislabeled as that baseline.
+
+### Next Routing
+
+- Parent settlement/merge of PR #78 must happen first; then Slice 6 may begin under a new explicit apply request.
+- No Slice 6 work starts before that settlement/merge.
