@@ -94,6 +94,9 @@ func TestModelDeleteRequiresExactOperatorConfirmation(t *testing.T) {
 	if updated.(Model).screen != screenConfirm || store.deleted != "" {
 		t.Fatal("single-key confirmation triggered deletion")
 	}
+	m = NewModel(store)
+	updated, _ = m.Update(profilesMsg{profiles: store.profiles})
+	updated, _ = updated.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
 	for _, r := range []rune("delete dev") {
 		updated, _ = updated.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}

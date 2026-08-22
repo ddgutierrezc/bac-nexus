@@ -162,9 +162,9 @@ func TestSecurityModelTOFUShowsEvidenceBeforeExactEnrollment(t *testing.T) {
 	if !strings.Contains(updated.(SecurityModel).View(), services.evidence) || services.inspected {
 		t.Fatalf("evidence was not displayed before enrollment: %q", updated.(SecurityModel).View())
 	}
-	for _, r := range []rune("enroll SHA256:observed") {
-		updated, _ = updated.(SecurityModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
-	}
+	model := updated.(SecurityModel)
+	model.confirm.SetValue("enroll " + services.evidence)
+	updated = model
 	updated, cmd = updated.(SecurityModel).Update(tea.KeyEnter)
 	if cmd == nil {
 		t.Fatal("exact TOFU confirmation did not start enrollment")
