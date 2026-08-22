@@ -96,7 +96,7 @@ func TestStoreUpdateCreatesBackupAndAtomicallyPublishes(t *testing.T) {
 		t.Fatalf("updated profile = %#v, %v", got, err)
 	}
 	backup, err := os.Stat(filepath.Join(root, "dev.bak"))
-	if err != nil || !backup.Mode().IsRegular() || backup.Mode().Perm()&0o077 != 0 {
+	if err != nil || !backup.Mode().IsRegular() || (runtime.GOOS != "windows" && backup.Mode().Perm()&0o077 != 0) {
 		t.Fatalf("backup = %#v, %v", backup, err)
 	}
 	backupData, err := os.ReadFile(filepath.Join(root, "dev.bak"))
