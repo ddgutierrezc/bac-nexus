@@ -150,3 +150,52 @@ exact post-merge `main` head.
 |---|---|---|---|
 | 2.1 | GHA exact-head contract tests admitted the new recovery/delete scenarios | GHA full suite and Windows profile suite PASS | Tests use bounded temp roots, typed outcomes, cancellation, and leakage assertions |
 | 2.2 | Contract failures were addressed before final implementation evidence | GHA full suite, vet, formatting, and Windows profile evidence PASS | Narrow `ProfilesStore` recovery seam; no TUI, MCP, Slice 3 lifecycle, or IBM i contact |
+
+## Slice 3: Credential Lifecycle and Explicit Host Trust
+
+### Tasks Complete
+
+- [x] 3.1 RED: credential lifecycle/status, bounded transient input, migration, platform transport, deterministic failure, and secret-free clipboard contracts.
+- [x] 3.2 GREEN/REFACTOR: native status/lifecycle orchestration, manual verified enrollment, warned cancellable TOFU inspection/enrollment, provenance persistence, and fail-closed host-key mismatch.
+
+### Delivery Facts
+
+| Field | Value |
+|---|---|
+| Tasks complete | 1.1, 1.2, 1.3, 2.1, 2.2, 3.1, 3.2 (7 of 13 total tasks complete) |
+| Work unit | `slice3-credential-trust-services` |
+| Approved issue | #73 (`status:approved` + `type:feature`) |
+| Pull request | #74, `feat/config-security-services`, stacked to `main` |
+| Implementation commits | `25ca9a1`, `97097f8`, `69afb6e` |
+| Exact head | `69afb6e` (authoritative GHA head) |
+| Authored changed lines | 447 (`git diff --numstat main...HEAD`, under 1000; no exception) |
+| PR label | `type:feature` |
+| GHA verify | Run `32551082765`, Ubuntu `verify` PASS and Windows `profile-windows` PASS |
+| GHA admission | Run `32551082699`, macOS/Ubuntu/Windows admission PASS |
+| GHA keyring gate | Run `32551082759`, macOS/Ubuntu/Windows keyring evaluation PASS |
+| Local runtime | Not executed; WDAC blocks local Go test binaries |
+| IBM i | No contact; `not_validated_on_ibmi` preserved |
+| Safety WIP | Preserved intact and unpushed at `safety/profile-recovery-wip@55ed60b` |
+
+### TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| 3.1 | `internal/configuration/security_test.go`, existing `internal/credential/keyring_store_red_test.go` | Unit | N/A for new configuration contract; existing credential tests covered by GHA | ✅ Written before production implementation; local execution prohibited by WDAC | ✅ GHA run `32551082765` exact head: `go test -count=1 ./...` PASS | ✅ Present/absent/unavailable, set/rotate/delete, migration confirmation, and bounded opaque outcomes | ✅ Secret input zeroization boundary and no credential material in outcomes |
+| 3.2 | `internal/configuration/security_test.go` | Unit/in-process contract | Existing profile/remote suites passed in GHA | ✅ Written before service implementation | ✅ GHA run `32551082765` exact head: `go test -count=1 ./...` PASS | ✅ Manual verified enrollment, warned TOFU inspection, exact confirmation, and mismatch | ✅ Atomic profile update seam, persisted non-secret provenance, no TUI/MCP/serve changes |
+
+### Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | GHA run `32551082765`: `go test -count=1 ./...` PASS; configuration, credential, profile, and remote packages passed |
+| Runtime harness command/scenario and exact result | GHA exact-head runtime matrix: Ubuntu `verify` PASS (`https://github.com/ddgutierrezc/bac-nexus/actions/runs/32551082765`), Windows `profile-windows` PASS; platform gates PASS on macOS/Ubuntu/Windows (`https://github.com/ddgutierrezc/bac-nexus/actions/runs/32551082759`); no IBM i contact |
+| Rollback boundary | Revert PR #74 / commits `25ca9a1..69afb6e`; removes only Slice 3 credential/trust services, native status classification, and host-key provenance/mismatch additions while preserving Slices 1–2 and the safety WIP |
+
+### Scope and Security Notes
+
+- Credential lifecycle results are opaque; transient input is bounded to 1–4096 bytes and zeroized best-effort after use.
+- Native status does not return credential bytes; unavailable stores fail closed without vault or remote fallback.
+- Manual enrollment requires verified provenance; TOFU inspection requires warning plus exact confirmation and persists only non-secret fingerprint/trust/provenance through atomic profile update.
+- Inspection never persists trust, and changed fingerprints return `host_key_changed` before remote discovery.
+- No TUI screens, Bubble Tea rendering, MCP wiring, `nexus serve` composition, arbitrary SSH/SQL/shell, or live IBM i validation were added.
