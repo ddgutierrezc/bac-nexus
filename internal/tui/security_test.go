@@ -165,7 +165,7 @@ func TestSecurityModelTOFUShowsEvidenceBeforeExactEnrollment(t *testing.T) {
 	model := updated.(SecurityModel)
 	model.confirm.SetValue("enroll " + services.evidence)
 	updated = model
-	updated, cmd = updated.(SecurityModel).Update(tea.KeyEnter)
+	updated, cmd = updated.(SecurityModel).Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("exact TOFU confirmation did not start enrollment")
 	}

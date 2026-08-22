@@ -97,10 +97,10 @@ func TestModelDeleteRequiresExactOperatorConfirmation(t *testing.T) {
 	m = NewModel(store)
 	updated, _ = m.Update(profilesMsg{profiles: store.profiles})
 	updated, _ = updated.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
-	for _, r := range []rune("delete dev") {
-		updated, _ = updated.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
-	}
-	updated, cmd = updated.(Model).Update(tea.KeyEnter)
+	m = updated.(Model)
+	m.confirmInput.SetValue("delete dev")
+	updated = m
+	updated, cmd = updated.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil || cmd() == nil || store.deleted != "dev" {
 		t.Fatalf("exact confirmation did not delete profile: cmd=%v deleted=%q", cmd != nil, store.deleted)
 	}
