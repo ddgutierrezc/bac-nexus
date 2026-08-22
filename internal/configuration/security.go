@@ -130,6 +130,13 @@ func (s *CredentialService) Delete(ctx context.Context, profileName, confirmatio
 	if s.store == nil {
 		return "", ErrCredentialUnavailable
 	}
+	presence, err := s.Status(ctx, profileName)
+	if err != nil {
+		return "", err
+	}
+	if presence == credential.PresenceUnavailable {
+		return "", ErrCredentialUnavailable
+	}
 	if err := s.store.Delete(profileName); err != nil {
 		return "", mapCredentialError(err)
 	}
