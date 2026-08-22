@@ -219,14 +219,3 @@ func (s Store) Load(name string) (Profile, error) {
 	}
 	return p, nil
 }
-
-func (s Store) Delete(name string) (bool, error) {
-	if !namePattern.MatchString(name) {
-		return false, errors.New("invalid profile name")
-	}
-	err := os.Remove(filepath.Join(s.Root, name+".json"))
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	return err == nil, err
-}
