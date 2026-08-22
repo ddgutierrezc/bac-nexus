@@ -366,26 +366,31 @@ behavior, tests, dependencies, or Slice 4 implementation facts.
 - Parent must settle/merge PR #80 first using the supplied native transaction; this apply does not acquire, settle, reset, or merge native state.
 - After settlement/merge, run the final `sdd-verify` only; do not archive from apply.
 
-## Remediation Evidence Settlement (Current PR Head)
+## Remediation Evidence Baseline at Correction Start
 
 | Field | Exact result |
 |---|---|
 | Remediation PR | #84, `fix/nexus-config-tui-remediation`, open; historical PR #82 remains open and untouched |
-| Head / base | `3b709f2` / `dd2f89f2b18fcf3a81cadb9946552aa9ba16289d` |
-| Commits | `1a5a839`, `e8ba815`, `1d5d1e2`, `6510e84`, `8128519`, `3b709f2` |
-| GitHub accounting before this evidence refresh | 368 additions, 79 deletions, 13 files, 447 authored changed lines; under 1000; exactly one label `type:bug` |
-| Focused/full GHA | Run `32575851663` PASS: `go test -count=1 ./...`; all packages including TUI, configuration, profile, preview, and ownership passed |
-| Race GHA | Run `32575851663` PASS: `go test -race ./...`; `internal/ownership/sqlite` PASS, including deterministic cancellation test |
-| Windows runtime GHA | Run `32575851663`, job `profile-windows` PASS |
-| Charm admission GHA | Run `32575851651` PASS on macOS, Ubuntu, and Windows |
+| Last validated remediation baseline head | `3c7b215ee781884fd04b8792e173f1cfcc6f9bb1` |
+| Base | `dd2f89f2b18fcf3a81cadb9946552aa9ba16289d` |
+| Commits included | `1a5a839`, `e8ba815`, `1d5d1e2`, `6510e84`, `8128519`, `3b709f2`, `3c7b215` |
+| GitHub accounting | 368 additions, 79 deletions, 13 files, 447 authored changed lines; under 1000; exactly one label `type:bug` |
+| Focused/full GHA | Run `32576033287` PASS: `go test -count=1 ./...`; all packages including TUI, configuration, profile, preview, and ownership passed |
+| Race GHA | Run `32576033287` PASS: `go test -race ./...`; `internal/ownership/sqlite` PASS, including deterministic cancellation test |
+| Windows runtime GHA | Run `32576033287`, job `profile-windows` PASS |
+| Charm admission GHA | Run `32576033233` PASS on macOS, Ubuntu, and Windows |
 | Local runtime | Not executed; WDAC prohibits local Go test/vet/build/runtime evidence |
+
+This artifact-only correction follows the last validated remediation baseline
+above. It changes evidence terminology and routing only; it does not re-run
+or alter production behavior or tests.
 
 ### Final Remediation Work Unit Evidence
 
 | Evidence | Exact result |
 |---|---|
-| Focused test command and exact result | GHA run `32575666248`: `go test -count=1 ./...` PASS |
-| Runtime harness command/scenario and exact result | GHA run `32575666248`: TUI exact-confirmation and two-step TOFU runtime tests, profile replacement restoration, preview copy-only proof, and ledger cancellation race path PASS; Windows profile job PASS; admission run `32575666245` PASS on all three platforms |
+| Focused test command and exact result | Last validated baseline GHA run `32576033287`: `go test -count=1 ./...` PASS |
+| Runtime harness command/scenario and exact result | Last validated baseline GHA run `32576033287`: TUI exact-confirmation and two-step TOFU runtime tests, profile replacement restoration, preview copy-only proof, and ledger cancellation race path PASS; Windows profile job PASS; admission run `32576033233` PASS on all three platforms |
 | Rollback boundary | Revert PR #84 commits only; removes exact-confirmation/TOFU seams, remediation tests, ledger wait seam, and additive evidence while preserving PR #82, 13/13 task history, Slices 1–6, and safety WIP |
 
 ### Current TDD Closure
@@ -418,18 +423,18 @@ Go runtime evidence.
 
 | Finding / task scope | Test-first RED | GREEN | REFACTOR / limitation |
 |---|---|---|---|
-| Destructive profile and credential confirmation | New runtime assertions written first for exact text, mismatch, cancellation, and no single-key action | Pending exact-head GHA | Input remains secret-free; historical RED not provable |
-| Two-step TOFU | New runtime assertions written first for inspect-only evidence, mismatch/cancel, and post-evidence enrollment | Pending exact-head GHA | Split inspect/enroll service seam; historical RED not provable |
-| Complete TUI CRUD reload | New runtime assertion written first for committed state reloading into list visibility | Pending exact-head GHA | Uses the existing store boundary; historical RED not provable |
-| Replacement restoration and preview copy-only | New replacement-failure seam and copy-only runtime assertions written first | Pending exact-head GHA | No external files are touched; historical RED not provable |
-| Ledger cancellation race | Deterministic observable retry-wait synchronization written first | Pending exact-head race GHA | Removes timing threshold dependence without weakening cancellation; historical RED not provable |
+| Destructive profile and credential confirmation | New runtime assertions written first for exact text, mismatch, cancellation, and no single-key action | Last validated baseline GHA `32576033287` PASS | Input remains secret-free; historical RED not provable |
+| Two-step TOFU | New runtime assertions written first for inspect-only evidence, mismatch/cancel, and post-evidence enrollment | Last validated baseline GHA `32576033287` PASS | Split inspect/enroll service seam; historical RED not provable |
+| Complete TUI CRUD reload | New runtime assertion written first for committed state reloading into list visibility | Last validated baseline GHA `32576033287` PASS | Uses the existing store boundary; historical RED not provable |
+| Replacement restoration and preview copy-only | New replacement-failure seam and copy-only runtime assertions written first | Last validated baseline GHA `32576033287` PASS | No external files are touched; historical RED not provable |
+| Ledger cancellation race | Deterministic observable retry-wait synchronization written first | Last validated baseline race GHA `32576033287` PASS | Removes timing threshold dependence without weakening cancellation; historical RED not provable |
 
 ### Remediation Work Unit Evidence
 
 | Evidence | Result |
 |---|---|
-| Focused test command and exact result | Pending exact-head GHA: `go test -count=1 ./internal/tui ./internal/configuration ./internal/profile ./internal/integrationpreview/... ./internal/ownership/sqlite` |
-| Runtime harness command/scenario and exact result | Pending exact-head GHA on Linux, race-enabled suite, and Windows profile coverage; local runtime explicitly prohibited by WDAC |
+| Focused test command and exact result | Last validated baseline GHA `32576033287`: `go test -count=1 ./...` PASS; local runtime explicitly prohibited by WDAC |
+| Runtime harness command/scenario and exact result | Last validated baseline GHA `32576033287` full/race/Windows PASS plus Charm admission `32576033233` macOS/Ubuntu/Windows PASS; this artifact-only correction does not rerun verification |
 | Rollback boundary | Revert only the remediation PR commits and the additive remediation section in this file; preserve PR #82, all 13 completed tasks, merged Slices 1–6, and `safety/profile-recovery-wip@55ed60b73e4a5b612750c9b362d8485991191edb` |
 
 ### Parent Routing
