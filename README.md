@@ -6,7 +6,7 @@ The v1 surface is read-only and intentionally narrow. It does not provide a gene
 
 ## What this binary is
 
-`nexus` is the MCP server entry point. It accepts stdio JSON-RPC from an MCP client and exposes two typed tools:
+`nexus` is the MCP server entry point. It accepts stdio JSON-RPC from an MCP client and exposes two typed tools. The optional `configure` subcommand owns local terminal interaction for profile CRUD and does not start MCP.
 
 | Tool | Purpose |
 |---|---|
@@ -22,11 +22,14 @@ Both tools are typed, fail closed, and honor `context.Context` cancellation. The
 3. Run: `nexus serve -profile <name>`
 4. Wire any MCP-compatible client (Copilot, OpenCode, Codex, etc.) to the resulting `nexus` binary over stdio.
 
+For local profile administration, run `nexus configure`. Use the keyboard controls shown by the shell to create, inspect, update, or delete profiles. Profile deletion retains a recoverable backup and never implies credential deletion.
+
 ## Project layout
 
 | Path | Role |
 |---|---|
 | `cmd/nexus` | The MCP server binary. Composes the service and runs the stdio MCP server. |
+| `internal/tui` | Optional Bubble Tea v1 adapter for local, keyboard-operated profile CRUD. |
 | `cmd/catalogspike` | The pre-v1 diagnostic CLI. Behavior is preserved; it is not wired into the MCP server. |
 | `internal/mcp` | The typed MCP adapter. Exposes the two allowed tools and forwards to the service. |
 | `internal/app` | The local-OS-principal catalog-context service. Owns recovery, freshness, credential, and policy wiring. |

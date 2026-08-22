@@ -210,3 +210,59 @@ current PR head. The correction changes only SDD evidence and routing.
 - Parent settles the supplied native attempt using the exact post-correction PR-head GHA evidence and decides the approved merge lifecycle for PR #74.
 - Only after settlement/merge is complete: start Slice 4 under a new explicit apply request.
 - Slice 4 is not started by this correction; no TUI screens or production behavior are changed.
+
+## Slice 4: TUI Shell and Profile CRUD
+
+### Tasks Complete
+
+- [x] 4.1 RED: Bubble Tea `Update` navigation tests cover empty and populated list states, detail/form/back behavior, delete confirmation, resize, narrow layout, no-color rendering, and configure separation from MCP stdio.
+- [x] 4.2 GREEN/REFACTOR: add the optional `nexus configure` shell/router and profile CRUD screens using the admitted Charm v1 family; preserve CLI, catalogspike, and `nexus serve` behavior.
+
+### Delivery Facts
+
+| Field | Value |
+|---|---|
+| Tasks complete | 1.1, 1.2, 1.3, 2.1, 2.2, 3.1, 3.2, 4.1, 4.2 (9 of 13 total tasks complete) |
+| Work unit | `slice4-shell-crud` |
+| Approved issue | #75 (`status:approved` + exactly one `type:feature` label) |
+| Pull request | #76, `feat/config-tui-crud`, stacked to `main` |
+| Last validated Slice 4 code/evidence baseline at correction start | `915e1d3c9af3f6ff3a8369096243cc444654640d` |
+| Baseline GitHub line accounting | 583 additions / 3 deletions; 586 changed lines, under the 1000-line budget and without exception |
+| Baseline GHA Go Verification | Run `32552676370` — PASS |
+| Baseline GHA Charm admission | Run `32552676360` — PASS on macOS, Ubuntu, and Windows |
+| Baseline GHA keyring gate | Run `32552676372` — PASS on macOS, Ubuntu, and Windows |
+| Local runtime | Not executed; WDAC blocks local Go test binaries |
+| IBM i | No contact; `not_validated_on_ibmi` preserved |
+| Safety WIP | Preserved unchanged and unpushed at `safety/profile-recovery-wip@55ed60b73e4a5b612750c9b362d8485991191edb` |
+
+The baseline above is the last validated Slice 4 code/evidence head when this
+artifact-only correction began. This correction follows that baseline and
+changes only this SDD progress artifact; it does not change production
+behavior, tests, dependencies, or Slice 4 implementation facts.
+
+### TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| 4.1 | `internal/tui/model_test.go` | Unit / Bubble Tea `Update` | N/A for new file | Written before production | Baseline GHA run `32552676370` — PASS | Empty state, detail/back/delete, resize/narrow/no-color | Formatting and reload-after-mutation behavior preserved |
+| 4.2 | `cmd/nexus/configure_test.go`, `internal/tui/model_test.go` | Unit/integration adapter | Existing `cmd/nexus` behavior covered by baseline GHA | Written before production | Baseline GHA run `32552676370` — PASS | Configure isolation plus CRUD/navigation paths | Isolated runner seam and typed store seam preserved |
+
+### Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | Intended command: `go test -count=1 ./internal/tui ./cmd/nexus`; local execution prohibited by WDAC. Baseline GHA executed `go test -count=1 ./...` and passed in run `32552676370`, including both focused packages. |
+| Runtime harness command/scenario and exact result | Baseline GHA `go test -count=1 ./...` passed the direct `Model.Update` navigation scenarios, configure adapter isolation, and existing serve/MCP tests; no IBM i or live terminal session was attempted. |
+| Rollback boundary | Revert PR #76 / commits `7383146..915e1d3`; remove only Slice 4 TUI/command/dependency/docs/tests/task changes while preserving Slices 1–3 and the safety WIP. |
+
+### Correction Facts
+
+- This commit is artifact-only and follows baseline `915e1d3c9af3f6ff3a8369096243cc444654640d`.
+- The corrected filesystem artifact now reconciles Slice 4 with the hybrid Engram progress and task records.
+- No native attempt was acquired, settled, or reset by this correction.
+
+### Next Routing
+
+- Parent settlement/merge of PR #76 must happen first.
+- Only after parent settlement and merge is complete may Slice 5 security screens begin under a new explicit apply request.
+- Slice 6 readiness, diagnostics, and integration preview remain out of scope.

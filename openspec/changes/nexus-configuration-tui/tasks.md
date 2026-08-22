@@ -38,8 +38,8 @@ First autonomous slice: Slice 1, which remains service-only if Charm admission f
 
 ## Phase 4: TUI Shell and Profile CRUD
 
-- [ ] 4.1 RED: Bubble Tea `Update`/teatest navigation tests cover list empty state, detail/form/back/quit, safe focus, resize, 80x24/narrow/no-color rendering, and no MCP stdio lifecycle.
-- [ ] 4.2 GREEN/REFACTOR: add `nexus configure` shell/router/controller and CRUD screens using admitted Charm v1 only; preserve CLI/`catalogspike` behavior, update docs, run Slice 4 evidence.
+- [x] 4.1 RED: Bubble Tea `Update`/teatest navigation tests cover list empty state, detail/form/back/quit, safe focus, resize, 80x24/narrow/no-color rendering, and no MCP stdio lifecycle.
+- [x] 4.2 GREEN/REFACTOR: add `nexus configure` shell/router/controller and CRUD screens using admitted Charm v1 only; preserve CLI/`catalogspike` behavior, update docs, run Slice 4 evidence.
 
 ## Phase 5: TUI Security Flows
 
