@@ -108,3 +108,19 @@ jobs:
           name: nexus-v1-mcp-foundation-${{ github.sha }}
           path: build/v1-mcp-foundation
           if-no-files-found: error
+
+  profile-windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify profile store on Windows
+        run: go test -count=1 ./internal/profile
+      - name: Verify profile store vet on Windows
+        run: go vet ./internal/profile
