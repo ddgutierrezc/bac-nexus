@@ -91,7 +91,7 @@ func TestStoreUpdateCreatesBackupAndAtomicallyPublishes(t *testing.T) {
 	if !result.ReplacementCommitted || !result.FileReplaced || result.PreviousBackup != "dev.bak" {
 		t.Fatalf("Update() result = %#v", result)
 	}
-	got, err := (Store{Root: root}).Read("dev")
+	got, err := (Store{Root: root}).Load("dev")
 	if err != nil || got.Host != updated.Host {
 		t.Fatalf("updated profile = %#v, %v", got, err)
 	}
