@@ -6,6 +6,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -22,7 +23,8 @@ const profileLimit = 128
 type screen uint8
 
 const (
-	screenList screen = iota
+	screenHome screen = iota
+	screenList
 	screenDetail
 	screenForm
 	screenConfirm
@@ -53,26 +55,59 @@ type field struct {
 // Model is the deterministic shell model. It contains profile metadata only;
 // credential material is intentionally not accepted by this adapter.
 type Model struct {
-	store        profileStore
-	screen       screen
-	profiles     []profile.Profile
-	selected     int
-	form         []field
-	formEdit     string
-	confirm      string
-	confirmInput textinput.Model
-	width        int
-	height       int
-	noColor      bool
-	status       string
-	err          error
-	security     *SecurityModel
+	store             profileStore
+	screen            screen
+	profiles          []profile.Profile
+	selected          int
+	homeSelected      homeActionID
+	homeFocus         homeFocus
+	menuOffset        int
+	readinessOffset   int
+	homeMenuRows      []homeMenuRow
+	homeReadinessRows []string
+	profilesLoaded    bool
+	form              []field
+	formEdit          string
+	formReturn        screen
+	confirm           string
+	confirmInput      textinput.Model
+	width             int
+	height            int
+	noColor           bool
+	buildInfo         BuildInfo
+	status            string
+	err               error
+	security          *SecurityModel
+}
+
+// BuildInfo is the build identity supplied by the composition root. The TUI
+// does not inspect Git state or execute external commands to derive it.
+type BuildInfo struct {
+	Version  string
+	Revision string
 }
 
 func NewModel(store configuration.ProfilesStore) Model {
-	m := Model{store: store, screen: screenList, noColor: true}
+	return NewModelWithBuildInfo(store, BuildInfo{Version: "dev", Revision: "unknown"})
+}
+
+// NewModelWithBuildInfo constructs the Home model with build identity supplied
+// by the caller. Empty values retain truthful local-build defaults.
+func NewModelWithBuildInfo(store configuration.ProfilesStore, buildInfo BuildInfo) Model {
+	if buildInfo.Version == "" {
+		buildInfo.Version = "dev"
+	}
+	if buildInfo.Revision == "" {
+		buildInfo.Revision = "unknown"
+	}
+	m := Model{store: store, screen: screenHome, homeSelected: actionCreate, noColor: noColorEnabled(), buildInfo: buildInfo}
 	m.form = newFields(profile.Profile{})
 	return m
+}
+
+func noColorEnabled() bool {
+	value, present := os.LookupEnv("NO_COLOR")
+	return present && value != ""
 }
 
 // NewModelWithSecurity enables the security child screen without changing
@@ -120,10 +155,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.noColor = true
+		if m.screen == screenHome {
+			m.homeSelected = m.clampHomeSelection()
+			m.menuOffset = m.visibleMenuWindow().Start
+			m.readinessOffset = m.visibleReadinessWindow().Start
+		}
 		return m, nil
 	case profilesMsg:
-		m.profiles, m.err = append([]profile.Profile(nil), msg.profiles...), nil
+		m.profiles, m.err, m.profilesLoaded = append([]profile.Profile(nil), msg.profiles...), nil, true
 		m.selected = clamp(m.selected, len(m.profiles))
 		return m, nil
 	case profileMsg:
@@ -159,16 +198,64 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	switch m.screen {
+	case screenHome:
+		switch key {
+		case "q", "ctrl+c":
+			return m, tea.Quit
+		case "?":
+			m.status, m.err = "Ayuda: ↑/↓ navegar; Enter seleccionar; q salir.", nil
+		case "tab":
+			if m.readinessCanScroll() {
+				if m.homeFocus == homeFocusReadiness {
+					m.homeFocus = homeFocusMenu
+				} else {
+					m.homeFocus = homeFocusReadiness
+				}
+			}
+		case "esc":
+			m.homeFocus = homeFocusMenu
+		case "up", "k":
+			if m.homeFocus == homeFocusReadiness {
+				m.readinessOffset = m.moveReadinessOffset(-1)
+			} else {
+				m.homeSelected = m.moveHomeSelection(-1)
+				m.menuOffset = m.visibleMenuWindow().Start
+			}
+		case "down", "j":
+			if m.homeFocus == homeFocusReadiness {
+				m.readinessOffset = m.moveReadinessOffset(1)
+			} else {
+				m.homeSelected = m.moveHomeSelection(1)
+				m.menuOffset = m.visibleMenuWindow().Start
+			}
+		case "enter":
+			action := m.selectedHomeAction()
+			if !action.available {
+				m.status, m.err = action.label+": todavía no está disponible", nil
+				return m, nil
+			}
+			switch action.id {
+			case actionManage:
+				m.screen, m.status = screenList, ""
+				return m, m.reload()
+			case actionCreate:
+				m.beginForm(profile.Profile{}, screenHome)
+			case actionExit:
+				return m, tea.Quit
+			}
+		}
 	case screenList:
 		switch key {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "esc", "b":
+			m.screen = screenHome
 		case "up", "k":
 			m.selected = clamp(m.selected-1, len(m.profiles))
 		case "down", "j":
 			m.selected = clamp(m.selected+1, len(m.profiles))
 		case "n":
-			m.beginForm(profile.Profile{})
+			m.beginForm(profile.Profile{}, screenList)
 		case "enter":
 			if len(m.profiles) > 0 {
 				m.screen = screenDetail
@@ -186,7 +273,7 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.screen = screenList
 		case "e":
 			if len(m.profiles) > 0 {
-				m.beginForm(m.profiles[m.selected])
+				m.beginForm(m.profiles[m.selected], screenDetail)
 			}
 		case "d":
 			if len(m.profiles) > 0 {
@@ -230,10 +317,35 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) selectedHomeAction() homeAction {
+	for _, action := range m.visibleHomeActions() {
+		if action.id == m.homeSelected {
+			return action
+		}
+	}
+	return m.visibleHomeActions()[0]
+}
+
+func (m Model) moveHomeSelection(delta int) homeActionID {
+	actions := m.visibleHomeActions()
+	index := 0
+	for i, action := range actions {
+		if action.id == m.homeSelected {
+			index = i
+			break
+		}
+	}
+	return actions[clamp(index+delta, len(actions))].id
+}
+
+func (m Model) clampHomeSelection() homeActionID {
+	return m.selectedHomeAction().id
+}
+
 func (m Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	if key == "esc" || key == "ctrl+c" {
-		m.screen = screenList
+		m.screen = m.formReturn
 		return m, nil
 	}
 	if key == "tab" || key == "down" {
@@ -288,9 +400,10 @@ func (m Model) focusIndex() int {
 	return -1
 }
 
-func (m *Model) beginForm(p profile.Profile) {
+func (m *Model) beginForm(p profile.Profile, returnTo screen) {
 	m.form = newFields(p)
 	m.formEdit = p.Name
+	m.formReturn = returnTo
 	if p.Name == "" {
 		m.formEdit = ""
 	}
@@ -327,6 +440,8 @@ func (m Model) View() string {
 	title := lipgloss.NewStyle().Bold(true).Render("Nexus configuration")
 	b.WriteString(title + "\n\n")
 	switch m.screen {
+	case screenHome:
+		return m.renderHome()
 	case screenList:
 		b.WriteString("Profiles\n")
 		if len(m.profiles) == 0 {
@@ -339,7 +454,7 @@ func (m Model) View() string {
 			}
 			fmt.Fprintf(&b, "%s %s\n", marker, p.Name)
 		}
-		b.WriteString("\nn new  enter inspect  d delete  q quit\n")
+		b.WriteString("\nn new  enter inspect  d delete  b inicio  q quit\n")
 	case screenDetail:
 		p := m.profiles[m.selected]
 		fmt.Fprintf(&b, "Profile: %s\nHost: %s:%d\nUsername: %s\nTrust: %s\n\ne edit  d delete  b back\n", p.Name, p.Host, p.Port, p.Username, p.HostKeyTrust)
@@ -414,8 +529,22 @@ func replaceProfile(list []profile.Profile, p profile.Profile) []profile.Profile
 
 // Run starts the local terminal program. It never creates an MCP server or
 // writes client configuration files.
-func Run(ctx context.Context, store configuration.ProfilesStore) error {
-	program := tea.NewProgram(NewModel(store), tea.WithContext(ctx))
+func Run(ctx context.Context, store configuration.ProfilesStore, buildInfo BuildInfo) error {
+	program := tea.NewProgram(NewModelWithBuildInfo(store, buildInfo), tuiProgramOptions(ctx)...)
 	_, err := program.Run()
 	return err
+}
+
+type tuiProgramConfig struct {
+	altScreen bool
+}
+
+func defaultTUIProgramConfig() tuiProgramConfig { return tuiProgramConfig{altScreen: true} }
+
+func tuiProgramOptions(ctx context.Context) []tea.ProgramOption {
+	options := []tea.ProgramOption{tea.WithContext(ctx)}
+	if defaultTUIProgramConfig().altScreen {
+		options = append(options, tea.WithAltScreen())
+	}
+	return options
 }

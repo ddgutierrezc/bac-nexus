@@ -1,0 +1,26 @@
+BAC Nexus — Braille terminal logo variants
+Generated deterministically from the supplied BAC isotype.
+
+COMPACT — 10x5
+⢀⣀⣤⣴⣶⣿
+⣿⣿⠿⢟⣫⣵⢸⣦⡀
+⣩⣴⣾⣿⡿⢛⢸⣿⣿⡶
+⣿⡿⢛⣥⣾⣿⠸⠿⠿⠃
+⣥⣾⣿⣿⢟⣵⣿⣿⡇
+
+RECOMMENDED — 12x6
+ ⢀⣀⣤⣤⣶⣾
+⣿⣿⣿⣿⡿⠟⣋ ⣦⡀
+⠿⢛⣩⣴⣾⣿⣿ ⣿⣿⣦⣀
+⣾⣿⣿⣿⠟⣋⣴ ⣿⣿⣿⡏
+⣿⠿⣋⣵⣾⣿⡿⢀⣛⣛⠛
+⣵⣾⣿⣿⡿⢋⣴⣿⣿⣿
+
+DETAILED — 16x7
+   ⣀⣀⣤⣤⣶⣾⡇
+⣶⣾⣿⣿⣿⣿⣿⠿⠟⡃⢠⣄
+⣿⣿⡿⠟⢛⣩⣴⣶⣿⡇⢸⣿⣷⣤⡀
+⣩⣤⣶⣿⣿⣿⣿⡿⠟⡁⢸⣿⣿⣿⣿⡶
+⣿⣿⣿⣿⠿⢛⣡⣶⣿⡇⢸⣿⣿⣿⣿⠁
+⣿⠟⣋⣥⣾⣿⣿⣿⡿⢃⣬⣭⣭⡍⠁
+⣴⣾⣿⣿⣿⣿⡿⢋⣴⣿⣿⣿⣿⡇

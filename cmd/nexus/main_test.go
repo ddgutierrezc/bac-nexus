@@ -166,6 +166,16 @@ func TestRunCommandCLIParsing(t *testing.T) {
 	}
 }
 
+func TestRunCommandRootUsageListsImplementedSubcommands(t *testing.T) {
+	out := &strings.Builder{}
+	if err := runCommand(nil, out); err == nil {
+		t.Fatal("runCommand(nil) error = nil, want explicit-subcommand error")
+	}
+	if got, want := out.String(), "usage: nexus <subcommand> [flags]\nsubcommands: serve, configure, version, help\n"; got != want {
+		t.Fatalf("root usage = %q, want %q", got, want)
+	}
+}
+
 func TestPrintVersionIsDeterministic(t *testing.T) {
 	oldVersion, oldRevision := releaseVersion, vcsRevision
 	defer func() { releaseVersion, vcsRevision = oldVersion, oldRevision }()

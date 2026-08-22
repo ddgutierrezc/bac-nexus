@@ -147,7 +147,7 @@ func runCommand(args []string, out io.Writer) error {
 	}
 	if len(args) == 0 {
 		fmt.Fprintln(out, "usage: nexus <subcommand> [flags]")
-		fmt.Fprintln(out, "subcommands: serve, help")
+		fmt.Fprintln(out, "subcommands: serve, configure, version, help")
 		return errors.New("explicit subcommand is required")
 	}
 	switch args[0] {
@@ -203,7 +203,7 @@ func runConfigure(args []string) error {
 		return err
 	}
 	var store configuration.ProfilesStore = profile.Store{Root: root}
-	return runConfigureTUI(context.Background(), store)
+	return runConfigureTUI(context.Background(), store, tui.BuildInfo{Version: releaseVersion, Revision: vcsRevision})
 }
 
 func printServeHelp(out io.Writer) error {
