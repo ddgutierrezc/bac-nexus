@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -146,6 +147,13 @@ func (s Store) Save(p Profile) (string, error) {
 	}
 	if s.Root == "" {
 		return "", errors.New("profile store root is required")
+	}
+	if info, err := os.Lstat(s.Root); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+	} else if info.Mode()&fs.ModeSymlink != 0 || !info.Mode().IsDir() {
+		return "", ErrInvalidRoot
 	}
 	if err := os.MkdirAll(s.Root, 0o700); err != nil {
 		return "", err

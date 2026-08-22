@@ -53,15 +53,28 @@ type ProfileUpdateResult struct {
 
 // List returns valid profiles in deterministic name order. Invalid entries
 // are ignored so one damaged file cannot expose paths or block the list.
+// A missing profile root is treated as a valid empty first-run list; any
+// existing but unsafe root fails closed. Mutation paths must use the
+// strict verifyRoot classification directly.
 func (s Store) List(limit int) ([]Profile, error) {
 	if limit < 1 || limit > maxListLimit {
 		return nil, fmt.Errorf("list profiles: %w", ErrInvalidUpdateTarget)
 	}
-	if err := s.verifyRoot(); err != nil {
+	state, err := classifyRoot(s.Root)
+	if err != nil {
 		return nil, err
+	}
+	if state == rootMissing {
+		return []Profile{}, nil
+	}
+	if state != rootDirectory {
+		return nil, ErrInvalidRoot
 	}
 	entries, err := os.ReadDir(s.Root)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return []Profile{}, nil
+		}
 		return nil, errors.New("list profiles: store unavailable")
 	}
 	profiles := make([]Profile, 0, limit)
@@ -271,14 +284,49 @@ func (s Store) requireOptionalRegular(path string) error {
 }
 
 func (s Store) verifyRoot() error {
-	if s.Root == "" {
-		return ErrInvalidRoot
+	state, err := classifyRoot(s.Root)
+	if err != nil {
+		return err
 	}
-	info, err := os.Lstat(s.Root)
-	if err != nil || info.Mode()&fs.ModeSymlink != 0 || !info.Mode().IsDir() {
+	if state != rootDirectory {
 		return ErrInvalidRoot
 	}
 	return nil
+}
+
+// rootState describes the classification of the configured profile root.
+type rootState uint8
+
+const (
+	rootEmpty rootState = iota
+	rootMissing
+	rootDirectory
+	rootSymlink
+	rootFile
+	rootOther
+)
+
+func classifyRoot(root string) (rootState, error) {
+	if root == "" {
+		return rootEmpty, nil
+	}
+	info, err := os.Lstat(root)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return rootMissing, nil
+		}
+		return rootOther, err
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return rootSymlink, nil
+	}
+	if info.Mode().IsDir() {
+		return rootDirectory, nil
+	}
+	if info.Mode().IsRegular() {
+		return rootFile, nil
+	}
+	return rootOther, nil
 }
 
 func readBounded(path string) ([]byte, error) {

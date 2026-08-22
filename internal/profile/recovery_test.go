@@ -70,10 +70,66 @@ func TestStoreListEmptyAndInvalidRootsFailClosed(t *testing.T) {
 	if got, err := (Store{Root: t.TempDir()}).List(1); err != nil || len(got) != 0 {
 		t.Fatalf("empty List() = %#v, %v", got, err)
 	}
-	for _, root := range []string{"", filepath.Join(t.TempDir(), "missing")} {
+	for _, root := range []string{""} {
 		if _, err := (Store{Root: root}).List(1); !errors.Is(err, ErrInvalidRoot) {
 			t.Fatalf("List(%q) error = %v, want ErrInvalidRoot", root, err)
 		}
+	}
+}
+
+func TestStoreListTreatsMissingRootAsEmptyFirstRun(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "missing")
+	got, err := (Store{Root: root}).List(8)
+	if err != nil {
+		t.Fatalf("List missing root = %v, want empty first-run list", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("missing root List() = %#v, want empty", got)
+	}
+	if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing root was created by List(): stat = %v", err)
+	}
+}
+
+func TestStoreListRejectsSymlinkAndFileRoots(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink privileges vary on Windows runners")
+	}
+	parent := t.TempDir()
+	real := t.TempDir()
+	if err := os.WriteFile(filepath.Join(real, "anchor"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	symlinkRoot := filepath.Join(parent, "linked")
+	if err := os.Symlink(real, symlinkRoot); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (Store{Root: symlinkRoot}).List(1); !errors.Is(err, ErrInvalidRoot) {
+		t.Fatalf("symlink root List() = %v, want ErrInvalidRoot", err)
+	}
+	fileRoot := filepath.Join(parent, "file-root")
+	if err := os.WriteFile(fileRoot, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (Store{Root: fileRoot}).List(1); !errors.Is(err, ErrInvalidRoot) {
+		t.Fatalf("file root List() = %v, want ErrInvalidRoot", err)
+	}
+}
+
+func TestStoreMutationRejectsMissingRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "missing")
+	p := validProfile()
+	if _, err := (Store{Root: root}).Update(p, "dev"); !errors.Is(err, ErrInvalidRoot) {
+		t.Fatalf("Update missing root = %v, want ErrInvalidRoot", err)
+	}
+	if _, err := (Store{Root: root}).Delete("dev", DeleteConfirmation("delete dev")); !errors.Is(err, ErrInvalidRoot) {
+		t.Fatalf("Delete missing root = %v, want ErrInvalidRoot", err)
+	}
+	if err := (Store{Root: root}).Restore("dev"); !errors.Is(err, ErrInvalidRoot) {
+		t.Fatalf("Restore missing root = %v, want ErrInvalidRoot", err)
+	}
+	if _, err := (Store{Root: root}).Read("dev"); !errors.Is(err, ErrInvalidRoot) {
+		t.Fatalf("Read missing root = %v, want ErrInvalidRoot", err)
 	}
 }
 
