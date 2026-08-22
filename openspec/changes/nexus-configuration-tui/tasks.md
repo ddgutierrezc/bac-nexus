@@ -48,5 +48,5 @@ First autonomous slice: Slice 1, which remains service-only if Charm admission f
 
 ## Phase 6: Readiness, Preview, and Platform Evidence
 
-- [ ] 6.1 RED: test offline local readiness exposes the `nexus serve` composition gap; warned remote diagnostics cancel/timeout, sanitize/audit, and retain both non-validation statuses.
-- [ ] 6.2 GREEN/REFACTOR: add read-only status and versioned `internal/integrationpreview/<client>` schema adapters; unknown versions fail closed, copy never writes files; GHA validates Windows atomic/credential builds and `go test -race ./...` without WDAC bypass.
+- [x] 6.1 RED: test offline local readiness exposes the `nexus serve` composition gap; warned remote diagnostics cancel/timeout, sanitize/audit, and retain both non-validation statuses.
+- [x] 6.2 GREEN/REFACTOR: add read-only status and versioned `internal/integrationpreview/<client>` schema adapters; unknown versions fail closed, copy never writes files; GHA validates Windows atomic/credential builds and `go test -race ./...` without WDAC bypass.

@@ -314,3 +314,54 @@ behavior, tests, dependencies, or Slice 4 implementation facts.
 
 - Parent settlement/merge of PR #78 must happen first; then Slice 6 may begin under a new explicit apply request.
 - No Slice 6 work starts before that settlement/merge.
+
+## Slice 6: Readiness, Diagnostics, and Integration Preview
+
+### Tasks Complete
+
+- [x] 6.1 RED: offline readiness, composition-gap disclosure, explicit diagnostic cancellation/timeout, sanitized audit, and non-validation status preservation tests were written before production implementation.
+- [x] 6.2 GREEN/REFACTOR: added local read-only readiness, bounded cancellable remote diagnostic outcomes, versioned Copilot/OpenCode preview adapters, unsupported-version rejection, deterministic payloads, and race verification workflow evidence.
+
+### Delivery Facts
+
+| Field | Value |
+|---|---|
+| Tasks complete | 1.1–1.3, 2.1–2.2, 3.1–3.2, 4.1–4.2, 5.1–5.2, 6.1–6.2 (13 of 13 total tasks complete) |
+| Work unit | `slice6-readiness-preview` |
+| Approved issue | #79 (`status:approved` + exactly one `type:feature` label) |
+| Pull request | #80, `feat/config-readiness-preview`, stacked-to-main; not merged by this apply |
+| Last validated Slice 6 baseline at correction start | `de92762bf842a77211620c202a94d5baaca6bba3` |
+| GitHub line accounting | 420 additions / 2 deletions across 9 files; 422 authored changed lines, under 1000; no exception |
+| Exact-head Go Verification baseline | Run `32555607084` PASS; includes `go test -count=1 ./...`, `go test -race ./...`, vet, formatting, cross-platform builds, and Windows profile verification |
+| Exact-head Charm admission baseline | Run `32555607102` PASS on macOS, Ubuntu, and Windows |
+| Local runtime | Not executed; WDAC blocks local Go runtime/test/vet/build evidence |
+| IBM i | No contact; `not_validated_on_ibmi` preserved |
+| Safety WIP | Preserved unchanged and unpushed at `safety/profile-recovery-wip@55ed60b73e4a5b612750c9b362d8485991191edb` |
+
+### TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| 6.1 | `internal/configuration/readiness_test.go` | Unit/in-process diagnostic boundary | Existing Slice 5 exact-head GHA `32553913784` PASS | Written before `readiness.go`; local execution prohibited | Last validated baseline GHA `32555607084` PASS | Offline gap, timeout, cancellation, sanitization, audit, and status-preservation cases | Pure typed result and sanitized finish boundary; race verification PASS |
+| 6.2 | `internal/integrationpreview/preview_test.go` | Unit/schema adapter | Existing Slice 5 exact-head GHA `32553913784` PASS | Written before preview adapters | Last validated baseline GHA `32555607084` PASS | Copilot/OpenCode determinism, unsupported versions, validation, and secret-free payload cases | Named payload types, no filesystem dependency, race verification PASS |
+
+### Work Unit Evidence
+
+| Evidence | Exact result |
+|---|---|
+| Focused test command and exact result | Last validated baseline GHA run `32555607084`: `go test -count=1 ./...` PASS and `go test -race ./...` PASS. Local Go execution was prohibited by WDAC. |
+| Runtime harness command/scenario and exact result | Last validated baseline GHA run `32555607084` PASS: readiness/diagnostic unit harness, preview adapter tests, race-enabled suite, Windows profile verification, vet, formatting, and cross-platform builds. Charm admission baseline run `32555607102` PASS on macOS/Ubuntu/Windows. No remote IBM i or external-client configuration was contacted or modified. |
+| Rollback boundary | Revert Slice 6 commits `194187d8..723f0c1`, remove `internal/configuration/readiness.go`, its tests, `internal/integrationpreview/**`, and the race-workflow step; preserve Slices 1–5, existing `nexus serve` composition, and safety WIP. |
+
+### Scope Controls
+
+- Local readiness is deterministic and offline; it explicitly reports the existing production `nexus serve` recovery/resolver/acquirer/lease composition gap and does not repair it.
+- Remote diagnostics are only available through explicit caller invocation, bounded by context and timeout, and return sanitized classifications without live-validation claims.
+- Integration is preview/copy only; adapters return deterministic client-specific payloads and perform no external configuration writes or secret handling.
+- No MCP stdio lifecycle, arbitrary SSH/SQL/shell, IBM i live validation, persistent audit history/sink, or safety-WIP changes were introduced.
+
+### Next Routing
+
+- This artifact-only correction follows the last validated Slice 6 baseline `de92762bf842a77211620c202a94d5baaca6bba3`; it changes evidence wording only and does not revalidate or modify production behavior.
+- Parent must settle/merge PR #80 first using the supplied native transaction; this apply does not acquire, settle, reset, or merge native state.
+- After settlement/merge, run the final `sdd-verify` only; do not archive from apply.
