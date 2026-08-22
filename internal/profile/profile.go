@@ -19,6 +19,7 @@ import (
 
 const appDirectory = "BAC Nexus"
 const maxProfileBytes = 16 * 1024
+const MaxListLimit = 128
 
 type CredentialMode string
 type HostKeyTrust string

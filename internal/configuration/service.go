@@ -32,6 +32,11 @@ import (
 // Delete.
 type ProfilesStore interface {
 	Save(p profile.Profile) (string, error)
+	List(limit int) ([]profile.Profile, error)
+	Read(name string) (profile.Profile, error)
+	Update(p profile.Profile, previousName string) (profile.ProfileUpdateResult, error)
+	Delete(name string, confirmation profile.DeleteConfirmation) (profile.ProfileDeleteResult, error)
+	Restore(name string) error
 }
 
 // VaultsStore is the consumer-owned vault persistence seam. Future
@@ -133,6 +138,79 @@ func (s *Service) Configure(ctx context.Context) error {
 		return err
 	}
 	return s.deps.runSetup(ctx)
+}
+
+func (s *Service) ListProfiles(ctx context.Context, limit int) ([]profile.Profile, error) {
+	if err := s.deps.validate(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if limit < 1 || limit > profile.MaxListLimit {
+		return nil, errors.New("list profile limit is out of range")
+	}
+	return s.deps.Profiles.List(limit)
+}
+
+func (s *Service) ReadProfile(ctx context.Context, name string) (profile.Profile, error) {
+	if err := s.deps.validate(); err != nil {
+		return profile.Profile{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return profile.Profile{}, err
+	}
+	return s.deps.Profiles.Read(name)
+}
+
+func (s *Service) UpdateProfile(ctx context.Context, p profile.Profile, previousName string) (profile.ProfileUpdateResult, error) {
+	if err := s.deps.validate(); err != nil {
+		return profile.ProfileUpdateResult{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return profile.ProfileUpdateResult{}, err
+	}
+	if err := p.Validate(); err != nil {
+		return profile.ProfileUpdateResult{}, fmt.Errorf("update profile: %w", err)
+	}
+	if previousName == "" || previousName != p.Name {
+		return profile.ProfileUpdateResult{}, errors.New("update profile target is invalid")
+	}
+	return s.deps.Profiles.Update(p, previousName)
+}
+
+// DeleteProfile coordinates the two exact decisions. The profile store owns
+// only profile recovery; credential deletion remains an independent outcome.
+func (s *Service) DeleteProfile(ctx context.Context, name string, profileConfirmation profile.DeleteConfirmation, credentialConfirmation profile.CredentialDeleteConfirmation) (profile.ProfileDeleteResult, error) {
+	if err := s.deps.validate(); err != nil {
+		return profile.ProfileDeleteResult{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return profile.ProfileDeleteResult{}, err
+	}
+	if profileConfirmation != profile.DeleteConfirmation("delete "+name) {
+		return profile.ProfileDeleteResult{}, errors.New("profile deletion was not confirmed")
+	}
+	if credentialConfirmation != "" && credentialConfirmation != profile.CredentialDeleteConfirmation("delete credential "+name) {
+		return profile.ProfileDeleteResult{}, errors.New("credential deletion was not confirmed")
+	}
+	result, err := s.deps.Profiles.Delete(name, profileConfirmation)
+	if err != nil {
+		return profile.ProfileDeleteResult{}, err
+	}
+	if credentialConfirmation == "" {
+		return result, nil
+	}
+	deleted, err := s.deps.Vaults.Delete(name)
+	if err == nil && deleted {
+		result.CredentialOutcome = profile.CredentialOutcomeDeleted
+		return result, nil
+	}
+	result.CredentialOutcome = profile.CredentialOutcomeFailed
+	if restoreErr := s.deps.Profiles.Restore(name); restoreErr != nil {
+		return result, errors.New("credential deletion failed; profile recovery unavailable")
+	}
+	return result, errors.New("credential deletion failed; profile restored")
 }
 
 // runSetup is the extracted setup orchestration. Future slices

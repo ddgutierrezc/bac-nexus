@@ -12,13 +12,36 @@ import (
 	"strings"
 )
 
-const maxListLimit = 128
+const maxListLimit = MaxListLimit
 
 var (
 	ErrInvalidRoot         = errors.New("invalid profile store root")
 	ErrInvalidUpdateTarget = errors.New("invalid profile update target")
 	ErrProfileNotFound     = errors.New("profile not found")
 )
+
+// DeleteConfirmation is the exact, case-sensitive confirmation required
+// before a profile is moved to its retained backup.
+type DeleteConfirmation string
+
+// CredentialDeleteConfirmation is deliberately separate from
+// DeleteConfirmation so profile deletion never implies credential deletion.
+type CredentialDeleteConfirmation string
+
+type CredentialOutcome string
+
+const (
+	CredentialOutcomeUntouched CredentialOutcome = "untouched"
+	CredentialOutcomeDeleted   CredentialOutcome = "deleted"
+	CredentialOutcomeFailed    CredentialOutcome = "failed"
+)
+
+// ProfileDeleteResult contains only sanitized durable outcomes.
+type ProfileDeleteResult struct {
+	Deleted           bool
+	BackupPath        string
+	CredentialOutcome CredentialOutcome
+}
 
 // ProfileUpdateResult describes only the durable outcome of an update.
 // It intentionally contains no filesystem path or profile field.
@@ -153,6 +176,100 @@ func (s Store) Update(p Profile, previousName string) (ProfileUpdateResult, erro
 	return ProfileUpdateResult{ReplacementCommitted: true, PreviousBackup: previousName + ".bak", FileReplaced: true}, nil
 }
 
+// Read loads a profile while mapping all not-found and invalid-name cases to
+// the sanitized ErrProfileNotFound classification.
+func (s Store) Read(name string) (Profile, error) {
+	if !namePattern.MatchString(name) {
+		return Profile{}, ErrProfileNotFound
+	}
+	if err := s.verifyRoot(); err != nil {
+		return Profile{}, err
+	}
+	p, err := s.Load(name)
+	if errors.Is(err, os.ErrNotExist) {
+		return Profile{}, ErrProfileNotFound
+	}
+	if err != nil {
+		return Profile{}, fmt.Errorf("read profile: %w", ErrProfileNotFound)
+	}
+	return p, nil
+}
+
+// Delete requires an exact confirmation, validates the existing live and
+// backup entries, then moves the live profile to its in-root backup. The
+// native credential is intentionally not touched here.
+func (s Store) Delete(name string, confirmation DeleteConfirmation) (ProfileDeleteResult, error) {
+	if !namePattern.MatchString(name) || confirmation != DeleteConfirmation("delete "+name) {
+		return ProfileDeleteResult{}, ErrProfileNotFound
+	}
+	if err := s.verifyRoot(); err != nil {
+		return ProfileDeleteResult{}, err
+	}
+	live := filepath.Join(s.Root, name+".json")
+	backup := filepath.Join(s.Root, name+".bak")
+	if err := s.requireRegular(live); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return ProfileDeleteResult{}, ErrProfileNotFound
+		}
+		return ProfileDeleteResult{}, fmt.Errorf("delete profile: %w", ErrInvalidUpdateTarget)
+	}
+	if err := s.requireOptionalRegular(backup); err != nil {
+		return ProfileDeleteResult{}, fmt.Errorf("delete profile: %w", ErrInvalidUpdateTarget)
+	}
+	if err := s.atomicReplace(live, backup); err != nil {
+		return ProfileDeleteResult{}, errors.New("delete profile: backup unavailable")
+	}
+	return ProfileDeleteResult{Deleted: true, BackupPath: name + ".bak", CredentialOutcome: CredentialOutcomeUntouched}, nil
+}
+
+// Restore moves the retained backup back to the live profile after a
+// downstream operation fails. Both paths must remain safe in the store root.
+func (s Store) Restore(name string) error {
+	if !namePattern.MatchString(name) {
+		return ErrProfileNotFound
+	}
+	if err := s.verifyRoot(); err != nil {
+		return err
+	}
+	live := filepath.Join(s.Root, name+".json")
+	backup := filepath.Join(s.Root, name+".bak")
+	if err := s.requireRegular(backup); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return ErrProfileNotFound
+		}
+		return fmt.Errorf("restore profile: %w", ErrInvalidUpdateTarget)
+	}
+	if err := s.requireOptionalRegular(live); err != nil {
+		return fmt.Errorf("restore profile: %w", ErrInvalidUpdateTarget)
+	}
+	if err := s.atomicReplace(backup, live); err != nil {
+		return errors.New("restore profile failed")
+	}
+	return nil
+}
+
+func (s Store) requireRegular(path string) error {
+	if !s.inRoot(path) {
+		return ErrInvalidUpdateTarget
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 {
+		return ErrInvalidUpdateTarget
+	}
+	return nil
+}
+
+func (s Store) requireOptionalRegular(path string) error {
+	err := s.requireRegular(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
 func (s Store) verifyRoot() error {
 	if s.Root == "" {
 		return ErrInvalidRoot
@@ -207,13 +324,19 @@ func (s Store) atomicReplace(source, destination string) error {
 	if !s.inRoot(source) || !s.inRoot(destination) {
 		return ErrInvalidUpdateTarget
 	}
+	if err := s.requireRegular(source); err != nil {
+		return err
+	}
 	if err := os.Rename(source, destination); err == nil {
 		return nil
 	} else if !errors.Is(err, os.ErrExist) {
 		return err
 	}
 	sidecar := destination + ".swap"
-	if info, err := os.Lstat(destination); err != nil || !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 {
+	if err := s.requireRegular(destination); err != nil {
+		return ErrInvalidUpdateTarget
+	}
+	if err := s.requireOptionalRegular(sidecar); err != nil {
 		return ErrInvalidUpdateTarget
 	}
 	if err := os.Rename(destination, sidecar); err != nil {
@@ -223,7 +346,10 @@ func (s Store) atomicReplace(source, destination string) error {
 		_ = os.Rename(sidecar, destination)
 		return err
 	}
-	return os.Remove(sidecar)
+	if err := os.Remove(sidecar); err != nil {
+		return errors.New("atomic replacement durability is ambiguous")
+	}
+	return nil
 }
 
 func (s Store) inRoot(path string) bool {
