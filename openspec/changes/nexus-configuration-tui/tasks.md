@@ -28,8 +28,8 @@ First autonomous slice: Slice 1, which remains service-only if Charm admission f
 
 ## Phase 2: Profile Recovery CRUD
 
-- [ ] 2.1 RED: add bounded List≤128/Create/Read/Update/Delete tests for validation, conflicts, sanitized outcomes, symlink/non-regular/in-root defenses, crash points, backup restore, and Windows atomic replacement.
-- [ ] 2.2 GREEN/REFACTOR: implement platform atomic replace/fsync/recovery and exact two-stage delete semantics; update behavior docs and run Slice 2 evidence.
+- [x] 2.1 RED: add bounded List≤128/Create/Read/Update/Delete tests for validation, conflicts, sanitized outcomes, symlink/non-regular/in-root defenses, crash points, backup restore, and Windows atomic replacement.
+- [x] 2.2 GREEN/REFACTOR: implement platform atomic replace/fsync/recovery and exact two-stage delete semantics; update behavior docs and run Slice 2 evidence.
 
 ## Phase 3: Credential and Trust Services
 
