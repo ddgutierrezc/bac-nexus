@@ -26,6 +26,7 @@ const (
 	screenDetail
 	screenForm
 	screenConfirm
+	screenSecurity
 )
 
 type profileStore interface {
@@ -64,6 +65,7 @@ type Model struct {
 	noColor  bool
 	status   string
 	err      error
+	security *SecurityModel
 }
 
 func NewModel(store configuration.ProfilesStore) Model {
@@ -71,6 +73,16 @@ func NewModel(store configuration.ProfilesStore) Model {
 	m.form = newFields(profile.Profile{})
 	return m
 }
+
+// NewModelWithSecurity enables the security child screen without changing
+// the default profile-only constructor used by existing callers.
+func NewModelWithSecurity(store configuration.ProfilesStore, ctx context.Context, services SecurityServices) Model {
+	m := NewModel(store)
+	m.security = ptrSecurityModel(NewSecurityModel(ctx, "", services))
+	return m
+}
+
+func ptrSecurityModel(model SecurityModel) *SecurityModel { return &model }
 
 func newFields(p profile.Profile) []field {
 	values := []struct{ label, value string }{
@@ -125,6 +137,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyMsg:
+		if m.screen == screenSecurity && m.security != nil {
+			if (msg.String() == "esc" || msg.String() == "b") && m.security.screen == securityMenu {
+				m.screen = screenDetail
+				return m, nil
+			}
+			updated, cmd := m.security.Update(msg)
+			security := updated.(SecurityModel)
+			m.security = &security
+			return m, cmd
+		}
 		if m.screen == screenForm {
 			return m.updateForm(msg)
 		}
@@ -169,6 +191,11 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.confirm = m.profiles[m.selected].Name
 				m.screen = screenConfirm
 			}
+		case "s":
+			if len(m.profiles) > 0 && m.security != nil {
+				security := NewSecurityModel(m.security.ctx, m.profiles[m.selected].Name, m.security.services)
+				m.security, m.screen = &security, screenSecurity
+			}
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		}
@@ -186,6 +213,8 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return operationMsg{text: "Profile deleted"}
 			}
 		}
+	case screenSecurity:
+		// Security child input is handled before shell dispatch.
 	}
 	return m, nil
 }
@@ -303,6 +332,10 @@ func (m Model) View() string {
 		b.WriteString("\nenter save  esc cancel\n")
 	case screenConfirm:
 		fmt.Fprintf(&b, "Delete profile %q?\nThis retains a recoverable backup.\n\ny confirm  n/esc cancel\n", m.confirm)
+	case screenSecurity:
+		if m.security != nil {
+			return m.security.View()
+		}
 	}
 	if m.status != "" {
 		b.WriteString("\nStatus: " + m.status + "\n")

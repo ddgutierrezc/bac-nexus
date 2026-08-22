@@ -43,8 +43,8 @@ First autonomous slice: Slice 1, which remains service-only if Charm admission f
 
 ## Phase 5: TUI Security Flows
 
-- [ ] 5.1 RED: test exact destructive confirmations, cancellation/timeouts, progress focus, credential status-only messages, and sentinel-secret absence from models/messages/views/snapshots/clipboard/previews.
-- [ ] 5.2 GREEN/REFACTOR: add credential, migration, trust and TOFU screens with typed outcomes only; update docs and run Slice 5 evidence.
+- [x] 5.1 RED: test exact destructive confirmations, cancellation/timeouts, progress focus, credential status-only messages, and sentinel-secret absence from models/messages/views/snapshots/clipboard/previews.
+- [x] 5.2 GREEN/REFACTOR: add credential, migration, trust and TOFU screens with typed outcomes only; update docs and run Slice 5 evidence.
 
 ## Phase 6: Readiness, Preview, and Platform Evidence
 
