@@ -3,6 +3,9 @@ module bac-nexus
 go 1.25.10
 
 require (
+	github.com/charmbracelet/bubbles v1.0.0
+	github.com/charmbracelet/bubbletea v1.3.10
+	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/modelcontextprotocol/go-sdk v1.2.0
 	github.com/pkg/sftp v1.13.9
 	github.com/zalando/go-keyring v0.2.8

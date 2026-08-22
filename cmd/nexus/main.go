@@ -17,14 +17,18 @@ import (
 
 	"bac-nexus/internal/app"
 	"bac-nexus/internal/audit"
+	"bac-nexus/internal/configuration"
 	"bac-nexus/internal/credential"
 	"bac-nexus/internal/mcp"
+	"bac-nexus/internal/profile"
 	"bac-nexus/internal/release"
 	"bac-nexus/internal/security"
+	"bac-nexus/internal/tui"
 )
 
 var releaseVersion = "dev"
 var vcsRevision = "unknown"
+var runConfigureTUI = tui.Run
 
 func main() {
 	err := runCommand(os.Args[1:], os.Stderr)
@@ -149,6 +153,8 @@ func runCommand(args []string, out io.Writer) error {
 	switch args[0] {
 	case "serve":
 		return runServe(args[1:], out)
+	case "configure":
+		return runConfigure(args[1:])
 	case "version":
 		return printVersion(args[1:], out)
 	default:
@@ -166,6 +172,7 @@ func printHelp(args []string, out io.Writer) error {
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "subcommands:")
 	fmt.Fprintln(out, "  serve    Run the typed stdio MCP server with the two allowed tools.")
+	fmt.Fprintln(out, "  configure Open the local profile configuration terminal UI.")
 	fmt.Fprintln(out, "  help     Show this help text or the help for a subcommand.")
 	fmt.Fprintln(out, "  version  Show the release version and VCS revision.")
 	return flag.ErrHelp
@@ -185,6 +192,18 @@ func printVersion(args []string, out io.Writer) error {
 	}
 	_, err := fmt.Fprintf(out, "nexus version=%s revision=%s\n", releaseVersion, vcsRevision)
 	return err
+}
+
+func runConfigure(args []string) error {
+	if len(args) != 0 {
+		return errors.New("configure accepts no arguments")
+	}
+	root, err := profile.DefaultRoot()
+	if err != nil {
+		return err
+	}
+	var store configuration.ProfilesStore = profile.Store{Root: root}
+	return runConfigureTUI(context.Background(), store)
 }
 
 func printServeHelp(out io.Writer) error {
