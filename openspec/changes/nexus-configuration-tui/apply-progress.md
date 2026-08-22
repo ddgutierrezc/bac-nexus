@@ -284,7 +284,7 @@ behavior, tests, dependencies, or Slice 4 implementation facts.
 | Approved issue | #77 (`status:approved` + exactly one `type:feature` label) |
 | Delivery | `feat/config-tui-security`, stacked-to-main after merged Slice 4 |
 | Last validated code/evidence baseline before Slice 5 | `e1df3eff6f62584d23c30a8cbbc8e283f7cd3b1e` (Slice 4 merge) |
-| Changed-line budget | Pending final GitHub snapshot; target remains under 1000 authored changed lines, no exception |
+| Changed-line budget | Baseline snapshot: 514 additions / 3 deletions across 5 files; 517 authored changed lines, under 1000, no exception |
 | Local runtime | Not executed; WDAC blocks local Go runtime/test/vet/build evidence |
 | IBM i | No contact; `not_validated_on_ibmi` preserved |
 | Safety WIP | Preserved unchanged and unpushed at `safety/profile-recovery-wip@55ed60b73e4a5b612750c9b362d8485991191edb` |
@@ -293,16 +293,16 @@ behavior, tests, dependencies, or Slice 4 implementation facts.
 
 | Task | Test file | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
 |---|---|---|---|---|---|---|---|
-| 5.1 | `internal/tui/security_test.go` | Unit / Bubble Tea `Update` | Existing Slice 4 GHA baseline `32553268802` PASS | Written first; local execution prohibited | Pending exact-head GitHub Actions | Cancellation, status-only outcome, warning/confirmation, and sentinel absence cases | Pending exact-head GitHub Actions |
-| 5.2 | `internal/tui/security_test.go`, `internal/tui/model.go` | Unit / child-model integration | Existing Slice 4 GHA baseline `32553268802` PASS | Written first; local execution prohibited | Pending exact-head GitHub Actions | Credential, migration, manual trust, TOFU, progress, and responsive views | Pending exact-head GitHub Actions |
+| 5.1 | `internal/tui/security_test.go` | Unit / Bubble Tea `Update` | Existing Slice 4 GHA baseline `32553268802` PASS | Written first; local execution prohibited | Baseline GHA `32553913784` PASS | Cancellation, status-only outcome, warning/confirmation, and sentinel absence cases | GHA baseline PASS; gofmt/diff check clean |
+| 5.2 | `internal/tui/security_test.go`, `internal/tui/model.go` | Unit / child-model integration | Existing Slice 4 GHA baseline `32553268802` PASS | Written first; local execution prohibited | Baseline GHA `32553913784` PASS | Credential, migration, manual trust, TOFU, progress, and responsive views | GHA baseline PASS; gofmt/diff check clean |
 
 ### Work Unit Evidence
 
 | Evidence | Result |
 |---|---|
-| Focused test command | Intended `go test -count=1 ./internal/tui ./internal/configuration`; local execution prohibited. Exact-head GitHub Actions result is recorded after publication. |
-| Runtime harness command/scenario | GitHub Actions Go verification for direct security-model navigation and outcome/cancellation scenarios; no local runtime and no IBM i contact. Exact run ID is recorded after publication. |
-| Rollback boundary | Revert Slice 5 security-screen commit(s) and the Slice 5 artifact/task updates only; preserve merged Slices 1–4 and the safety WIP. |
+| Focused test command | Intended `go test -count=1 ./internal/tui ./internal/configuration`; local execution prohibited. Exact-head baseline GHA Go Verification `32553913784` passed repository verification, including the focused TUI/configuration behavior. |
+| Runtime harness command/scenario | Exact-head baseline GHA `32553913784` PASS; direct Bubble Tea Update security navigation, typed outcomes, cancellation, and no-secret assertions executed. Charm admission `32553913803` PASS on macOS, Ubuntu, and Windows; no IBM i contact. |
+| Rollback boundary | Revert Slice 5 code/test commit `e7a6004` and the Slice 5 task/apply-progress publication only; preserve merged Slices 1–4 and the safety WIP. |
 
 ### Scope Controls
 
