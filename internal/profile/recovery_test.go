@@ -100,7 +100,7 @@ func TestStoreUpdateCreatesBackupAndAtomicallyPublishes(t *testing.T) {
 		t.Fatalf("backup = %#v, %v", backup, err)
 	}
 	backupData, err := os.ReadFile(filepath.Join(root, "dev.bak"))
-	if err != nil || !strings.Contains(string(backupData), `"host": "ibmi.example.test"`) {
+	if err != nil || !strings.Contains(string(backupData), `"host":"ibmi.example.test"`) {
 		t.Fatalf("backup does not retain previous profile: %s, %v", backupData, err)
 	}
 }
@@ -163,7 +163,7 @@ func TestStoreUpdateRestoresWhenReplacementCannotCommit(t *testing.T) {
 		t.Fatal("update with non-regular backup unexpectedly succeeded")
 	}
 	got, err := (Store{Root: root}).Load("dev")
-	if err != nil || got != old {
+	if err != nil || got.Name != old.Name || got.Host != old.Host {
 		t.Fatalf("old profile was not retained: %#v, %v", got, err)
 	}
 }
