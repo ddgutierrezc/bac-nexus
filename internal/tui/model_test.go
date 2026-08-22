@@ -84,6 +84,43 @@ func TestModelDetailDeleteAndBack(t *testing.T) {
 	}
 }
 
+func TestModelDeleteRequiresExactOperatorConfirmation(t *testing.T) {
+	store := &profileStoreStub{profiles: []profile.Profile{testProfile("dev")}}
+	m := NewModel(store)
+	updated, _ := m.Update(profilesMsg{profiles: store.profiles})
+	updated, _ = updated.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	m = updated.(Model)
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	if updated.(Model).screen != screenConfirm || store.deleted != "" {
+		t.Fatal("single-key confirmation triggered deletion")
+	}
+	m = NewModel(store)
+	updated, _ = m.Update(profilesMsg{profiles: store.profiles})
+	updated, _ = updated.(Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	m = updated.(Model)
+	m.confirmInput.SetValue("delete dev")
+	updated = m
+	updated, cmd = updated.(Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil || cmd() == nil || store.deleted != "dev" {
+		t.Fatalf("exact confirmation did not delete profile: cmd=%v deleted=%q", cmd != nil, store.deleted)
+	}
+}
+
+func TestModelCreateReloadsCommittedProfile(t *testing.T) {
+	store := &profileStoreStub{}
+	m := NewModel(store)
+	p := testProfile("created")
+	store.profiles = append(store.profiles, p)
+	updated, cmd := m.Update(operationMsg{text: "Profile created"})
+	if cmd == nil || updated.(Model).screen != screenList {
+		t.Fatal("create completion did not schedule a list reload")
+	}
+	updated, _ = updated.(Model).Update(cmd())
+	if !strings.Contains(updated.(Model).View(), "created") {
+		t.Fatalf("reloaded profile missing from view: %q", updated.(Model).View())
+	}
+}
+
 func TestModelResizeAndNoColorView(t *testing.T) {
 	m := NewModel(&profileStoreStub{})
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 20, Height: 8})

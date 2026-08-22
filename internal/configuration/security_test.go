@@ -64,7 +64,7 @@ func TestCredentialServiceReturnsOpaqueLifecycleOutcomes(t *testing.T) {
 	if err != nil || result != CredentialOutcomeRotated || store.set != 2 {
 		t.Fatalf("Rotate() = %q, %v; sets=%d", result, err, store.set)
 	}
-	result, err = service.Delete(context.Background(), "dev", "delete dev")
+	result, err = service.Delete(context.Background(), "dev", "delete credential dev")
 	if err != nil || result != CredentialOutcomeDeleted || store.deleted != 1 {
 		t.Fatalf("Delete() = %q, %v; deletes=%d", result, err, store.deleted)
 	}
@@ -75,7 +75,7 @@ func TestCredentialServiceFailsClosedForInvalidSecretInputAndUnavailableStore(t 
 	if _, err := service.Set(context.Background(), "dev"); !errors.Is(err, ErrCredentialUnavailable) {
 		t.Fatalf("Set() error = %v, want unavailable", err)
 	}
-	if _, err := service.Delete(context.Background(), "dev", "delete dev"); !errors.Is(err, ErrCredentialUnavailable) {
+	if _, err := service.Delete(context.Background(), "dev", "delete credential dev"); !errors.Is(err, ErrCredentialUnavailable) {
 		t.Fatalf("Delete() error = %v, want unavailable", err)
 	}
 }

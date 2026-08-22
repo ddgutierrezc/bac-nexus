@@ -34,6 +34,8 @@ type SecurityServices interface {
 	Delete(context.Context, string, string) (configuration.CredentialOutcome, error)
 	Migrate(context.Context, string, bool) (configuration.CredentialOutcome, error)
 	EnrollManual(context.Context, string, string, string, string) (configuration.TrustOutcome, error)
+	InspectTOFU(context.Context, string) (string, error)
+	EnrollTOFU(context.Context, string, string, string) (configuration.TrustOutcome, error)
 	InspectAndEnroll(context.Context, string, bool, string) (configuration.TrustOutcome, error)
 }
 
@@ -42,21 +44,27 @@ type securityOutcomeMsg struct {
 	text string
 	err  error
 }
+type tofuObservationMsg struct {
+	evidence string
+	err      error
+}
 
 // SecurityModel contains only non-secret form values and typed operation
 // results. Secret bytes never enter commands, messages, or rendered views.
 type SecurityModel struct {
-	ctx      context.Context
-	profile  string
-	services SecurityServices
-	screen   securityScreen
-	status   credential.Presence
-	text     string
-	err      error
-	width    int
-	height   int
-	trust    [3]textinput.Model
-	cancel   context.CancelFunc
+	ctx          context.Context
+	profile      string
+	services     SecurityServices
+	screen       securityScreen
+	status       credential.Presence
+	text         string
+	err          error
+	width        int
+	height       int
+	trust        [3]textinput.Model
+	confirm      textinput.Model
+	tofuEvidence string
+	cancel       context.CancelFunc
 }
 
 func NewSecurityModel(ctx context.Context, profileName string, services SecurityServices) SecurityModel {
@@ -70,6 +78,7 @@ func NewSecurityModel(ctx context.Context, profileName string, services Security
 		m.trust[i].Prompt = label + ": "
 		m.trust[i].CharLimit = 256
 	}
+	m.confirm = newConfirmationInput()
 	m.trust[0].Focus()
 	return m
 }
@@ -105,6 +114,18 @@ func (m SecurityModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.screen = securityResult
 		m.text, m.err = msg.text, msg.err
 		return m, nil
+	case tofuObservationMsg:
+		if m.cancel != nil {
+			m.cancel()
+			m.cancel = nil
+		}
+		if msg.err != nil {
+			m.screen, m.err = securityResult, msg.err
+			return m, nil
+		}
+		m.tofuEvidence, m.err, m.screen = msg.evidence, nil, securityConfirmTOFU
+		m.confirm = newConfirmationInput()
+		return m, nil
 	case tea.KeyMsg:
 		return m.updateSecurityKey(msg)
 	}
@@ -128,6 +149,11 @@ func (m SecurityModel) updateSecurityKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.err = nil
 		return m, nil
 	}
+	if (m.screen == securityConfirmCredential || m.screen == securityConfirmTOFU) && key != "enter" && key != "n" {
+		var cmd tea.Cmd
+		m.confirm, cmd = m.confirm.Update(msg)
+		return m, cmd
+	}
 	switch m.screen {
 	case securityMenu:
 		switch key {
@@ -143,21 +169,30 @@ func (m SecurityModel) updateSecurityKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			})
 		case "d":
 			m.screen = securityConfirmCredential
+			m.confirm = newConfirmationInput()
 		case "m":
 			m.screen = securityConfirmMigration
 		case "t":
 			m.screen = securityTrust
 		case "o":
-			m.screen = securityConfirmTOFU
+			if m.services == nil {
+				return m, nil
+			}
+			ctx, cancel := context.WithTimeout(m.ctx, securityOperationTimeout)
+			m.cancel, m.screen, m.err = cancel, securityProgress, nil
+			return m, func() tea.Msg {
+				evidence, err := m.services.InspectTOFU(ctx, m.profile)
+				return tofuObservationMsg{evidence: evidence, err: err}
+			}
 		}
 	case securityConfirmCredential:
-		if key == "y" || key == "enter" {
+		if key == "enter" && strings.TrimSpace(m.confirm.Value()) == "delete credential "+m.profile {
 			return m.start(func(ctx context.Context) (string, error) {
-				outcome, err := m.services.Delete(ctx, m.profile, "delete "+m.profile)
+				outcome, err := m.services.Delete(ctx, m.profile, "delete credential "+m.profile)
 				return "Credential " + string(outcome), err
 			})
 		}
-		if key == "n" {
+		if key == "n" || key == "esc" {
 			m.screen = securityMenu
 		}
 	case securityConfirmMigration:
@@ -171,14 +206,13 @@ func (m SecurityModel) updateSecurityKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.screen = securityMenu
 		}
 	case securityConfirmTOFU:
-		if key == "y" || key == "enter" {
+		if key == "enter" && strings.TrimSpace(m.confirm.Value()) == "enroll "+m.tofuEvidence {
 			return m.start(func(ctx context.Context) (string, error) {
-				confirmation := strings.TrimSpace(m.trust[2].Value())
-				outcome, err := m.services.InspectAndEnroll(ctx, m.profile, true, confirmation)
+				outcome, err := m.services.EnrollTOFU(ctx, m.profile, m.tofuEvidence, strings.TrimSpace(m.confirm.Value()))
 				return "Host key " + string(outcome), err
 			})
 		}
-		if key == "n" {
+		if key == "n" || key == "esc" {
 			m.screen = securityMenu
 		}
 	case securityTrust:
@@ -254,12 +288,11 @@ func (m SecurityModel) View() string {
 	case securityProgress:
 		b.WriteString("Operation in progress; esc cancels.\n")
 	case securityConfirmCredential:
-		b.WriteString("Delete this profile credential? Type y only for exact confirmation.\n")
+		b.WriteString("Delete this profile credential? Type delete credential " + m.profile + " exactly, then press enter.\n" + m.confirm.View() + "\n")
 	case securityConfirmMigration:
 		b.WriteString("Migrate the legacy credential vault? Type y only after review.\n")
 	case securityConfirmTOFU:
-		b.WriteString("WARNING: remote inspection is unverified TOFU. Enter the observed fingerprint, then type y.\n")
-		b.WriteString(m.trust[2].View() + "\n")
+		b.WriteString("WARNING: remote inspection is unverified TOFU. Observed evidence:\n" + m.tofuEvidence + "\nType enroll " + m.tofuEvidence + " exactly, then press enter.\n" + m.confirm.View() + "\n")
 	case securityTrust:
 		b.WriteString("Manual verified host-key enrollment\n")
 		for i := range m.trust {

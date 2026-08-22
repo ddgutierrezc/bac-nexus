@@ -142,7 +142,7 @@ func (s Store) Update(p Profile, previousName string) (ProfileUpdateResult, erro
 		return ProfileUpdateResult{}, errors.New("update profile: serialization failed")
 	}
 	data = append(data, '\n')
-	if err := s.atomicReplace(live, backup); err != nil {
+	if err := s.replaceFile(live, backup); err != nil {
 		return ProfileUpdateResult{}, errors.New("update profile: backup failed")
 	}
 	restored := false
@@ -153,7 +153,7 @@ func (s Store) Update(p Profile, previousName string) (ProfileUpdateResult, erro
 		_, _ = os.Stat(live)
 	}()
 	restore := func() {
-		_ = s.atomicReplace(backup, live)
+		_ = s.replaceFile(backup, live)
 		restored = true
 	}
 	temp, err := s.writeTemp(data)
@@ -161,7 +161,7 @@ func (s Store) Update(p Profile, previousName string) (ProfileUpdateResult, erro
 		restore()
 		return ProfileUpdateResult{}, errors.New("update profile: temporary write failed")
 	}
-	if err := s.atomicReplace(temp, live); err != nil {
+	if err := s.replaceFile(temp, live); err != nil {
 		_ = os.Remove(temp)
 		restore()
 		return ProfileUpdateResult{}, errors.New("update profile: replacement failed")
@@ -350,6 +350,13 @@ func (s Store) atomicReplace(source, destination string) error {
 		return errors.New("atomic replacement durability is ambiguous")
 	}
 	return nil
+}
+
+func (s Store) replaceFile(source, destination string) error {
+	if s.replace != nil {
+		return s.replace(source, destination)
+	}
+	return s.atomicReplace(source, destination)
 }
 
 func (s Store) inRoot(path string) bool {

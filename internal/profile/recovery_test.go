@@ -168,6 +168,30 @@ func TestStoreUpdateRestoresWhenReplacementCannotCommit(t *testing.T) {
 	}
 }
 
+func TestStoreUpdateRestoresAfterReplacementStarts(t *testing.T) {
+	root := t.TempDir()
+	old := recoveryProfile("dev")
+	writeRecoveryProfile(t, root, old)
+	updated := old
+	updated.Host = "new.example.test"
+	store := Store{Root: root}
+	calls := 0
+	store.replace = func(source, destination string) error {
+		calls++
+		if calls == 2 {
+			return errors.New("injected replacement failure")
+		}
+		return store.atomicReplace(source, destination)
+	}
+	if _, err := store.Update(updated, "dev"); err == nil {
+		t.Fatal("replacement failure unexpectedly succeeded")
+	}
+	got, err := store.Load("dev")
+	if err != nil || got.Host != old.Host {
+		t.Fatalf("replacement failure did not restore old profile: %#v, %v", got, err)
+	}
+}
+
 func TestStoreDeleteRequiresExactConfirmationAndRetainsBackup(t *testing.T) {
 	root := t.TempDir()
 	store := Store{Root: root}
