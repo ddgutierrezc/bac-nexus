@@ -366,6 +366,36 @@ behavior, tests, dependencies, or Slice 4 implementation facts.
 - Parent must settle/merge PR #80 first using the supplied native transaction; this apply does not acquire, settle, reset, or merge native state.
 - After settlement/merge, run the final `sdd-verify` only; do not archive from apply.
 
+## Remediation Evidence Settlement (Current PR Head)
+
+| Field | Exact result |
+|---|---|
+| Remediation PR | #84, `fix/nexus-config-tui-remediation`, open; historical PR #82 remains open and untouched |
+| Head / base | `8128519dc01175660cdd0d1087d7821e2f816891` / `dd2f89f2b18fcf3a81cadb9946552aa9ba16289d` |
+| Commits | `1a5a839`, `e8ba815`, `1d5d1e2`, `6510e84`, `8128519` |
+| GitHub accounting | 338 additions, 79 deletions, 13 files, 417 authored changed lines; under 1000; exactly one label `type:bug` |
+| Focused/full GHA | Run `32575666248` PASS: `go test -count=1 ./...`; all packages including TUI, configuration, profile, preview, and ownership passed |
+| Race GHA | Run `32575666248` PASS: `go test -race ./...`; `internal/ownership/sqlite` PASS, including deterministic cancellation test |
+| Windows runtime GHA | Run `32575666248`, job `profile-windows` PASS |
+| Charm admission GHA | Run `32575666245` PASS on macOS, Ubuntu, and Windows |
+| Local runtime | Not executed; WDAC prohibits local Go test/vet/build/runtime evidence |
+
+### Final Remediation Work Unit Evidence
+
+| Evidence | Exact result |
+|---|---|
+| Focused test command and exact result | GHA run `32575666248`: `go test -count=1 ./...` PASS |
+| Runtime harness command/scenario and exact result | GHA run `32575666248`: TUI exact-confirmation and two-step TOFU runtime tests, profile replacement restoration, preview copy-only proof, and ledger cancellation race path PASS; Windows profile job PASS; admission run `32575666245` PASS on all three platforms |
+| Rollback boundary | Revert PR #84 commits only; removes exact-confirmation/TOFU seams, remediation tests, ledger wait seam, and additive evidence while preserving PR #82, 13/13 task history, Slices 1–6, and safety WIP |
+
+### Current TDD Closure
+
+The five deficient areas now have current RED/GREEN/REFACTOR records above.
+Historical RED metadata remains explicitly unproven rather than invented.
+Distinct settlement evidence is the exact PR #84 head and GHA revisions above;
+the parent must pass the failed verification revision binding separately and
+must not treat this apply as final verification.
+
 ## Maintainer-Authorized Bounded Remediation
 
 ### Binding and Scope
