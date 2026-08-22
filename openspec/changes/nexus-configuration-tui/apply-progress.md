@@ -330,10 +330,10 @@ behavior, tests, dependencies, or Slice 4 implementation facts.
 | Work unit | `slice6-readiness-preview` |
 | Approved issue | #79 (`status:approved` + exactly one `type:feature` label) |
 | Pull request | #80, `feat/config-readiness-preview`, stacked-to-main; not merged by this apply |
-| Artifact-publication head | `18d1277559bddd8e13e543d52bef6e4ae356ac79` |
+| Artifact-publication head | `6b6f209e3f1a933c023ec9e20247faeab278b874` |
 | GitHub line accounting | 420 additions / 2 deletions across 9 files; 422 authored changed lines, under 1000; no exception |
-| Exact-head Go Verification | Run `32555243405` PASS; includes `go test -count=1 ./...`, `go test -race ./...`, vet, formatting, cross-platform builds, and Windows profile verification |
-| Exact-head Charm admission | Run `32555243410` PASS on macOS, Ubuntu, and Windows |
+| Exact-head Go Verification | Run `32555407176` PASS after one transient SQLite contention retry; includes `go test -count=1 ./...`, `go test -race ./...`, vet, formatting, cross-platform builds, and Windows profile verification |
+| Exact-head Charm admission | Run `32555407140` PASS on macOS, Ubuntu, and Windows |
 | Local runtime | Not executed; WDAC blocks local Go runtime/test/vet/build evidence |
 | IBM i | No contact; `not_validated_on_ibmi` preserved |
 | Safety WIP | Preserved unchanged and unpushed at `safety/profile-recovery-wip@55ed60b73e4a5b612750c9b362d8485991191edb` |
@@ -349,8 +349,8 @@ behavior, tests, dependencies, or Slice 4 implementation facts.
 
 | Evidence | Exact result |
 |---|---|
-| Focused test command and exact result | `go test -count=1 ./...` — exact-head GHA run `32555243405` PASS; `go test -race ./...` — same exact-head run PASS. Local Go execution was prohibited by WDAC. |
-| Runtime harness command/scenario and exact result | Exact-head GHA run `32555243405` PASS: readiness/diagnostic unit harness, preview adapter tests, race-enabled suite, Windows profile verification, vet, formatting, and cross-platform builds. Charm admission run `32555243410` PASS on macOS/Ubuntu/Windows. No remote IBM i or external-client configuration was contacted or modified. |
+| Focused test command and exact result | `go test -count=1 ./...` — exact-head GHA run `32555407176` PASS; `go test -race ./...` — same exact-head run PASS after one transient unrelated SQLite contention retry. Local Go execution was prohibited by WDAC. |
+| Runtime harness command/scenario and exact result | Exact-head GHA run `32555407176` PASS: readiness/diagnostic unit harness, preview adapter tests, race-enabled suite, Windows profile verification, vet, formatting, and cross-platform builds. Charm admission run `32555407140` PASS on macOS/Ubuntu/Windows. No remote IBM i or external-client configuration was contacted or modified. |
 | Rollback boundary | Revert Slice 6 commits `194187d8..723f0c1`, remove `internal/configuration/readiness.go`, its tests, `internal/integrationpreview/**`, and the race-workflow step; preserve Slices 1–5, existing `nexus serve` composition, and safety WIP. |
 
 ### Scope Controls
