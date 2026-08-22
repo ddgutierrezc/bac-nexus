@@ -58,8 +58,23 @@ gofmt -l .  # must produce no output
 
 GitHub Actions is the canonical runtime evidence; local Windows Defender Application Control may block the test binary and is not bypassed.
 
+## Release versioning
+
+Releases are identified by an **annotated Git SemVer tag** such as `v0.2.0`; a version is not maintained in application source.
+
+1. Review and clean the intended release commit first.
+2. Create and push its annotated SemVer tag only as an explicit release decision.
+3. Tag CI validates the tag and injects its version plus the commit SHA through Go ldflags. It produces verified artifacts only; publishing a GitHub Release is a separate explicit decision.
+
+Plain local builds display `dev`. For a non-release local preview in PowerShell:
+
+```powershell
+go build -ldflags "-X main.releaseVersion=v0.0.0-preview -X main.vcsRevision=local" -o nexus.exe ./cmd/nexus
+```
+
 ## Documentation
 
+- [DESIGN.md](DESIGN.md) — canonical terminal design system for the local TUI.
 - [docs/SECURITY.md](docs/SECURITY.md) — security boundary, trust model, recovery lifecycle, incident guidance.
 - [openspec/changes/v1-mcp-foundation/](openspec/changes/v1-mcp-foundation/) — the SDD proposal, design, specs, and tasks that produced this code.
 - [AGENTS.md](AGENTS.md) — agent context, engineering rules, and reference projects.

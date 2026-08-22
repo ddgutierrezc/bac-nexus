@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*'
 
 permissions:
   contents: read
@@ -26,6 +28,24 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Validate release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
+            exit 0
+          fi
+          git fetch --no-tags --depth=1 origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          if [[ "$(git cat-file -t "refs/tags/${GITHUB_REF_NAME}")" != "tag" ]]; then
+            echo "release tags must be annotated Git tags"
+            exit 1
+          fi
+          release_tag_pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*)|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(\.((0|[1-9][0-9]*)|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$'
+          if [[ ! "${GITHUB_REF_NAME}" =~ ${release_tag_pattern} ]]; then
+            echo "release tags must be SemVer: vMAJOR.MINOR.PATCH or a standard prerelease"
+            exit 1
+          fi
 
       - name: Run tests
         run: go test -count=1 ./...
@@ -55,6 +75,10 @@ jobs:
           assert all(marker in text for marker in required)
           assert not any(marker in text for marker in forbidden)
           assert 'only exact recorded owned paths' in text
+          workflow = Path('.github/workflows/go-verification.yml').read_text(encoding='utf-8')
+          assert 'git fetch --no-tags --depth=1 origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"' in workflow
+          assert 'git cat-file -t "refs/tags/${GITHUB_REF_NAME}"' in workflow
+          assert 'release_tag_pattern=' in workflow
           PY
 
       - name: Build and verify handoff package
