@@ -33,8 +33,8 @@ First autonomous slice: Slice 1, which remains service-only if Charm admission f
 
 ## Phase 3: Credential and Trust Services
 
-- [ ] 3.1 RED: prove Status/Set/Rotate/Delete/Migrate opaque outcomes, 1–4096 bounds, explicit readback migration, fixed `/usr/bin/security` macOS Keychain stdin transport, deterministic Windows/Linux failures, and a separate secret-free clipboard preview/copy adapter that never receives credential material.
-- [ ] 3.2 GREEN/REFACTOR: implement transient `SecretInput`, native status/migration, manual verified and warned timed/cancellable TOFU enrollment, and fail-closed `host_key_changed`; document and run Slice 3 evidence.
+- [x] 3.1 RED: prove Status/Set/Rotate/Delete/Migrate opaque outcomes, 1–4096 bounds, explicit readback migration, fixed `/usr/bin/security` macOS Keychain stdin transport, deterministic Windows/Linux failures, and a separate secret-free clipboard preview/copy adapter that never receives credential material.
+- [x] 3.2 GREEN/REFACTOR: implement transient `SecretInput`, native status/migration, manual verified and warned timed/cancellable TOFU enrollment, and fail-closed `host_key_changed`; document and run Slice 3 evidence.
 
 ## Phase 4: TUI Shell and Profile CRUD
 

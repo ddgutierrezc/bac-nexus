@@ -45,6 +45,7 @@ type Profile struct {
 	Username           string         `json:"username"`
 	HostKeyFingerprint string         `json:"hostKeyFingerprint"`
 	HostKeyTrust       HostKeyTrust   `json:"hostKeyTrust"`
+	HostKeyProvenance  string         `json:"hostKeyProvenance,omitempty"`
 	JavaHome           string         `json:"javaHome,omitempty"`
 	MapepireJAR        string         `json:"mapepireJar,omitempty"`
 	CredentialMode     CredentialMode `json:"credentialMode"`
@@ -71,6 +72,9 @@ func (p Profile) Validate() error {
 	}
 	if p.CredentialMode != CredentialModeVault && p.CredentialMode != CredentialModePrompt {
 		return errors.New("credential mode must be vault or prompt")
+	}
+	if len(p.HostKeyProvenance) > 128 || strings.ContainsAny(p.HostKeyProvenance, "\x00\r\n") {
+		return errors.New("host-key provenance is invalid")
 	}
 	return nil
 }
@@ -195,7 +199,7 @@ func (s Store) Load(name string) (Profile, error) {
 	if len(data) > maxProfileBytes {
 		return Profile{}, errors.New("profile exceeds byte limit")
 	}
-	if err := strictjson.ValidateObjectKeys(data, "name", "host", "port", "username", "hostKeyFingerprint", "hostKeyTrust", "javaHome", "mapepireJar", "credentialMode"); err != nil {
+	if err := strictjson.ValidateObjectKeys(data, "name", "host", "port", "username", "hostKeyFingerprint", "hostKeyTrust", "hostKeyProvenance", "javaHome", "mapepireJar", "credentialMode"); err != nil {
 		return Profile{}, fmt.Errorf("decode profile: %w", err)
 	}
 	var p Profile

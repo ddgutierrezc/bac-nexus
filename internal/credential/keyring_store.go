@@ -9,6 +9,18 @@ const nativeService = "BAC Nexus"
 
 var ErrCredentialsUnavailable = errors.New("credentials_unavailable")
 
+type Presence string
+
+const (
+	PresencePresent     Presence = "present"
+	PresenceAbsent      Presence = "absent"
+	PresenceUnavailable Presence = "unavailable"
+)
+
+type StatusStore interface {
+	Status(profile string) (Presence, error)
+}
+
 // CredentialStore permits only exact, profile-scoped native credential operations.
 type CredentialStore interface {
 	Get(profile string) ([]byte, error)
@@ -50,6 +62,26 @@ func (s *KeyringStore) Get(profile string) ([]byte, error) {
 		return nil, ErrCredentialsUnavailable
 	}
 	return []byte(secret), nil
+}
+
+func (s *KeyringStore) Status(profile string) (Presence, error) {
+	account, err := nativeAccount(profile)
+	if err != nil || s.native == nil {
+		return PresenceUnavailable, nil
+	}
+	secret, err := s.native.Get(nativeService, account)
+	if err != nil {
+		return PresenceUnavailable, nil
+	}
+	value := []byte(secret)
+	defer Zero(value)
+	if len(value) == 0 {
+		return PresenceAbsent, nil
+	}
+	if !validSecret(value) {
+		return PresenceUnavailable, nil
+	}
+	return PresencePresent, nil
 }
 
 func (s *KeyringStore) Set(profile string, secret []byte) error {
@@ -112,3 +144,4 @@ func validSecret(secret []byte) bool {
 }
 
 var _ CredentialStore = (*KeyringStore)(nil)
+var _ StatusStore = (*KeyringStore)(nil)

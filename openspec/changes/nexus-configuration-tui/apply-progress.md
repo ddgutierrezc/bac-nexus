@@ -150,3 +150,63 @@ exact post-merge `main` head.
 |---|---|---|---|
 | 2.1 | GHA exact-head contract tests admitted the new recovery/delete scenarios | GHA full suite and Windows profile suite PASS | Tests use bounded temp roots, typed outcomes, cancellation, and leakage assertions |
 | 2.2 | Contract failures were addressed before final implementation evidence | GHA full suite, vet, formatting, and Windows profile evidence PASS | Narrow `ProfilesStore` recovery seam; no TUI, MCP, Slice 3 lifecycle, or IBM i contact |
+
+## Slice 3: Credential Lifecycle and Explicit Host Trust
+
+### Tasks Complete
+
+- [x] 3.1 RED: credential lifecycle/status, bounded transient input, migration, platform transport, deterministic failure, and secret-free clipboard contracts.
+- [x] 3.2 GREEN/REFACTOR: native status/lifecycle orchestration, manual verified enrollment, warned cancellable TOFU inspection/enrollment, provenance persistence, and fail-closed host-key mismatch.
+
+### Delivery Facts
+
+| Field | Value |
+|---|---|
+| Tasks complete | 1.1, 1.2, 1.3, 2.1, 2.2, 3.1, 3.2 (7 of 13 total tasks complete) |
+| Work unit | `slice3-credential-trust-services` |
+| Approved issue | #73 (`status:approved` + `type:feature`) |
+| Pull request | #74, `feat/config-security-services`, stacked to `main` |
+| Implementation commits | `25ca9a1`, `97097f8`, `69afb6e` |
+| Last validated Slice 3 code/evidence head at artifact-correction start | `87906ed576981e03862e06c132d8837beef2d2a9` |
+| Validated PR snapshot at correction start | 498 additions / 3 deletions; under 1000; no exception |
+| PR label | `type:feature` |
+| GHA verify at correction start | Run `32551316744`, Ubuntu `verify` PASS and Windows `profile-windows` PASS |
+| GHA admission at correction start | Run `32551316724`, macOS/Ubuntu/Windows admission PASS |
+| GHA keyring gate at correction start | Run `32551316689`, macOS/Ubuntu/Windows keyring evaluation PASS |
+| Local runtime | Not executed; WDAC blocks local Go test binaries |
+| IBM i | No contact; `not_validated_on_ibmi` preserved |
+| Safety WIP | Preserved intact and unpushed at `safety/profile-recovery-wip@55ed60b` |
+
+The head above is the last validated Slice 3 code/evidence head when this
+artifact correction began. The artifact-only correction commit necessarily
+follows that head; this record does not claim that the baseline remains the
+current PR head. The correction changes only SDD evidence and routing.
+
+### TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| 3.1 | `internal/configuration/security_test.go`, existing `internal/credential/keyring_store_red_test.go` | Unit | N/A for new configuration contract; existing credential tests covered by GHA | ✅ Written before production implementation; local execution prohibited by WDAC | ✅ Baseline GHA run `32551316744` at validated head `87906ed576981e03862e06c132d8837beef2d2a9` — `go test -count=1 ./...` PASS | ✅ Present/absent/unavailable, set/rotate/delete, migration confirmation, and bounded opaque outcomes | ✅ Secret input zeroization boundary and no credential material in outcomes |
+| 3.2 | `internal/configuration/security_test.go` | Unit/in-process contract | Existing profile/remote suites passed in GHA | ✅ Written before service implementation | ✅ Baseline GHA run `32551316744` at validated head `87906ed576981e03862e06c132d8837beef2d2a9` — `go test -count=1 ./...` PASS | ✅ Manual verified enrollment, warned TOFU inspection, exact confirmation, and mismatch | ✅ Atomic profile update seam, persisted non-secret provenance, no TUI/MCP/serve changes |
+
+### Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | Baseline GHA run `32551316744` at validated head `87906ed576981e03862e06c132d8837beef2d2a9`: `go test -count=1 ./...` PASS; configuration, credential, profile, and remote packages passed |
+| Runtime harness command/scenario and exact result | Baseline GHA exact-head matrix: Ubuntu `verify` PASS (`https://github.com/ddgutierrezc/bac-nexus/actions/runs/32551316744`), Windows `profile-windows` PASS; admission PASS on macOS/Ubuntu/Windows (`https://github.com/ddgutierrezc/bac-nexus/actions/runs/32551316724`); keyring gate PASS on macOS/Ubuntu/Windows (`https://github.com/ddgutierrezc/bac-nexus/actions/runs/32551316689`); no IBM i contact |
+| Rollback boundary | Revert PR #74 / commits `25ca9a1..69afb6e`; removes only Slice 3 credential/trust services, native status classification, and host-key provenance/mismatch additions while preserving Slices 1–2 and the safety WIP |
+
+### Scope and Security Notes
+
+- Credential lifecycle results are opaque; transient input is bounded to 1–4096 bytes and zeroized best-effort after use.
+- Native status does not return credential bytes; unavailable stores fail closed without vault or remote fallback.
+- Manual enrollment requires verified provenance; TOFU inspection requires warning plus exact confirmation and persists only non-secret fingerprint/trust/provenance through atomic profile update.
+- Inspection never persists trust, and changed fingerprints return `host_key_changed` before remote discovery.
+- No TUI screens, Bubble Tea rendering, MCP wiring, `nexus serve` composition, arbitrary SSH/SQL/shell, or live IBM i validation were added.
+
+### Next Routing
+
+- Parent settles the supplied native attempt using the exact post-correction PR-head GHA evidence and decides the approved merge lifecycle for PR #74.
+- Only after settlement/merge is complete: start Slice 4 under a new explicit apply request.
+- Slice 4 is not started by this correction; no TUI screens or production behavior are changed.
