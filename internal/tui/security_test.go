@@ -101,7 +101,7 @@ func TestSecurityModelRequiresExactCredentialConfirmationAndSupportsCancellation
 		t.Fatalf("delete did not enter credential confirmation: %v", updated.(SecurityModel).screen)
 	}
 	updated, cmd := updated.(SecurityModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
-	if cmd != nil || updated.(SecurityModel).screen != securityConfirmCredential || services.deleted != "" {
+	if updated.(SecurityModel).screen != securityConfirmCredential || services.deleted != "" {
 		t.Fatal("single-key credential confirmation triggered deletion")
 	}
 	updated, cmd = updated.(SecurityModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
@@ -154,8 +154,7 @@ func TestSecurityModelShowsStatusAndTrustActionsWithoutPersistingInspection(t *t
 func TestSecurityModelTOFUShowsEvidenceBeforeExactEnrollment(t *testing.T) {
 	services := &securityServiceStub{status: credential.PresenceAbsent}
 	m := NewSecurityModel(context.Background(), "dev", services)
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
-	updated, cmd := updated.(SecurityModel).Update(tea.KeyEnter)
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
 	if cmd == nil || updated.(SecurityModel).screen != securityProgress {
 		t.Fatal("TOFU inspection did not start as a separate step")
 	}
