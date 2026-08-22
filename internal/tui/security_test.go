@@ -104,7 +104,7 @@ func TestSecurityModelRequiresExactCredentialConfirmationAndSupportsCancellation
 	if cmd != nil || updated.(SecurityModel).screen != securityConfirmCredential || services.deleted != "" {
 		t.Fatal("single-key credential confirmation triggered deletion")
 	}
-	updated, cmd := updated.(SecurityModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	updated, cmd = updated.(SecurityModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
 	if cmd != nil || updated.(SecurityModel).screen != securityMenu {
 		t.Fatalf("cancel did not return safely: screen=%v cmd=%v", updated.(SecurityModel).screen, cmd != nil)
 	}
