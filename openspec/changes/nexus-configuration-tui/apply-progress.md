@@ -225,12 +225,13 @@ current PR head. The correction changes only SDD evidence and routing.
 | Tasks complete | 1.1, 1.2, 1.3, 2.1, 2.2, 3.1, 3.2, 4.1, 4.2 (9 of 13 total tasks complete) |
 | Work unit | `slice4-shell-crud` |
 | Approved issue | #75 (`status:approved` + exactly one `type:feature` label) |
-| Pull request | #76, `feat/config-tui-crud`, stacked to `main` |
+| Pull request | #76, `feat/config-tui-crud`, stacked to `main`, merged as `e1df3eff6f62584d23c30a8cbbc8e283f7cd3b1e` |
 | Last validated Slice 4 code/evidence baseline at correction start | `915e1d3c9af3f6ff3a8369096243cc444654640d` |
 | Baseline GitHub line accounting | 583 additions / 3 deletions; 586 changed lines, under the 1000-line budget and without exception |
 | Baseline GHA Go Verification | Run `32552676370` — PASS |
 | Baseline GHA Charm admission | Run `32552676360` — PASS on macOS, Ubuntu, and Windows |
 | Baseline GHA keyring gate | Run `32552676372` — PASS on macOS, Ubuntu, and Windows |
+| Post-merge GHA Go Verification | Run `32553268802` — PASS on merged main `e1df3eff6f62584d23c30a8cbbc8e283f7cd3b1e` |
 | Local runtime | Not executed; WDAC blocks local Go test binaries |
 | IBM i | No contact; `not_validated_on_ibmi` preserved |
 | Safety WIP | Preserved unchanged and unpushed at `safety/profile-recovery-wip@55ed60b73e4a5b612750c9b362d8485991191edb` |
@@ -266,3 +267,50 @@ behavior, tests, dependencies, or Slice 4 implementation facts.
 - Parent settlement/merge of PR #76 must happen first.
 - Only after parent settlement and merge is complete may Slice 5 security screens begin under a new explicit apply request.
 - Slice 6 readiness, diagnostics, and integration preview remain out of scope.
+
+## Slice 5: TUI Security Flows
+
+### Tasks Complete
+
+- [x] 5.1 RED: exact confirmations, cancellation, timeout-bounded progress, status-only messages, and secret-isolation tests were written before production implementation.
+- [x] 5.2 GREEN/REFACTOR: credential lifecycle, migration, manual trust, and warned TOFU screens use typed outcomes and a secret-free child-model boundary.
+
+### Delivery Facts
+
+| Field | Value |
+|---|---|
+| Tasks complete | 1.1–1.3, 2.1–2.2, 3.1–3.2, 4.1–4.2, 5.1–5.2 (11 of 13 total tasks complete) |
+| Work unit | `slice5-security-screens` |
+| Approved issue | #77 (`status:approved` + exactly one `type:feature` label) |
+| Delivery | `feat/config-tui-security`, stacked-to-main after merged Slice 4 |
+| Last validated code/evidence baseline before Slice 5 | `e1df3eff6f62584d23c30a8cbbc8e283f7cd3b1e` (Slice 4 merge) |
+| Changed-line budget | Baseline snapshot: 514 additions / 3 deletions across 5 files; 517 authored changed lines, under 1000, no exception |
+| Local runtime | Not executed; WDAC blocks local Go runtime/test/vet/build evidence |
+| IBM i | No contact; `not_validated_on_ibmi` preserved |
+| Safety WIP | Preserved unchanged and unpushed at `safety/profile-recovery-wip@55ed60b73e4a5b612750c9b362d8485991191edb` |
+
+### TDD Cycle Evidence
+
+| Task | Test file | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| 5.1 | `internal/tui/security_test.go` | Unit / Bubble Tea `Update` | Existing Slice 4 GHA baseline `32553268802` PASS | Written first; local execution prohibited | Baseline GHA `32553913784` PASS | Cancellation, status-only outcome, warning/confirmation, and sentinel absence cases | GHA baseline PASS; gofmt/diff check clean |
+| 5.2 | `internal/tui/security_test.go`, `internal/tui/model.go` | Unit / child-model integration | Existing Slice 4 GHA baseline `32553268802` PASS | Written first; local execution prohibited | Baseline GHA `32553913784` PASS | Credential, migration, manual trust, TOFU, progress, and responsive views | GHA baseline PASS; gofmt/diff check clean |
+
+### Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command | Intended `go test -count=1 ./internal/tui ./internal/configuration`; local execution prohibited. Exact-head baseline GHA Go Verification `32553913784` passed repository verification, including the focused TUI/configuration behavior. |
+| Runtime harness command/scenario | Exact-head baseline GHA `32553913784` PASS; direct Bubble Tea Update security navigation, typed outcomes, cancellation, and no-secret assertions executed. Charm admission `32553913803` PASS on macOS, Ubuntu, and Windows; no IBM i contact. |
+| Rollback boundary | Revert Slice 5 code/test commit `e7a6004` and the Slice 5 task/apply-progress publication only; preserve merged Slices 1–4 and the safety WIP. |
+
+### Scope Controls
+
+- No Slice 6 readiness, diagnostics, integration preview, or platform evidence.
+- No arbitrary SSH/SQL/shell, external-client writes, `nexus serve` composition changes, MCP lifecycle changes, or live IBM i validation.
+- The committed baseline wording identifies the last validated code/evidence baseline; later artifact publication head is reported externally rather than mislabeled as that baseline.
+
+### Next Routing
+
+- Parent settlement/merge of PR #78 must happen first; then Slice 6 may begin under a new explicit apply request.
+- No Slice 6 work starts before that settlement/merge.
