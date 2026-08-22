@@ -371,13 +371,13 @@ behavior, tests, dependencies, or Slice 4 implementation facts.
 | Field | Exact result |
 |---|---|
 | Remediation PR | #84, `fix/nexus-config-tui-remediation`, open; historical PR #82 remains open and untouched |
-| Head / base | `8128519dc01175660cdd0d1087d7821e2f816891` / `dd2f89f2b18fcf3a81cadb9946552aa9ba16289d` |
-| Commits | `1a5a839`, `e8ba815`, `1d5d1e2`, `6510e84`, `8128519` |
-| GitHub accounting | 338 additions, 79 deletions, 13 files, 417 authored changed lines; under 1000; exactly one label `type:bug` |
-| Focused/full GHA | Run `32575666248` PASS: `go test -count=1 ./...`; all packages including TUI, configuration, profile, preview, and ownership passed |
-| Race GHA | Run `32575666248` PASS: `go test -race ./...`; `internal/ownership/sqlite` PASS, including deterministic cancellation test |
-| Windows runtime GHA | Run `32575666248`, job `profile-windows` PASS |
-| Charm admission GHA | Run `32575666245` PASS on macOS, Ubuntu, and Windows |
+| Head / base | `3b709f2` / `dd2f89f2b18fcf3a81cadb9946552aa9ba16289d` |
+| Commits | `1a5a839`, `e8ba815`, `1d5d1e2`, `6510e84`, `8128519`, `3b709f2` |
+| GitHub accounting before this evidence refresh | 368 additions, 79 deletions, 13 files, 447 authored changed lines; under 1000; exactly one label `type:bug` |
+| Focused/full GHA | Run `32575851663` PASS: `go test -count=1 ./...`; all packages including TUI, configuration, profile, preview, and ownership passed |
+| Race GHA | Run `32575851663` PASS: `go test -race ./...`; `internal/ownership/sqlite` PASS, including deterministic cancellation test |
+| Windows runtime GHA | Run `32575851663`, job `profile-windows` PASS |
+| Charm admission GHA | Run `32575851651` PASS on macOS, Ubuntu, and Windows |
 | Local runtime | Not executed; WDAC prohibits local Go test/vet/build/runtime evidence |
 
 ### Final Remediation Work Unit Evidence
