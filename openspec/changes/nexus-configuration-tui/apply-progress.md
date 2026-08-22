@@ -126,21 +126,23 @@ exact post-merge `main` head.
 | PR | #72, stacked to `main`, exactly one `type:feature` label |
 | Implementation commits | `6f82514`, `ce5b9b1` |
 | PR head | `ce5b9b1b883f2c3288dc9c869b02143b7a17fc1f` |
-| Changed-line budget | 393 authored lines on the PR head; under 1000; no exception |
-| Focused GHA | Run `32549337316`: `go test -count=1 ./...`, `go vet ./...`, gofmt, and build checks PASS after one unrelated SQLite contention rerun |
-| Windows GHA | Run `32549337316`: `go test -count=1 ./internal/profile` and profile vet PASS |
-| Admission GHA | Run `32549337311`: macOS, Ubuntu, and Windows admission evidence PASS |
+| Changed-line budget | 476 authored changed lines on the PR snapshot; under 1000; no exception |
+| Pre-merge GHA | Run `32549594146`: Ubuntu full verification and Windows profile verification PASS |
+| Admission GHA | Run `32549594143`: macOS, Ubuntu, and Windows admission evidence PASS |
+| Squash merge | PR #72 merged as `a29e009de62c02737996070d1429ed80c5712969`; issue #69 closed |
+| Post-merge GHA | Run `32549710447`: Ubuntu full verification and Windows profile verification PASS |
 | Local runtime | Not executed; WDAC requires GHA-only runtime evidence |
 | Safety WIP | Preserved intact and unpushed at `safety/profile-recovery-wip@55ed60b`; no information was removed |
 | IBM i | No contact; `not_validated_on_ibmi` preserved |
+| Native settlement | Token `sha256:d15935433421f2901fecb794049ddaf3a61bc81582f2005d439f246b6c090d0f` settled exactly once as passed after authoritative evidence |
 
 ### Work Unit Evidence
 
 | Evidence | Result |
 |---|---|
-| Focused test command and exact result | GHA run `32549337316`, Ubuntu `go test -count=1 ./...`: PASS; configuration/profile packages PASS within full suite |
-| Runtime harness command/scenario and exact result | GHA run `32549337316`, Windows `go test -count=1 ./internal/profile`: PASS; no local runtime claim due WDAC |
-| Rollback boundary | Revert `6f82514..ce5b9b1` / PR #72 to remove only Slice 2B profile recovery and configuration coordination; preserve Slice 2A and safety WIP |
+| Focused test command and exact result | GHA run `32549594146`, Ubuntu `go test -count=1 ./...`: PASS; configuration/profile packages PASS within full suite |
+| Runtime harness command/scenario and exact result | GHA run `32549594146`, Windows `go test -count=1 ./internal/profile`: PASS; no local runtime claim due WDAC |
+| Rollback boundary | Revert PR #72 / squash merge `a29e009`; remove only Slice 2B profile recovery and configuration coordination while preserving Slice 2A and safety WIP |
 
 ### TDD Cycle Evidence
 
