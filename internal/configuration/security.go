@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/ddgutierrezc/bac-nexus/internal/credential"
-	"github.com/ddgutierrezc/bac-nexus/internal/profile"
-	"github.com/ddgutierrezc/bac-nexus/internal/remote"
+	"bac-nexus/internal/credential"
+	"bac-nexus/internal/profile"
+	"bac-nexus/internal/remote"
 )
 
 var (
