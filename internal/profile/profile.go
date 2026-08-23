@@ -33,7 +33,7 @@ const (
 )
 
 var (
-	namePattern        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+	namePattern        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 	userPattern        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._$#@-]{0,127}$`)
 	fingerprintPattern = regexp.MustCompile(`^SHA256:[A-Za-z0-9+/]{43}$`)
 	javaHomePattern    = regexp.MustCompile(`^/QOpenSys/QIBM/ProdData/JavaVM/[A-Za-z0-9._/-]+$`)
@@ -53,8 +53,8 @@ type Profile struct {
 }
 
 func (p Profile) Validate() error {
-	if !namePattern.MatchString(p.Name) {
-		return errors.New("profile name must use 1-64 letters, digits, dot, underscore, or hyphen")
+	if err := ValidateName(p.Name); err != nil {
+		return err
 	}
 	if err := ValidateEndpoint(p.Host, p.Port); err != nil {
 		return err
@@ -76,6 +76,16 @@ func (p Profile) Validate() error {
 	}
 	if len(p.HostKeyProvenance) > 128 || strings.ContainsAny(p.HostKeyProvenance, "\x00\r\n") {
 		return errors.New("host-key provenance is invalid")
+	}
+	return nil
+}
+
+// ValidateName applies the stable profile-name contract independently from
+// the remaining connection fields. Wizard steps use it before a full profile
+// exists, so the same syntax is enforced at every boundary.
+func ValidateName(name string) error {
+	if !namePattern.MatchString(name) {
+		return errors.New("profile name must use 1-64 ASCII letters or digits, then ASCII letters, digits, hyphen, or underscore")
 	}
 	return nil
 }

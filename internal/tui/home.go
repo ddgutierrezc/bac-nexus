@@ -172,7 +172,7 @@ func (m Model) renderShell() string {
 	separator := t.headerSeparator.Width(inner).Render(strings.Repeat("─", inner))
 	brand := m.renderBrand(inner, t)
 	body := m.renderBody(inner, t)
-	feedback := m.renderFeedback(inner)
+	feedback := m.renderFeedback(inner, t)
 	footer := m.renderFooter(inner, t)
 	footerSeparator := t.fieldsetBorder.Render(strings.Repeat("─", inner+2))
 	layout := t.shellLayout(inner)
@@ -541,9 +541,18 @@ func (m Model) renderBrand(width int, t homeTheme) string {
 
 func (m Model) renderFooter(width int, t homeTheme) string {
 	text := "↑/↓ navegar  •  Enter seleccionar  •  ? ayuda  •  q salir"
+	return renderFooterText(width, t, text, m.buildInfo)
+}
+
+// renderFooterText keeps every shell screen on the same centered command-bar
+// contract while hiding version metadata before it could collide with commands.
+func renderFooterText(width int, t homeTheme, text string, buildInfo BuildInfo) string {
+	if lipgloss.Width(text) > width {
+		return t.footer.Width(width).Align(lipgloss.Left).Render(fitHomeLine(text, width))
+	}
 	commandWidth := lipgloss.Width(text)
 	commandStart := max((width-commandWidth)/2, 0)
-	version := "BAC NEXUS " + m.buildInfo.Version
+	version := "BAC NEXUS " + buildInfo.Version
 	const footerVersionMargin = 2
 	if footerVersionMargin+lipgloss.Width(version) > commandStart {
 		return t.footer.Width(width).Align(lipgloss.Center).Render(text)
@@ -555,13 +564,15 @@ func (m Model) renderFooter(width int, t homeTheme) string {
 		strings.Repeat(" ", max(width-commandStart-commandWidth, 0))
 }
 
-func (m Model) renderFeedback(width int) string {
+// renderFeedback keeps contextual feedback semantically styled wherever the
+// shared shell is rendered. NO_COLOR retains its textual markers unchanged.
+func (m Model) renderFeedback(width int, t homeTheme) string {
 	var lines []string
 	if m.status != "" {
-		lines = append(lines, fitHomeLine("[--] "+m.status, width))
+		lines = append(lines, t.statusNeutral.Render(fitHomeLine("[--] "+m.status, width)))
 	}
 	if m.err != nil {
-		lines = append(lines, fitHomeLine("[ERR] "+sanitizeError(m.err), width))
+		lines = append(lines, t.statusError.Render(fitHomeLine("[ERR] "+sanitizeError(m.err), width)))
 	}
 	return strings.Join(lines, "\n")
 }

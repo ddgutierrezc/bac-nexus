@@ -27,6 +27,7 @@ const (
 	screenList
 	screenDetail
 	screenForm
+	screenProfileStep
 	screenConfirm
 	screenSecurity
 )
@@ -47,6 +48,10 @@ type operationMsg struct {
 	err  error
 }
 
+// profileStepAcceptedMsg is deliberately transport-free: later wizard steps
+// can consume the accepted draft without Step 1 persisting any profile data.
+type profileStepAcceptedMsg struct{ name string }
+
 type field struct {
 	label string
 	input textinput.Model
@@ -55,29 +60,33 @@ type field struct {
 // Model is the deterministic shell model. It contains profile metadata only;
 // credential material is intentionally not accepted by this adapter.
 type Model struct {
-	store             profileStore
-	screen            screen
-	profiles          []profile.Profile
-	selected          int
-	homeSelected      homeActionID
-	homeFocus         homeFocus
-	menuOffset        int
-	readinessOffset   int
-	homeMenuRows      []homeMenuRow
-	homeReadinessRows []string
-	profilesLoaded    bool
-	form              []field
-	formEdit          string
-	formReturn        screen
-	confirm           string
-	confirmInput      textinput.Model
-	width             int
-	height            int
-	noColor           bool
-	buildInfo         BuildInfo
-	status            string
-	err               error
-	security          *SecurityModel
+	store              profileStore
+	screen             screen
+	profiles           []profile.Profile
+	selected           int
+	homeSelected       homeActionID
+	homeFocus          homeFocus
+	menuOffset         int
+	readinessOffset    int
+	homeMenuRows       []homeMenuRow
+	homeReadinessRows  []string
+	profilesLoaded     bool
+	profilesLoadFailed bool
+	form               []field
+	formEdit           string
+	formReturn         screen
+	profileName        textinput.Model
+	profileFocus       profileStepFocus
+	profileDraftName   string
+	confirm            string
+	confirmInput       textinput.Model
+	width              int
+	height             int
+	noColor            bool
+	buildInfo          BuildInfo
+	status             string
+	err                error
+	security           *SecurityModel
 }
 
 // BuildInfo is the build identity supplied by the composition root. The TUI
@@ -102,6 +111,7 @@ func NewModelWithBuildInfo(store configuration.ProfilesStore, buildInfo BuildInf
 	}
 	m := Model{store: store, screen: screenHome, homeSelected: actionCreate, noColor: noColorEnabled(), buildInfo: buildInfo}
 	m.form = newFields(profile.Profile{})
+	m.profileName = newProfileNameInput()
 	return m
 }
 
@@ -162,15 +172,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case profilesMsg:
-		m.profiles, m.err, m.profilesLoaded = append([]profile.Profile(nil), msg.profiles...), nil, true
+		m.profiles, m.err, m.profilesLoaded, m.profilesLoadFailed = append([]profile.Profile(nil), msg.profiles...), nil, true, false
 		m.selected = clamp(m.selected, len(m.profiles))
 		return m, nil
 	case profileMsg:
 		m.profiles = replaceProfile(m.profiles, msg.profile)
 		m.screen, m.status, m.err = screenDetail, "Profile saved", nil
 		return m, nil
+	case profileStepAcceptedMsg:
+		m.profileDraftName = msg.name
+		return m, nil
 	case operationMsg:
 		m.status, m.err = msg.text, msg.err
+		if msg.err != nil && (msg.text == "Unable to load profiles" || msg.text == "Unable to refresh profiles") {
+			m.profilesLoaded, m.profilesLoadFailed = false, true
+		}
 		if msg.err == nil {
 			m.screen = screenList
 			return m, m.reload()
@@ -186,6 +202,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			security := updated.(SecurityModel)
 			m.security = &security
 			return m, cmd
+		}
+		if m.screen == screenProfileStep {
+			return m.updateProfileStep(msg)
 		}
 		if m.screen == screenForm {
 			return m.updateForm(msg)
@@ -239,7 +258,7 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.screen, m.status = screenList, ""
 				return m, m.reload()
 			case actionCreate:
-				m.beginForm(profile.Profile{}, screenHome)
+				m.beginProfileStep()
 			case actionExit:
 				return m, tea.Quit
 			}
@@ -315,6 +334,14 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Security child input is handled before shell dispatch.
 	}
 	return m, nil
+}
+
+func (m *Model) beginProfileStep() {
+	m.profileName = newProfileNameInput()
+	m.profileFocus = profileFocusName
+	m.profileDraftName = ""
+	m.status, m.err = "", nil
+	m.screen = screenProfileStep
 }
 
 func (m Model) selectedHomeAction() homeAction {
@@ -464,6 +491,8 @@ func (m Model) View() string {
 			fmt.Fprintf(&b, "%s: %s\n", m.form[i].label, m.form[i].input.View())
 		}
 		b.WriteString("\nenter save  esc cancel\n")
+	case screenProfileStep:
+		return m.renderProfileStep()
 	case screenConfirm:
 		fmt.Fprintf(&b, "Delete profile %q?\nThis retains a recoverable backup.\nType delete %s exactly, then press enter.\n%s\nn/esc cancel\n", m.confirm, m.confirm, m.confirmInput.View())
 	case screenSecurity:

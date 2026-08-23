@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"bac-nexus/internal/profile"
 	"bac-nexus/internal/strictjson"
 
 	"golang.org/x/crypto/argon2"
@@ -364,13 +365,8 @@ func (s Store) fileOps() *fileOperations {
 }
 
 func validateProfileName(name string) error {
-	if len(name) < 1 || len(name) > 64 || strings.ContainsAny(name, `/\\`) {
+	if err := profile.ValidateName(name); err != nil {
 		return errors.New("invalid credential profile name")
-	}
-	for i, r := range name {
-		if !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || (i > 0 && strings.ContainsRune("._-", r))) {
-			return errors.New("invalid credential profile name")
-		}
 	}
 	return nil
 }

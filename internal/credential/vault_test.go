@@ -186,6 +186,24 @@ func TestVaultCreateRotateStatusAndDelete(t *testing.T) {
 	}
 }
 
+func TestVaultUsesCanonicalProfileNameValidation(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		valid bool
+	}{
+		{"CRI400F-Dev_1", true},
+		{"CRI400F.Dev", false},
+		{"CRIñ400F", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := testStore(t).Set(tt.name, []byte("password"), []byte("master"), false)
+			if (err == nil) != tt.valid {
+				t.Fatalf("Set(%q) error = %v, want valid=%v", tt.name, err, tt.valid)
+			}
+		})
+	}
+}
+
 func TestVaultRotationReportsCommittedCleanupWarningAndRetriesCleanup(t *testing.T) {
 	store := testStore(t)
 	master := []byte("master")

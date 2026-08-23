@@ -66,6 +66,36 @@ func TestStoreListIsBoundedDeterministicAndSkipsUnsafeEntries(t *testing.T) {
 	}
 }
 
+func TestStoreRejectsDottedProfileNamesAtEveryBoundary(t *testing.T) {
+	root := t.TempDir()
+	store := Store{Root: root}
+	dotted := recoveryProfile("CRI400F.Dev")
+	if _, err := store.Save(dotted); err == nil {
+		t.Fatal("Save accepted a dotted profile name")
+	}
+	writeRecoveryProfile(t, root, dotted)
+	writeRecoveryProfile(t, root, recoveryProfile("CRI400FDev"))
+	listed, err := store.List(16)
+	if err != nil || len(listed) != 1 || listed[0].Name != "CRI400FDev" {
+		t.Fatalf("List() included dotted profile: %#v, %v", listed, err)
+	}
+	if _, err := store.Load(dotted.Name); err == nil {
+		t.Fatal("Load accepted a dotted profile name")
+	}
+	if _, err := store.Read(dotted.Name); !errors.Is(err, ErrProfileNotFound) {
+		t.Fatalf("Read dotted name error = %v", err)
+	}
+	if _, err := store.Update(dotted, dotted.Name); err == nil {
+		t.Fatal("Update accepted a dotted profile name")
+	}
+	if _, err := store.Delete(dotted.Name, DeleteConfirmation("delete "+dotted.Name)); !errors.Is(err, ErrProfileNotFound) {
+		t.Fatalf("Delete dotted name error = %v", err)
+	}
+	if err := store.Restore(dotted.Name); !errors.Is(err, ErrProfileNotFound) {
+		t.Fatalf("Restore dotted name error = %v", err)
+	}
+}
+
 func TestStoreListEmptyAndInvalidRootsFailClosed(t *testing.T) {
 	if got, err := (Store{Root: t.TempDir()}).List(1); err != nil || len(got) != 0 {
 		t.Fatalf("empty List() = %#v, %v", got, err)

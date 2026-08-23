@@ -47,6 +47,47 @@ func TestProfileValidation(t *testing.T) {
 	}
 }
 
+func TestValidateNameUsesStrictASCIIProfileContract(t *testing.T) {
+	valid64 := "A" + strings.Repeat("a", 63)
+	invalid65 := valid64 + "a"
+	for _, tt := range []struct {
+		name  string
+		value string
+		valid bool
+	}{
+		{"empty", "", false},
+		{"one letter", "A", true},
+		{"one digit", "1", true},
+		{"64 characters", valid64, true},
+		{"65 characters", invalid65, false},
+		{"letters and digits", "Cri400F9", true},
+		{"hyphen and underscore after first", "CRI-400_F", true},
+		{"leading hyphen", "-CRI", false},
+		{"leading underscore", "_CRI", false},
+		{"dot", "CRI.400", false},
+		{"internal whitespace", "CRI 400", false},
+		{"outer whitespace", " CRI400", false},
+		{"tab", "CRI\t400", false},
+		{"newline", "CRI\n400", false},
+		{"accent", "CRÍ400", false},
+		{"enye", "CRIñ400", false},
+		{"emoji", "CRI😀400", false},
+		{"slash", "CRI/400", false},
+		{"backslash", `CRI\400`, false},
+		{"punctuation", "CRI!400", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateName(tt.value)
+			if (err == nil) != tt.valid {
+				t.Fatalf("ValidateName(%q) error = %v, want valid=%v", tt.value, err, tt.valid)
+			}
+			if !tt.valid && err != nil && err.Error() != "profile name must use 1-64 ASCII letters or digits, then ASCII letters, digits, hyphen, or underscore" {
+				t.Fatalf("unexpected deterministic error: %v", err)
+			}
+		})
+	}
+}
+
 func TestStoreRoundTripUsesTemporaryRoot(t *testing.T) {
 	root := t.TempDir()
 	store := Store{Root: root}

@@ -18,6 +18,7 @@ const (
 	salmonMuted        = "#E8BCB9"
 	secondaryFixedDim  = "#C6C6C7"
 	tertiaryFixedDim   = "#C7C5CD"
+	successGreen       = "#86D993"
 	errorColor         = "#FFB4AB"
 )
 
@@ -98,7 +99,7 @@ func newHomeTheme(noColor bool) homeTheme {
 	t.selectedRow = lipgloss.NewStyle().Background(lipgloss.Color(insetSurface)).Bold(true)
 	t.selectedMarker = lipgloss.NewStyle().Foreground(lipgloss.Color(bacRed)).Bold(true)
 	t.selectedLabel = lipgloss.NewStyle().Foreground(lipgloss.Color(textPrimary)).Bold(true)
-	t.statusOK = lipgloss.NewStyle().Foreground(lipgloss.Color(tertiaryFixedDim))
+	t.statusOK = lipgloss.NewStyle().Foreground(lipgloss.Color(successGreen))
 	t.statusInfo = lipgloss.NewStyle().Foreground(lipgloss.Color(secondaryFixedDim))
 	t.statusWarning = lipgloss.NewStyle().Foreground(lipgloss.Color(salmonMuted))
 	t.statusError = lipgloss.NewStyle().Foreground(lipgloss.Color(errorColor))

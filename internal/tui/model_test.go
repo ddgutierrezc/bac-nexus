@@ -164,8 +164,8 @@ func TestHomeConditionalManageProfileAction(t *testing.T) {
 func TestHomeTransitionsToCreateProfile(t *testing.T) {
 	m := NewModel(&profileStoreStub{})
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if updated.(Model).screen != screenForm {
-		t.Fatalf("initial create focus did not enter form: screen = %v", updated.(Model).screen)
+	if updated.(Model).screen != screenProfileStep {
+		t.Fatalf("initial create focus did not enter profile step: screen = %v", updated.(Model).screen)
 	}
 	updated, _ = updated.(Model).Update(tea.KeyMsg{Type: tea.KeyEscape})
 	if updated.(Model).screen != screenHome {
@@ -522,7 +522,7 @@ func TestHomeHelpUpdatesOnlyBoundedFeedback(t *testing.T) {
 	}
 
 	const constrainedWidth = 24
-	feedback := model.renderFeedback(constrainedWidth)
+	feedback := model.renderFeedback(constrainedWidth, newHomeTheme(true))
 	if !strings.Contains(feedback, "Ayuda:") {
 		t.Fatalf("help feedback missing from constrained render: %q", feedback)
 	}

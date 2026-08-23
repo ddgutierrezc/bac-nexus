@@ -3,7 +3,8 @@ package integrationpreview
 import (
 	"encoding/json"
 	"errors"
-	"regexp"
+
+	"bac-nexus/internal/profile"
 )
 
 type Client string
@@ -23,10 +24,8 @@ type Preview struct {
 	Payload string
 }
 
-var profilePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
-
 func ValidateRequest(request Request) error {
-	if !profilePattern.MatchString(request.Profile) {
+	if profile.ValidateName(request.Profile) != nil {
 		return errors.New("integration preview requires a valid profile")
 	}
 	return nil
