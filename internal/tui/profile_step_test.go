@@ -232,12 +232,13 @@ func TestProfileStepEnterCancelAndFutureSeamDoNotSave(t *testing.T) {
 	accepted := cmd()
 	updated, _ = m.Update(accepted)
 	m = updated.(Model)
-	if m.screen != screenProfileStep || m.profileDraftName != "dev" || len(store.profiles) != 0 {
+	if m.screen != screenProfileConnection || m.profileDraftName != "dev" || len(store.profiles) != 0 {
 		t.Fatalf("accepted seam persisted or navigated: screen=%v draft=%q profiles=%d", m.screen, m.profileDraftName, len(store.profiles))
 	}
+	m = newProfileStepTestModel(store, 120, 40)
 	m.profileName.SetValue("bad name")
 	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if cmd != nil || updated.(Model).profileDraftName != "dev" {
+	if cmd != nil || updated.(Model).profileDraftName != "" {
 		t.Fatal("invalid continue must be a no-op")
 	}
 	m.profileFocus = profileFocusCancel
@@ -387,8 +388,11 @@ func TestProfileStepVisualRhythmAndPanelCap(t *testing.T) {
 		t.Run(fmt.Sprintf("%dx%d", tt.width, tt.height), func(t *testing.T) {
 			model := newProfileStepTestModel(&profileStoreStub{}, tt.width, tt.height)
 			compact := model.View()
-			if lipgloss.Height(compact) > tt.height || lipgloss.Width(compact) > tt.width || !strings.Contains(compact, "[") || !strings.Contains(compact, "]") || !strings.Contains(compact, "[ CONTINUAR ]") {
+			if lipgloss.Height(compact) > tt.height || lipgloss.Width(compact) > tt.width {
 				t.Fatalf("responsive input/actions failed at %dx%d: %q", tt.width, tt.height, compact)
+			}
+			if tt.width < 120 && tt.height >= 24 && !strings.Contains(compact, "▼ más") {
+				t.Fatalf("constrained wizard must disclose hidden controls: %q", compact)
 			}
 			for _, line := range strings.Split(compact, "\n") {
 				if lipgloss.Width(line) > tt.width {
@@ -438,4 +442,30 @@ func boolCount(value bool) int {
 		return 1
 	}
 	return 0
+}
+
+func TestWizardInitialFocusIsVisibleAt40x16(t *testing.T) {
+	for _, noColor := range []bool{true, false} {
+		t.Run("render", func(t *testing.T) {
+			m := newProfileStepTestModel(&profileStoreStub{}, 40, 16)
+			m.noColor = noColor
+			m.profilesLoaded = true
+			m.refreshWizardViewport()
+			if !strings.Contains(m.View(), "Nombre") {
+				t.Fatalf("Step 1 focused input is clipped:\n%s", m.View())
+			}
+			m.profileName.SetValue("dev")
+			u, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			m = u.(Model)
+			u, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			if cmd == nil {
+				t.Fatal("Step 1 transition seam missing")
+			}
+			u, _ = u.(Model).Update(cmd())
+			m = u.(Model)
+			if !strings.Contains(m.View(), "Host") {
+				t.Fatalf("Step 2 focused input is clipped:\n%s", m.View())
+			}
+		})
+	}
 }

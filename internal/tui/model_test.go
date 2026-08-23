@@ -11,14 +11,17 @@ import (
 	"bac-nexus/internal/profile"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 type profileStoreStub struct {
-	profiles []profile.Profile
-	deleted  string
+	profiles  []profile.Profile
+	deleted   string
+	saveCalls int
 }
 
 func (s *profileStoreStub) Save(p profile.Profile) (string, error) {
+	s.saveCalls++
 	s.profiles = append(s.profiles, p)
 	return p.Name + ".json", nil
 }
@@ -134,6 +137,43 @@ func TestHomeInitialFocusIsCreateAndHeaderTransitionsTruthfully(t *testing.T) {
 	withProfiles, _ := loaded.(Model).Update(profilesMsg{profiles: []profile.Profile{testProfile("dev")}})
 	if !strings.Contains(withProfiles.(Model).View(), "PERFIL: SIN SELECCIONAR") {
 		t.Fatalf("present-profiles header must show SIN SELECCIONAR: %q", withProfiles.(Model).View())
+	}
+}
+
+func TestHomeFeedbackRemainsReachableAndBoundedAt40x16(t *testing.T) {
+	previous := lipgloss.ColorProfile()
+	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })
+	for _, noColor := range []bool{true, false} {
+		t.Run(fmt.Sprintf("no-color=%v", noColor), func(t *testing.T) {
+			if noColor {
+				lipgloss.SetColorProfile(termenv.Ascii)
+			} else {
+				lipgloss.SetColorProfile(termenv.TrueColor)
+			}
+			m := NewModel(&profileStoreStub{})
+			m.noColor = noColor
+			m.status = "[--] Feedback funcional con palabras largas que debe conservarse completo"
+			updated, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 16})
+			view := updated.(Model).View()
+			compact := strings.NewReplacer(" ", "", "\n", "").Replace(view)
+			if strings.Contains(view, "…") || !strings.Contains(compact, "conservarsecompleto") {
+				t.Fatalf("functional feedback was truncated:\n%s", view)
+			}
+			for _, line := range strings.Split(view, "\n") {
+				if lipgloss.Width(line) > 40 {
+					t.Fatalf("line overflowed: %q", line)
+				}
+			}
+			if lipgloss.Height(view) > 16 {
+				t.Fatalf("home height = %d", lipgloss.Height(view))
+			}
+			if noColor && strings.Contains(view, "\x1b[") {
+				t.Fatal("NO_COLOR render contains ANSI")
+			}
+			if !noColor && !strings.Contains(view, "\x1b[") {
+				t.Fatal("true-color render lacks ANSI")
+			}
+		})
 	}
 }
 

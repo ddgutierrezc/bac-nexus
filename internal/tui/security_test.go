@@ -9,6 +9,7 @@ import (
 	"bac-nexus/internal/configuration"
 	"bac-nexus/internal/credential"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type securityServiceStub struct {
@@ -61,7 +62,9 @@ func (s *securityServiceStub) InspectAndEnroll(_ context.Context, name string, w
 }
 
 func (s *securityServiceStub) InspectTOFU(context.Context, string) (string, error) {
-	s.evidence = "SHA256:observed"
+	if s.evidence == "" {
+		s.evidence = "SHA256:observed"
+	}
 	return s.evidence, nil
 }
 func (s *securityServiceStub) EnrollTOFU(_ context.Context, name, evidence, confirmation string) (configuration.TrustOutcome, error) {
@@ -171,6 +174,79 @@ func TestSecurityModelTOFUShowsEvidenceBeforeExactEnrollment(t *testing.T) {
 	}
 	if _, ok := cmd().(securityOutcomeMsg); !ok || !services.inspected {
 		t.Fatal("TOFU enrollment did not complete with opaque outcome")
+	}
+}
+
+func TestSecurityViewportKeepsFunctionalContentReachableAtNarrowSizes(t *testing.T) {
+	for _, size := range []struct{ width, height int }{{80, 24}, {40, 16}} {
+		t.Run("size", func(t *testing.T) {
+			services := &securityServiceStub{status: credential.PresenceAbsent, evidence: strings.Repeat("SHA256:observed-evidence ", 60)}
+			m := NewSecurityModel(context.Background(), "profile-with-a-long-name", services)
+			updated, _ := m.Update(tea.WindowSizeMsg{Width: size.width, Height: size.height})
+			m = updated.(SecurityModel)
+			view := m.View()
+			updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+			if cmd == nil {
+				t.Fatal("TOFU inspection did not start")
+			}
+			updated, _ = updated.(SecurityModel).Update(cmd())
+			m = updated.(SecurityModel)
+			view = m.View()
+			if !strings.Contains(view, "▼ más") {
+				t.Fatalf("initial hidden content has no disclosure:\n%s", view)
+			}
+			for _, line := range strings.Split(view, "\n") {
+				if lipgloss.Width(line) > size.width {
+					t.Fatalf("line overflowed %d: %q", size.width, line)
+				}
+			}
+			seen := view
+			for i := 0; i < 120; i++ {
+				updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+				m = updated.(SecurityModel)
+				seen += "\n" + m.View()
+			}
+			view = m.View()
+			for _, want := range []string{"Type enroll", "then press enter."} {
+				if !strings.Contains(seen, want) {
+					t.Fatalf("menu instruction %q is unreachable:\n%s", want, view)
+				}
+			}
+			if !strings.Contains(view, "▲ más") || strings.Contains(view, "▼ más") {
+				t.Fatalf("bottom indicators incorrect:\n%s", view)
+			}
+			trust := NewSecurityModel(context.Background(), "profile-with-a-long-name", services)
+			updated, _ = trust.Update(tea.WindowSizeMsg{Width: size.width, Height: size.height})
+			updated, _ = updated.(SecurityModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+			m = updated.(SecurityModel)
+			for _, want := range []string{"Manual verified host-key enrollment", "Fingerprint:", "Provenance:", "Exact confirmation:"} {
+				if !strings.Contains(m.viewportText, want) {
+					t.Fatalf("trust behavior changed or content lost: %q", want)
+				}
+			}
+		})
+	}
+}
+
+func TestSecurityConfirmationInputsAcceptSpaces(t *testing.T) {
+	services := &securityServiceStub{status: credential.PresencePresent, evidence: "SHA256:observed"}
+	for _, tt := range []struct{ key, confirmation string }{{"d", "delete credential dev"}, {"o", "enroll SHA256:observed"}} {
+		t.Run(tt.key, func(t *testing.T) {
+			m := NewSecurityModel(context.Background(), "dev", services)
+			updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tt.key)})
+			if tt.key == "o" {
+				updated, _ = updated.(SecurityModel).Update(cmd())
+			}
+			m = updated.(SecurityModel)
+			for _, r := range tt.confirmation {
+				updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+				m = updated.(SecurityModel)
+			}
+			updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			if cmd == nil || updated.(SecurityModel).screen != securityProgress {
+				t.Fatalf("confirmation with spaces was not accepted: %q", m.confirm.Value())
+			}
+		})
 	}
 }
 

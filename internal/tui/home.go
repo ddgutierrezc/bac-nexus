@@ -104,7 +104,9 @@ func (m Model) homeLayout() layoutMode {
 	if width >= 96 && height >= 36 {
 		return homeLayoutDesktop
 	}
-	if width >= lipgloss.Width(compactLogo)+10 && height >= 24 {
+	// The stacked compact shell needs enough rows for its complete functional
+	// body; below this threshold use the deliberately bounded minimal layout.
+	if width >= lipgloss.Width(compactLogo)+10 && height >= 30 {
 		return homeLayoutCompact
 	}
 	return homeLayoutMinimal
@@ -456,6 +458,8 @@ func (m Model) renderMinimalHome() string {
 		if row.id == m.homeSelected {
 			line = "▸ " + row.label
 		}
+		// Minimal Home may truncate only the menu label (nonfunctional chrome).
+		// Feedback, status, commands, and errors use lossless wrapping instead.
 		line = fitHomeLine(line, contentWidth)
 		if row.id == m.homeSelected {
 			line = t.selectedRow.Render(t.selectedMarker.Render("▸") + " " + t.selectedLabel.Render(strings.TrimPrefix(line, "▸ ")))
@@ -463,10 +467,12 @@ func (m Model) renderMinimalHome() string {
 		b.WriteString(line + "\n")
 	}
 	if m.status != "" {
-		fmt.Fprintln(&b, fitHomeLine("[--] "+m.status, contentWidth))
+		b.WriteString(m.renderFeedback(contentWidth, t) + "\n")
 	}
 	if m.err != nil {
-		fmt.Fprintln(&b, fitHomeLine("[ERR] "+sanitizeError(m.err), contentWidth))
+		if m.status == "" {
+			b.WriteString(m.renderFeedback(contentWidth, t) + "\n")
+		}
 	}
 	b.WriteString(m.renderFooter(contentWidth, t))
 	return b.String()
@@ -548,7 +554,11 @@ func (m Model) renderFooter(width int, t homeTheme) string {
 // contract while hiding version metadata before it could collide with commands.
 func renderFooterText(width int, t homeTheme, text string, buildInfo BuildInfo) string {
 	if lipgloss.Width(text) > width {
-		return t.footer.Width(width).Align(lipgloss.Left).Render(fitHomeLine(text, width))
+		lines := wrapWizardText(text, width, "")
+		for i := range lines {
+			lines[i] = t.footer.Render(lines[i])
+		}
+		return strings.Join(lines, "\n")
 	}
 	commandWidth := lipgloss.Width(text)
 	commandStart := max((width-commandWidth)/2, 0)
@@ -569,10 +579,14 @@ func renderFooterText(width int, t homeTheme, text string, buildInfo BuildInfo) 
 func (m Model) renderFeedback(width int, t homeTheme) string {
 	var lines []string
 	if m.status != "" {
-		lines = append(lines, t.statusNeutral.Render(fitHomeLine("[--] "+m.status, width)))
+		for _, line := range wrapWizardText(m.status, width, "[--] ") {
+			lines = append(lines, t.statusNeutral.Render(line))
+		}
 	}
 	if m.err != nil {
-		lines = append(lines, t.statusError.Render(fitHomeLine("[ERR] "+sanitizeError(m.err), width)))
+		for _, line := range wrapWizardText(sanitizeError(m.err), width, "[ERR] ") {
+			lines = append(lines, t.statusError.Render(line))
+		}
 	}
 	return strings.Join(lines, "\n")
 }

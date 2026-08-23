@@ -88,6 +88,33 @@ func TestValidateNameUsesStrictASCIIProfileContract(t *testing.T) {
 	}
 }
 
+func TestFieldValidatorsPreserveEndpointAndUsernameContracts(t *testing.T) {
+	for _, tt := range []struct {
+		name, host, username string
+		port                 int
+		valid                bool
+	}{
+		{"DNS and username", "ibmi.example.test", "NEXUS$USER", 22, true},
+		{"IPv4", "192.0.2.10", "USER", 2222, true},
+		{"IPv6 remains rejected", "::1", "USER", 22, false},
+		{"host whitespace", " ibmi.example.test", "USER", 22, false},
+		{"username whitespace", "ibmi.example.test", "bad user", 22, false},
+		{"port zero", "ibmi.example.test", "USER", 0, false},
+		{"port too large", "ibmi.example.test", "USER", 65536, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			valid := ValidateHost(tt.host) == nil && ValidateUsername(tt.username) == nil && ValidatePort(tt.port) == nil
+			if valid != tt.valid {
+				t.Fatalf("field validators valid=%v, want %v", valid, tt.valid)
+			}
+			endpointValid := ValidateEndpoint(tt.host, tt.port) == nil
+			if endpointValid != (ValidateHost(tt.host) == nil && ValidatePort(tt.port) == nil) {
+				t.Fatalf("endpoint contract drifted for host=%q port=%d", tt.host, tt.port)
+			}
+		})
+	}
+}
+
 func TestStoreRoundTripUsesTemporaryRoot(t *testing.T) {
 	root := t.TempDir()
 	store := Store{Root: root}

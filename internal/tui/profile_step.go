@@ -127,27 +127,12 @@ func (m Model) renderProfileStep() string {
 	frameWidth, frameHeight := m.shellFrameDimensions()
 	inner, height := m.shellInnerWidth(frameWidth), m.shellInnerHeight(frameHeight)
 	t := newHomeTheme(m.noColor)
-	header := m.renderProfileStepHeader(inner, t)
-	separator := t.headerSeparator.Width(inner).Render(strings.Repeat("─", inner))
 	footer := renderFooterText(inner, t, profileStepFooter, m.buildInfo)
-	footerSeparator := t.fieldsetBorder.Render(strings.Repeat("─", inner+2))
-
-	layout := t.shellLayout(inner)
-	layout.Add(header)
-	layout.Add(separator)
-	layout.AddGap(profileStepTopGap(height))
-	layout.Add(m.renderProfileStepPanel(inner, height, t))
-	layout.AddStretch()
-	layout.AddFooter(footerSeparator + "\n" + footer)
-	return t.frame.Width(frameWidth).Height(frameHeight).Render(layout.Render(height))
+	return m.renderWizardShell(m.renderProfileStepHeader(inner, t), footer, m.renderProfileStepPanel(inner, height, t))
 }
 
 func (m Model) renderProfileStepHeader(width int, t homeTheme) string {
-	brand := t.headerBrand.Render("BAC NEXUS")
-	profile := t.headerProfile.Render("PERFIL: NUEVO")
-	status := t.headerStatus.Render("ESTADO: CONFIGURANDO")
-	text := strings.Repeat(" ", headerLeftPadding) + strings.Join([]string{brand, "│", profile, "│", status}, "  ")
-	return t.header.Width(width).Align(lipgloss.Left).Render(fitHomeLine(text, width))
+	return renderWizardHeader(width, t, "NUEVO")
 }
 
 func profileStepTopGap(height int) int {
@@ -161,9 +146,6 @@ func profileStepTopGap(height int) int {
 }
 
 func (m Model) renderProfileStepPanel(width, height int, t homeTheme) string {
-	if width < 16 || height < 15 {
-		return m.renderMinimalProfileStep(width, t)
-	}
 	panelWidth := min(max(width-12, 34), profileStepPanelMaxWidth)
 	if panelWidth > width {
 		panelWidth = width
@@ -171,45 +153,77 @@ func (m Model) renderProfileStepPanel(width, height int, t homeTheme) string {
 	panelStyle, contentInset := profileStepPanelStyle(t, height)
 	contentWidth := max(panelWidth-contentInset, 1)
 	state := m.profileNameState()
-	inputGap, actionGap := profileStepInputGap(height), profileStepActionGap(height)
-	if height < 24 && (state != "" || m.status != "" || m.err != nil) {
-		inputGap, actionGap = 0, 0
-	}
-	lines := renderProfileStepTitleRow(contentWidth, t)
-	lines = appendProfileStepGap(lines, profileStepSmallGap(height))
-	lines = append(lines, t.fieldsetBorder.Render(strings.Repeat("─", contentWidth)))
-	lines = appendProfileStepGap(lines, profileStepSmallGap(height))
+	rhythm := newWizardRhythm(height)
+	lines := renderWizardTitleRow(contentWidth, t, "Crear perfil IBM i", "Paso 1 de 9 — Perfil")
+	lines = appendWizardGap(lines, rhythm.titleDivider)
+	lines = append(lines, renderWizardDivider(contentWidth, t))
+	lines = appendWizardGap(lines, rhythm.sectionDescription)
 	lines = append(lines, m.renderProfileNameLabel(contentWidth, t))
-	lines = appendProfileStepGap(lines, profileStepSmallGap(height))
+	lines = appendWizardGap(lines, rhythm.relatedText)
 	lines = append(lines, profileStepGuidance(contentWidth, height, t)...)
-	lines = appendProfileStepGap(lines, profileStepSmallGap(height))
-	lines = append(lines, t.metadata.Render(fitHomeLine("Ej: CRI400F, CRI400FDev, CRI400FProd", contentWidth)))
-	lines = appendProfileStepGap(lines, inputGap)
+	lines = appendWizardGap(lines, rhythm.descriptionControl)
+	for _, line := range wrapWizardText("Ej: CRI400F, CRI400FDev, CRI400FProd", contentWidth, "") {
+		lines = append(lines, t.metadata.Render(line))
+	}
+	lines = appendWizardGap(lines, rhythm.controls)
 	lines = append(lines, m.renderProfileInput(contentWidth, t))
 	if state != "" {
 		lines = append(lines, m.renderProfileStatus(state, contentWidth, t))
 	}
 	if m.status != "" || m.err != nil {
+		lines = appendWizardGap(lines, rhythm.feedback)
 		lines = append(lines, m.renderFeedback(contentWidth, t))
 	}
-	lines = appendProfileStepGap(lines, actionGap)
+	lines = appendWizardGap(lines, rhythm.actions)
 	lines = append(lines, m.renderProfileActions(contentWidth, t))
 	panel := panelStyle.Width(panelWidth - 2).Render(strings.Join(lines, "\n"))
 	return centerHomeBlock(width, panel)
 }
 
+// profileStepFocusRange is derived from the same structured sections used to
+// render the panel. It deliberately never searches rendered/ANSI text.
+func (m Model) profileStepFocusRange(width, height int, t homeTheme) wizardLineRange {
+	panelWidth := min(max(width-12, 34), profileStepPanelMaxWidth)
+	if panelWidth > width {
+		panelWidth = width
+	}
+	_, inset := profileStepPanelStyle(t, height)
+	cw, rhythm := max(panelWidth-inset, 1), newWizardRhythm(height)
+	lines := len(renderWizardTitleRow(cw, t, "Crear perfil IBM i", "Paso 1 de 9 — Perfil")) + rhythm.titleDivider + 1 + rhythm.sectionDescription + 1 + rhythm.relatedText + len(profileStepGuidance(cw, height, t)) + rhythm.descriptionControl + len(wrapWizardText("Ej: CRI400F, CRI400FDev, CRI400FProd", cw, "")) + rhythm.controls
+	start := lines + 1
+	if height >= 30 {
+		start++
+	}
+	end := start + len(strings.Split(m.renderProfileInput(cw, t), "\n")) - 1
+	if m.profileFocus == profileFocusCancel || m.profileFocus == profileFocusContinue {
+		start = lines + len(strings.Split(m.renderProfileInput(cw, t), "\n"))
+		if m.profileNameState() != "" {
+			start += len(strings.Split(m.renderProfileStatus(m.profileNameState(), cw, t), "\n"))
+		}
+		if m.status != "" || m.err != nil {
+			start += rhythm.feedback + len(strings.Split(m.renderFeedback(cw, t), "\n"))
+		}
+		start += rhythm.actions + 1
+		if height >= 30 {
+			start++
+		}
+		end = start
+	}
+	return wizardLineRange{start: start, end: end}
+}
+
 func profileStepGuidance(width, height int, t homeTheme) []string {
+	_ = height
 	rules := []string{
 		"Usa 1–64 caracteres ASCII; inicia con letra o número.",
 		"Luego usa solo letras, números, guion (-) o guion bajo (_).",
 		"Sin espacios, puntos, tildes ni otros símbolos.",
 	}
-	if height < 30 {
-		rules = rules[:1]
-	}
-	lines := make([]string, len(rules))
-	for i, rule := range rules {
-		lines[i] = t.metadata.Render(fitHomeLine(rule, width))
+	lines := make([]string, 0, len(rules))
+	for _, rule := range rules {
+		for _, line := range wrapWizardText(rule, width, "") {
+			lines = append(lines, t.metadata.Render(line))
+		}
 	}
 	return lines
 }
@@ -217,18 +231,7 @@ func profileStepGuidance(width, height int, t homeTheme) []string {
 // renderProfileStepTitleRow keeps the wizard title and step indicator aligned
 // to opposite edges whenever their display widths leave a readable middle gap.
 func renderProfileStepTitleRow(width int, t homeTheme) []string {
-	const title = "Crear perfil IBM i"
-	const step = "Paso 1 de 9 — Perfil"
-	const minimumGap = 2
-	if width >= lipgloss.Width(title)+minimumGap+lipgloss.Width(step) {
-		return []string{t.panelTitle.Render(title) + strings.Repeat(" ", width-lipgloss.Width(title)-lipgloss.Width(step)) + t.metadata.Render(step)}
-	}
-	titleLine := t.panelTitle.Render(fitHomeLine(title, width))
-	stepLine := fitHomeLine(step, width)
-	if lipgloss.Width(step) <= width {
-		stepLine = lipgloss.PlaceHorizontal(width, lipgloss.Right, stepLine)
-	}
-	return []string{titleLine, t.metadata.Render(stepLine)}
+	return renderWizardTitleRow(width, t, "Crear perfil IBM i", "Paso 1 de 9 — Perfil")
 }
 
 // profileStepPanelStyle derives the wizard surface from the shared panel and
@@ -239,22 +242,6 @@ func profileStepPanelStyle(t homeTheme, height int) (lipgloss.Style, int) {
 		return t.panel.Padding(1, 2), 6
 	}
 	return t.panel, 4
-}
-
-func (m Model) renderMinimalProfileStep(width int, t homeTheme) string {
-	lineWidth := max(width, 1)
-	lines := []string{
-		t.panelTitle.Render(fitHomeLine("Crear perfil IBM i — Paso 1/9", lineWidth)),
-	}
-	if m.status != "" || m.err != nil {
-		lines = append(lines, m.renderFeedback(lineWidth, t))
-	}
-	lines = append(lines, m.renderProfileInput(lineWidth, t))
-	if state := m.profileNameState(); state != "" && width >= 24 {
-		lines = append(lines, m.renderProfileStatus(state, lineWidth, t))
-	}
-	lines = append(lines, m.renderProfileActions(lineWidth, t))
-	return strings.Join(lines, "\n")
 }
 
 func appendProfileStepGap(lines []string, size int) []string {
@@ -292,60 +279,27 @@ func profileStepActionGap(height int) int {
 }
 
 func (m Model) renderProfileNameLabel(width int, t homeTheme) string {
-	label := "Nombre del perfil"
-	if m.profileFocus == profileFocusName {
-		label = "▸ " + label
-	}
-	return t.fieldsetContent.Render(fitHomeLine(label, width))
+	return t.fieldsetContent.Render(wrapWizardText("Nombre del perfil", width, "")[0])
 }
 
 func (m Model) renderProfileInput(width int, t homeTheme) string {
-	input := m.profileName
-	focusMarker := "  "
-	if m.profileFocus == profileFocusName {
-		focusMarker = "▸ "
-	}
-	prefix := focusMarker + profileInputLabel + "  [ "
-	// Keep the Bubbles viewport inside terminal-native brackets and reserve the
-	// closing glyph, so editing always has a visible trailing surface.
-	editableWidth := max(width-lipgloss.Width(prefix)-lipgloss.Width(" ]"), 1)
-	// Bubbles reserves a cursor cell beyond Width, so leave one cell for it
-	// inside the bracketed surface rather than letting the closing bracket wrap.
-	input.Width = max(editableWidth-1, 1)
-	view := input.View()
-	padding := max(editableWidth-lipgloss.Width(view), 0)
-	row := prefix + view + strings.Repeat(" ", padding) + " ]"
-	if m.profileFocus == profileFocusName {
-		return t.selectedRow.Width(width).Render(row)
-	}
-	return t.fieldsetContent.Width(width).Render(row)
+	return renderWizardInputRow(profileInputLabel, m.profileName, m.profileFocus == profileFocusName, width, t, wizardInputOptions{})
 }
 
 func (m Model) renderProfileStatus(state string, width int, t homeTheme) string {
+	lines := wrapWizardText(state, width, "")
 	if strings.HasPrefix(state, "[OK]") {
-		return t.statusOK.Render(fitHomeLine(state, width))
+		for i := range lines {
+			lines[i] = t.statusOK.Render(lines[i])
+		}
+		return strings.Join(lines, "\n")
 	}
-	return t.statusError.Render(fitHomeLine(state, width))
+	for i := range lines {
+		lines[i] = t.statusError.Render(lines[i])
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m Model) renderProfileActions(width int, t homeTheme) string {
-	cancel := "< CANCELAR >"
-	continueAction := "[ CONTINUAR ]"
-	if m.profileFocus == profileFocusCancel {
-		cancel = "▸ " + cancel
-	}
-	if m.profileFocus == profileFocusContinue {
-		continueAction = "▸ " + continueAction
-		if !m.noColor {
-			continueAction = lipgloss.NewStyle().Background(lipgloss.Color(bacRed)).Foreground(lipgloss.Color(white)).Bold(true).Render(continueAction)
-		}
-	}
-	line := cancel + "    " + continueAction
-	if lipgloss.Width(line) > width {
-		if m.profileFocus == profileFocusCancel {
-			return fitHomeLine(cancel, width)
-		}
-		return fitHomeLine(continueAction, width)
-	}
-	return lipgloss.PlaceHorizontal(width, lipgloss.Right, line)
+	return renderWizardActions(width, t, "< CANCELAR >", "[ CONTINUAR ]", m.profileFocus == profileFocusCancel, m.profileFocus == profileFocusContinue, m.noColor)
 }

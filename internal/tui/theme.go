@@ -26,56 +26,58 @@ const (
 // screens. Each role is intentionally distinct so the chrome does not
 // collapse into uniform white.
 type homeTheme struct {
-	frame              lipgloss.Style
-	header             lipgloss.Style
-	headerBrand        lipgloss.Style
-	headerProfile      lipgloss.Style
-	headerStatus       lipgloss.Style
-	headerStatusUrgent lipgloss.Style
-	headerSeparator    lipgloss.Style
-	fieldset           lipgloss.Style
-	fieldsetBorder     lipgloss.Style
-	fieldsetTitle      lipgloss.Style
-	fieldsetContent    lipgloss.Style
-	panel              lipgloss.Style
-	panelTitle         lipgloss.Style
-	menuHeading        lipgloss.Style
-	logo               lipgloss.Style
-	identity           lipgloss.Style
-	tagline            lipgloss.Style
-	selectedRow        lipgloss.Style
-	selectedMarker     lipgloss.Style
-	selectedLabel      lipgloss.Style
-	menuRow            lipgloss.Style
-	statusOK           lipgloss.Style
-	statusInfo         lipgloss.Style
-	statusWarning      lipgloss.Style
-	statusError        lipgloss.Style
-	statusNeutral      lipgloss.Style
-	statusProgress     lipgloss.Style
-	footer             lipgloss.Style
-	metadata           lipgloss.Style
+	frame                lipgloss.Style
+	header               lipgloss.Style
+	headerBrand          lipgloss.Style
+	headerProfile        lipgloss.Style
+	headerStatus         lipgloss.Style
+	headerStatusUrgent   lipgloss.Style
+	headerSeparator      lipgloss.Style
+	fieldset             lipgloss.Style
+	fieldsetBorder       lipgloss.Style
+	fieldsetTitle        lipgloss.Style
+	fieldsetContent      lipgloss.Style
+	wizardContentHeading lipgloss.Style
+	panel                lipgloss.Style
+	panelTitle           lipgloss.Style
+	menuHeading          lipgloss.Style
+	logo                 lipgloss.Style
+	identity             lipgloss.Style
+	tagline              lipgloss.Style
+	selectedRow          lipgloss.Style
+	selectedMarker       lipgloss.Style
+	selectedLabel        lipgloss.Style
+	menuRow              lipgloss.Style
+	statusOK             lipgloss.Style
+	statusInfo           lipgloss.Style
+	statusWarning        lipgloss.Style
+	statusError          lipgloss.Style
+	statusNeutral        lipgloss.Style
+	statusProgress       lipgloss.Style
+	footer               lipgloss.Style
+	metadata             lipgloss.Style
 }
 
 func newHomeTheme(noColor bool) homeTheme {
 	t := homeTheme{
-		frame:           lipgloss.NewStyle().Border(lipgloss.NormalBorder()),
-		panel:           lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1),
-		panelTitle:      lipgloss.NewStyle().Bold(true),
-		menuHeading:     lipgloss.NewStyle().Bold(true),
-		identity:        lipgloss.NewStyle().Bold(true),
-		fieldsetTitle:   lipgloss.NewStyle(),
-		fieldsetContent: lipgloss.NewStyle(),
-		selectedRow:     lipgloss.NewStyle(),
-		selectedMarker:  lipgloss.NewStyle(),
-		selectedLabel:   lipgloss.NewStyle(),
-		menuRow:         lipgloss.NewStyle(),
-		statusOK:        lipgloss.NewStyle(),
-		statusInfo:      lipgloss.NewStyle(),
-		statusWarning:   lipgloss.NewStyle(),
-		statusError:     lipgloss.NewStyle(),
-		statusNeutral:   lipgloss.NewStyle(),
-		statusProgress:  lipgloss.NewStyle(),
+		frame:                lipgloss.NewStyle().Border(lipgloss.NormalBorder()),
+		panel:                lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1),
+		panelTitle:           lipgloss.NewStyle().Bold(true),
+		menuHeading:          lipgloss.NewStyle().Bold(true),
+		identity:             lipgloss.NewStyle().Bold(true),
+		fieldsetTitle:        lipgloss.NewStyle(),
+		fieldsetContent:      lipgloss.NewStyle(),
+		wizardContentHeading: lipgloss.NewStyle().Bold(true),
+		selectedRow:          lipgloss.NewStyle(),
+		selectedMarker:       lipgloss.NewStyle(),
+		selectedLabel:        lipgloss.NewStyle(),
+		menuRow:              lipgloss.NewStyle(),
+		statusOK:             lipgloss.NewStyle(),
+		statusInfo:           lipgloss.NewStyle(),
+		statusWarning:        lipgloss.NewStyle(),
+		statusError:          lipgloss.NewStyle(),
+		statusNeutral:        lipgloss.NewStyle(),
+		statusProgress:       lipgloss.NewStyle(),
 	}
 	if noColor {
 		return t
@@ -90,6 +92,7 @@ func newHomeTheme(noColor bool) homeTheme {
 	t.fieldsetBorder = lipgloss.NewStyle().Foreground(lipgloss.Color(borderSurface))
 	t.fieldsetTitle = lipgloss.NewStyle().Foreground(lipgloss.Color(salmonMuted)).Bold(true)
 	t.fieldsetContent = lipgloss.NewStyle().Foreground(lipgloss.Color(textPrimary))
+	t.wizardContentHeading = lipgloss.NewStyle().Foreground(lipgloss.Color(textPrimary)).Bold(true)
 	t.panel = t.panel.BorderForeground(lipgloss.Color(borderSurface)).Foreground(lipgloss.Color(textPrimary))
 	t.panelTitle = t.panelTitle.Foreground(lipgloss.Color(salmonMuted))
 	t.menuHeading = t.menuHeading.Foreground(lipgloss.Color(salmonMuted))

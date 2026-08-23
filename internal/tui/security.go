@@ -8,6 +8,7 @@ import (
 	"bac-nexus/internal/configuration"
 	"bac-nexus/internal/credential"
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -65,13 +66,16 @@ type SecurityModel struct {
 	confirm      textinput.Model
 	tofuEvidence string
 	cancel       context.CancelFunc
+	viewport     viewport.Model
+	viewportText string
+	noColor      bool
 }
 
 func NewSecurityModel(ctx context.Context, profileName string, services SecurityServices) SecurityModel {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	m := SecurityModel{ctx: ctx, profile: profileName, services: services, screen: securityMenu}
+	m := SecurityModel{ctx: ctx, profile: profileName, services: services, screen: securityMenu, viewport: viewport.New(1, 1), noColor: noColorEnabled()}
 	labels := []string{"Fingerprint", "Provenance", "Exact confirmation"}
 	for i, label := range labels {
 		m.trust[i] = textinput.New()
@@ -102,9 +106,11 @@ func (m SecurityModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.refreshViewport()
 		return m, nil
 	case credentialStatusMsg:
 		m.status, m.text, m.err = msg.presence, "", nil
+		m.refreshViewport()
 		return m, nil
 	case securityOutcomeMsg:
 		if m.cancel != nil {
@@ -113,6 +119,7 @@ func (m SecurityModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.screen = securityResult
 		m.text, m.err = msg.text, msg.err
+		m.refreshViewport()
 		return m, nil
 	case tofuObservationMsg:
 		if m.cancel != nil {
@@ -125,6 +132,7 @@ func (m SecurityModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.tofuEvidence, m.err, m.screen = msg.evidence, nil, securityConfirmTOFU
 		m.confirm = newConfirmationInput()
+		m.refreshViewport()
 		return m, nil
 	case tea.KeyMsg:
 		return m.updateSecurityKey(msg)
@@ -134,6 +142,25 @@ func (m SecurityModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m SecurityModel) updateSecurityKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+	if key == "pgup" {
+		m.viewport.ViewUp()
+		return m, nil
+	}
+	if key == "pgdown" {
+		m.viewport.ViewDown()
+		return m, nil
+	}
+	editableConfirmation := m.screen == securityConfirmCredential || m.screen == securityConfirmTOFU
+	if m.screen != securityTrust && !editableConfirmation {
+		switch key {
+		case "up", "k":
+			m.viewport.LineUp(1)
+			return m, nil
+		case "down", "j":
+			m.viewport.LineDown(1)
+			return m, nil
+		}
+	}
 	if m.screen == securityProgress {
 		if key == "esc" || key == "ctrl+c" {
 			if m.cancel != nil {
@@ -144,12 +171,19 @@ func (m SecurityModel) updateSecurityKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if key == "esc" || key == "b" {
+	if key == "esc" || (key == "b" && !editableConfirmation) {
 		m.screen = securityMenu
 		m.err = nil
 		return m, nil
 	}
-	if (m.screen == securityConfirmCredential || m.screen == securityConfirmTOFU) && key != "enter" && key != "n" {
+	confirmationTarget := ""
+	if m.screen == securityConfirmCredential {
+		confirmationTarget = "delete credential " + m.profile
+	}
+	if m.screen == securityConfirmTOFU {
+		confirmationTarget = "enroll " + m.tofuEvidence
+	}
+	if (m.screen == securityConfirmCredential || m.screen == securityConfirmTOFU) && key != "enter" && !(key == "n" && !strings.HasPrefix(confirmationTarget, m.confirm.Value()+"n")) {
 		var cmd tea.Cmd
 		m.confirm, cmd = m.confirm.Update(msg)
 		return m, cmd
@@ -238,6 +272,7 @@ func (m SecurityModel) updateSecurityKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 	}
+	m.refreshViewport()
 	return m, nil
 }
 
@@ -278,34 +313,93 @@ func (m SecurityModel) trustIndex() int {
 }
 
 func (m SecurityModel) View() string {
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+	height := m.height
+	if height <= 0 {
+		height = 24
+	}
+	// The header and overflow disclosure are fixed. All functional content,
+	// including the menu instructions and warnings, belongs to the viewport.
+	header := wrapWizardText("Security for "+m.profile, width, "")
+	viewportHeight := max(height-len(header)-1, 1)
+	content := m.viewportContent(width)
+	if m.viewport.Width != width || m.viewport.Height != viewportHeight || m.viewportText != content {
+		m.viewport.Width, m.viewport.Height = width, viewportHeight
+		m.viewport.SetContent(content)
+	}
+	return strings.Join(header, "\n") + "\n" + strings.TrimRight(m.viewport.View(), "\n") + "\n" + wizardOverflowIndicator(m.viewport, width, newHomeTheme(m.noColor))
+}
+
+func (m *SecurityModel) refreshViewport() {
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+	height := m.height
+	if height <= 0 {
+		height = 24
+	}
+	headerHeight := len(wrapWizardText("Security for "+m.profile, width, ""))
+	m.viewport.Width, m.viewport.Height = width, max(height-headerHeight-1, 1)
+	m.viewportText = m.viewportContent(width)
+	m.viewport.SetContent(m.viewportText)
+	if m.screen == securityTrust {
+		needle := m.trust[m.trustIndex()].Prompt
+		for line, text := range strings.Split(m.viewportText, "\n") {
+			if strings.Contains(text, needle) {
+				if line < m.viewport.YOffset {
+					m.viewport.SetYOffset(line)
+				} else if line >= m.viewport.YOffset+m.viewport.Height {
+					m.viewport.SetYOffset(line - m.viewport.Height + 1)
+				}
+				break
+			}
+		}
+	}
+}
+
+func (m SecurityModel) viewportContent(width int) string {
 	var b strings.Builder
-	b.WriteString("Security for " + m.profile + "\n\n")
+	appendText := func(text string) {
+		for _, line := range wrapWizardText(text, width, "") {
+			b.WriteString(line + "\n")
+		}
+	}
 	switch m.screen {
 	case securityMenu:
-		b.WriteString("Credential: " + credentialPresence(m.status) + "\n")
-		b.WriteString("s set  r rotate  d delete  m migrate\n")
-		b.WriteString("t manual trust  o inspect TOFU  esc back\n")
+		appendText("Credential: " + credentialPresence(m.status))
+		appendText("s set  r rotate  d delete  m migrate")
+		appendText("t manual trust  o inspect TOFU  esc back")
 	case securityProgress:
-		b.WriteString("Operation in progress; esc cancels.\n")
+		appendText("Operation in progress; esc cancels.")
 	case securityConfirmCredential:
-		b.WriteString("Delete this profile credential? Type delete credential " + m.profile + " exactly, then press enter.\n" + m.confirm.View() + "\n")
+		appendText("Delete this profile credential? Type delete credential " + m.profile + " exactly, then press enter.")
+		b.WriteString(m.confirm.View() + "\n")
 	case securityConfirmMigration:
-		b.WriteString("Migrate the legacy credential vault? Type y only after review.\n")
+		appendText("Migrate the legacy credential vault? Type y only after review.")
 	case securityConfirmTOFU:
-		b.WriteString("WARNING: remote inspection is unverified TOFU. Observed evidence:\n" + m.tofuEvidence + "\nType enroll " + m.tofuEvidence + " exactly, then press enter.\n" + m.confirm.View() + "\n")
+		appendText("WARNING: remote inspection is unverified TOFU. Observed evidence:")
+		appendText(m.tofuEvidence)
+		appendText("Type enroll " + m.tofuEvidence + " exactly, then press enter.")
+		b.WriteString(m.confirm.View() + "\n")
 	case securityTrust:
-		b.WriteString("Manual verified host-key enrollment\n")
+		appendText("Manual verified host-key enrollment")
 		for i := range m.trust {
 			b.WriteString(m.trust[i].View() + "\n")
 		}
 	case securityResult:
-		b.WriteString(m.text + "\n")
+		appendText(m.text)
 		if m.err != nil {
-			b.WriteString("Error: " + sanitizeError(m.err) + "\n")
+			for _, line := range wrapWizardText(sanitizeError(m.err), width, "Error: ") {
+				b.WriteString(line + "\n")
+			}
 		}
-		b.WriteString("b back\n")
+		appendText("b back")
 	}
-	return responsive(b.String(), m.width, m.height)
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func credentialPresence(p credential.Presence) string {

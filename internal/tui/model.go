@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -28,6 +29,8 @@ const (
 	screenDetail
 	screenForm
 	screenProfileStep
+	screenProfileConnection
+	screenProfileIdentity
 	screenConfirm
 	screenSecurity
 )
@@ -51,6 +54,36 @@ type operationMsg struct {
 // profileStepAcceptedMsg is deliberately transport-free: later wizard steps
 // can consume the accepted draft without Step 1 persisting any profile data.
 type profileStepAcceptedMsg struct{ name string }
+
+// profileConnectionAcceptedMsg is deliberately local: it carries only the
+// validated Step 2 draft to the future wizard seam and triggers no I/O.
+type profileConnectionAcceptedMsg struct {
+	host, username string
+	port           int
+}
+
+type profileConnectionDraft struct {
+	host, username string
+	port           int
+}
+
+type profileIdentityDecision uint8
+
+const (
+	profileIdentityNone profileIdentityDecision = iota
+	profileIdentityKnownFingerprint
+	profileIdentityObservedKey
+)
+
+type profileIdentityBranch uint8
+
+const (
+	profileIdentityBranchNone profileIdentityBranch = iota
+	profileIdentityBranchFingerprint
+	profileIdentityBranchObservedKey
+)
+
+type profileIdentityAcceptedMsg struct{ decision profileIdentityDecision }
 
 type field struct {
 	label string
@@ -78,6 +111,21 @@ type Model struct {
 	profileName        textinput.Model
 	profileFocus       profileStepFocus
 	profileDraftName   string
+	connectionHost     textinput.Model
+	connectionUsername textinput.Model
+	connectionPort     textinput.Model
+	connectionFocus    profileConnectionFocus
+	connectionDraft    profileConnectionDraft
+	connectionReady    bool
+	connectionValidate bool
+	identityFocus      profileIdentityFocus
+	identityDecision   profileIdentityDecision
+	identityBranch     profileIdentityBranch
+	wizardViewport     viewport.Model
+	legacyViewport     viewport.Model
+	legacyViewportText string
+	wizardFocusStart   int
+	wizardFocusEnd     int
 	confirm            string
 	confirmInput       textinput.Model
 	width              int
@@ -109,7 +157,7 @@ func NewModelWithBuildInfo(store configuration.ProfilesStore, buildInfo BuildInf
 	if buildInfo.Revision == "" {
 		buildInfo.Revision = "unknown"
 	}
-	m := Model{store: store, screen: screenHome, homeSelected: actionCreate, noColor: noColorEnabled(), buildInfo: buildInfo}
+	m := Model{store: store, screen: screenHome, homeSelected: actionCreate, noColor: noColorEnabled(), buildInfo: buildInfo, wizardViewport: viewport.New(1, 1), legacyViewport: viewport.New(1, 1)}
 	m.form = newFields(profile.Profile{})
 	m.profileName = newProfileNameInput()
 	return m
@@ -125,6 +173,7 @@ func noColorEnabled() bool {
 func NewModelWithSecurity(store configuration.ProfilesStore, ctx context.Context, services SecurityServices) Model {
 	m := NewModel(store)
 	m.security = ptrSecurityModel(NewSecurityModel(ctx, "", services))
+	m.security.noColor = m.noColor
 	return m
 }
 
@@ -165,11 +214,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		if m.screen == screenSecurity && m.security != nil {
+			m.security.noColor = m.noColor
+			updated, _ := m.security.Update(msg)
+			security := updated.(SecurityModel)
+			m.security = &security
+		}
 		if m.screen == screenHome {
 			m.homeSelected = m.clampHomeSelection()
 			m.menuOffset = m.visibleMenuWindow().Start
 			m.readinessOffset = m.visibleReadinessWindow().Start
 		}
+		m.refreshWizardViewport()
+		m.refreshLegacyViewport()
 		return m, nil
 	case profilesMsg:
 		m.profiles, m.err, m.profilesLoaded, m.profilesLoadFailed = append([]profile.Profile(nil), msg.profiles...), nil, true, false
@@ -181,6 +238,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case profileStepAcceptedMsg:
 		m.profileDraftName = msg.name
+		m.beginProfileConnectionStep()
+		m.refreshWizardViewport()
+		return m, nil
+	case profileConnectionAcceptedMsg:
+		m.connectionDraft = profileConnectionDraft{host: msg.host, username: msg.username, port: msg.port}
+		m.beginProfileIdentityStep()
+		m.refreshWizardViewport()
+		return m, nil
+	case profileIdentityAcceptedMsg:
+		m.identityDecision = msg.decision
+		if msg.decision == profileIdentityKnownFingerprint {
+			m.identityBranch = profileIdentityBranchFingerprint
+		} else {
+			m.identityBranch = profileIdentityBranchObservedKey
+		}
+		m.refreshWizardViewport()
 		return m, nil
 	case operationMsg:
 		m.status, m.err = msg.text, msg.err
@@ -193,23 +266,71 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyMsg:
+		if m.screen == screenProfileStep || m.screen == screenProfileConnection || m.screen == screenProfileIdentity {
+			switch msg.String() {
+			case "up", "k":
+				m.wizardViewport.LineUp(1)
+				return m, nil
+			case "down", "j":
+				m.wizardViewport.LineDown(1)
+				return m, nil
+			case "pgup":
+				m.wizardViewport.ViewUp()
+				return m, nil
+			case "pgdown":
+				m.wizardViewport.ViewDown()
+				return m, nil
+			}
+		}
+		if m.screen == screenList || m.screen == screenDetail || m.screen == screenForm || m.screen == screenConfirm {
+			switch msg.String() {
+			case "pgup":
+				m.legacyViewport.LineUp(max(m.legacyViewport.Height, 1))
+				return m, nil
+			case "pgdown":
+				m.legacyViewport.LineDown(max(m.legacyViewport.Height, 1))
+				return m, nil
+			}
+		}
 		if m.screen == screenSecurity && m.security != nil {
 			if (msg.String() == "esc" || msg.String() == "b") && m.security.screen == securityMenu {
 				m.screen = screenDetail
 				return m, nil
 			}
+			m.security.noColor = m.noColor
 			updated, cmd := m.security.Update(msg)
 			security := updated.(SecurityModel)
 			m.security = &security
 			return m, cmd
 		}
 		if m.screen == screenProfileStep {
-			return m.updateProfileStep(msg)
+			updated, cmd := m.updateProfileStep(msg)
+			wizard := updated.(Model)
+			wizard.refreshWizardViewport()
+			return wizard, cmd
+		}
+		if m.screen == screenProfileConnection {
+			updated, cmd := m.updateProfileConnectionStep(msg)
+			wizard := updated.(Model)
+			wizard.refreshWizardViewport()
+			return wizard, cmd
+		}
+		if m.screen == screenProfileIdentity {
+			updated, cmd := m.updateProfileIdentityStep(msg)
+			wizard := updated.(Model)
+			wizard.refreshWizardViewport()
+			return wizard, cmd
 		}
 		if m.screen == screenForm {
-			return m.updateForm(msg)
+			updated, cmd := m.updateForm(msg)
+			legacy := updated.(Model)
+			legacy.refreshLegacyViewport()
+			return legacy, cmd
 		}
-		return m.updateShell(msg)
+		updated, cmd := m.updateShell(msg)
+		legacy := updated.(Model)
+		legacy.refreshLegacyViewport()
+		return legacy, cmd
 	}
 	return m, nil
 }
@@ -303,6 +424,7 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "s":
 			if len(m.profiles) > 0 && m.security != nil {
 				security := NewSecurityModel(m.security.ctx, m.profiles[m.selected].Name, m.security.services)
+				security.noColor = m.noColor
 				m.security, m.screen = &security, screenSecurity
 			}
 		case "q", "ctrl+c":
@@ -340,8 +462,53 @@ func (m *Model) beginProfileStep() {
 	m.profileName = newProfileNameInput()
 	m.profileFocus = profileFocusName
 	m.profileDraftName = ""
+	m.resetProfileConnectionStep()
+	m.resetProfileIdentityStep()
 	m.status, m.err = "", nil
 	m.screen = screenProfileStep
+	m.wizardViewport.SetYOffset(0)
+	m.refreshWizardViewport()
+}
+
+func (m *Model) resetProfileIdentityStep() {
+	m.identityFocus = profileIdentityFocusKnown
+	m.identityDecision = profileIdentityNone
+	m.identityBranch = profileIdentityBranchNone
+}
+func (m *Model) beginProfileIdentityStep() {
+	m.identityFocus = profileIdentityFocusKnown
+	m.status, m.err, m.screen = "", nil, screenProfileIdentity
+	m.wizardViewport.SetYOffset(0)
+	m.refreshWizardViewport()
+}
+
+// resetProfileConnectionStep is called only when Home starts a genuinely new
+// wizard. Direct Step 1/Step 2 navigation deliberately retains this state.
+func (m *Model) resetProfileConnectionStep() {
+	m.connectionHost = textinput.Model{}
+	m.connectionUsername = textinput.Model{}
+	m.connectionPort = textinput.Model{}
+	m.connectionFocus = profileConnectionFocusHost
+	m.connectionDraft = profileConnectionDraft{}
+	m.connectionReady = false
+	m.connectionValidate = false
+}
+
+func (m *Model) beginProfileConnectionStep() {
+	if !m.connectionReady {
+		m.connectionHost = newProfileConnectionInput(253)
+		m.connectionUsername = newProfileConnectionInput(128)
+		m.connectionPort = newProfileConnectionInput(5)
+		m.connectionPort.SetValue("22")
+		m.connectionReady = true
+	}
+	m.connectionFocus = profileConnectionFocusHost
+	m.focusProfileConnectionInput()
+	m.connectionValidate = false
+	m.status, m.err = "", nil
+	m.screen = screenProfileConnection
+	m.wizardViewport.SetYOffset(0)
+	m.refreshWizardViewport()
 }
 
 func (m Model) selectedHomeAction() homeAction {
@@ -493,11 +660,17 @@ func (m Model) View() string {
 		b.WriteString("\nenter save  esc cancel\n")
 	case screenProfileStep:
 		return m.renderProfileStep()
+	case screenProfileConnection:
+		return m.renderProfileConnectionStep()
+	case screenProfileIdentity:
+		return m.renderProfileIdentityStep()
 	case screenConfirm:
 		fmt.Fprintf(&b, "Delete profile %q?\nThis retains a recoverable backup.\nType delete %s exactly, then press enter.\n%s\nn/esc cancel\n", m.confirm, m.confirm, m.confirmInput.View())
 	case screenSecurity:
 		if m.security != nil {
-			return m.security.View()
+			security := *m.security
+			security.noColor = m.noColor
+			return security.View()
 		}
 	}
 	if m.status != "" {
@@ -506,7 +679,7 @@ func (m Model) View() string {
 	if m.err != nil {
 		b.WriteString("Error: " + sanitizeError(m.err) + "\n")
 	}
-	return responsive(b.String(), m.width, m.height)
+	return m.renderLegacyViewport(b.String())
 }
 
 func responsive(view string, width, height int) string {
@@ -514,13 +687,144 @@ func responsive(view string, width, height int) string {
 		view = strings.ReplaceAll(view, "  enter inspect", "\nenter inspect")
 		view = strings.ReplaceAll(view, "  d delete", "\nd delete")
 	}
-	if height > 0 {
-		lines := strings.Split(view, "\n")
-		if len(lines) > height {
-			view = strings.Join(lines[:height], "\n")
-		}
-	}
 	return view
+}
+
+func (m Model) renderLegacyViewport(content string) string {
+	width, height := m.width, m.height
+	if width <= 0 {
+		width = 80
+	}
+	if height <= 0 {
+		height = 24
+	}
+	var lines []string
+	for _, line := range strings.Split(content, "\n") {
+		lines = append(lines, wrapWizardText(line, width, "")...)
+	}
+	text := strings.Join(lines, "\n")
+	v := m.legacyViewport
+	if v.Width != width || v.Height != max(height-1, 1) || m.legacyViewportText != text {
+		v.Width, v.Height = width, max(height-1, 1)
+		v.SetContent(text)
+	}
+	return strings.TrimRight(v.View(), "\n") + "\n" + wizardOverflowIndicator(v, width, newHomeTheme(m.noColor))
+}
+
+// refreshLegacyViewport preserves a real Bubbles viewport between updates.
+// Legacy screens intentionally keep their existing keyboard bindings; PgUp and
+// PgDown are the non-conflicting manual navigation surface.
+func (m *Model) refreshLegacyViewport() {
+	if m.screen != screenList && m.screen != screenDetail && m.screen != screenForm && m.screen != screenConfirm {
+		return
+	}
+	width, height := m.width, m.height
+	if width <= 0 {
+		width = 80
+	}
+	if height <= 0 {
+		height = 24
+	}
+	content := m.legacyViewportContent()
+	var lines []string
+	for _, line := range strings.Split(content, "\n") {
+		lines = append(lines, wrapWizardText(line, width, "")...)
+	}
+	m.legacyViewport.Width, m.legacyViewport.Height = width, max(height-1, 1)
+	m.legacyViewportText = strings.Join(lines, "\n")
+	m.legacyViewport.SetContent(m.legacyViewportText)
+	start, end := m.legacyFocusRange()
+	if end-start+1 > m.legacyViewport.Height {
+		m.legacyViewport.SetYOffset(start)
+	} else if start < m.legacyViewport.YOffset {
+		m.legacyViewport.SetYOffset(start)
+	} else if end >= m.legacyViewport.YOffset+m.legacyViewport.Height {
+		m.legacyViewport.SetYOffset(max(end-m.legacyViewport.Height+1, 0))
+	}
+}
+
+// legacyFocusRange is a semantic range, deliberately derived from the stable
+// legacy screen layout rather than rendered ANSI text.
+func (m Model) legacyFocusRange() (int, int) {
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+	switch m.screen {
+	case screenList:
+		start := 3 // title, blank line, and the Profiles heading.
+		for i := 0; i < m.selected && i < len(m.profiles); i++ {
+			start += len(wrapWizardText("  "+m.profiles[i].Name, width, ""))
+		}
+		if m.selected >= len(m.profiles) {
+			return start, start
+		}
+		return start, start + len(wrapWizardText("> "+m.profiles[m.selected].Name, width, "")) - 1
+	case screenForm:
+		index := m.focusIndex()
+		if index < 0 {
+			index = 0
+		}
+		start := 3 // title, blank line, and the Profile fields heading.
+		for i := 0; i < index && i < len(m.form); i++ {
+			start += len(wrapWizardText(m.form[i].label+": "+m.form[i].input.View(), width, ""))
+		}
+		if index >= len(m.form) {
+			return start, start
+		}
+		return start, start + len(wrapWizardText(m.form[index].label+": "+m.form[index].input.View(), width, "")) - 1
+	case screenConfirm:
+		start := 2
+		for _, line := range []string{
+			fmt.Sprintf("Delete profile %q?", m.confirm),
+			"This retains a recoverable backup.",
+			fmt.Sprintf("Type delete %s exactly, then press enter.", m.confirm),
+		} {
+			start += len(wrapWizardText(line, width, ""))
+		}
+		return start, start + len(wrapWizardText(m.confirmInput.View(), width, "")) - 1
+	default:
+		return 0, 0
+	}
+}
+
+func (m Model) legacyViewportContent() string {
+	var b strings.Builder
+	title := lipgloss.NewStyle().Bold(true).Render("Nexus configuration")
+	b.WriteString(title + "\n\n")
+	switch m.screen {
+	case screenList:
+		b.WriteString("Profiles\n")
+		if len(m.profiles) == 0 {
+			b.WriteString("No profiles configured. Press n to create one.\n")
+		}
+		for i, p := range m.profiles {
+			marker := " "
+			if i == m.selected {
+				marker = ">"
+			}
+			fmt.Fprintf(&b, "%s %s\n", marker, p.Name)
+		}
+		b.WriteString("\nn new  enter inspect  d delete  b inicio  q quit\n")
+	case screenDetail:
+		p := m.profiles[m.selected]
+		fmt.Fprintf(&b, "Profile: %s\nHost: %s:%d\nUsername: %s\nTrust: %s\n\ne edit  d delete  b back\n", p.Name, p.Host, p.Port, p.Username, p.HostKeyTrust)
+	case screenForm:
+		b.WriteString("Profile fields\n")
+		for i := range m.form {
+			fmt.Fprintf(&b, "%s: %s\n", m.form[i].label, m.form[i].input.View())
+		}
+		b.WriteString("\nenter save  esc cancel\n")
+	case screenConfirm:
+		fmt.Fprintf(&b, "Delete profile %q?\nThis retains a recoverable backup.\nType delete %s exactly, then press enter.\n%s\nn/esc cancel\n", m.confirm, m.confirm, m.confirmInput.View())
+	}
+	if m.status != "" {
+		b.WriteString("\nStatus: " + m.status + "\n")
+	}
+	if m.err != nil {
+		b.WriteString("Error: " + sanitizeError(m.err) + "\n")
+	}
+	return b.String()
 }
 
 func sanitizeError(err error) string { return strings.Join(strings.Fields(err.Error()), " ") }

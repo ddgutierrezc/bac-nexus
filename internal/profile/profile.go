@@ -59,8 +59,8 @@ func (p Profile) Validate() error {
 	if err := ValidateEndpoint(p.Host, p.Port); err != nil {
 		return err
 	}
-	if !userPattern.MatchString(p.Username) {
-		return errors.New("username contains unsupported characters")
+	if err := ValidateUsername(p.Username); err != nil {
+		return err
 	}
 	if err := ValidateHostKey(p.HostKeyFingerprint, p.HostKeyTrust); err != nil {
 		return err
@@ -106,16 +106,15 @@ func ValidateHostKey(fingerprintValue string, trust HostKeyTrust) error {
 }
 
 func ValidateEndpoint(host string, port int) error {
-	if err := validateHost(host); err != nil {
+	if err := ValidateHost(host); err != nil {
 		return err
 	}
-	if port < 1 || port > 65535 {
-		return errors.New("port must be between 1 and 65535")
-	}
-	return nil
+	return ValidatePort(port)
 }
 
-func validateHost(host string) error {
+// ValidateHost applies the existing DNS/IPv4 host contract without accepting a
+// port, whitespace, or IPv6 literals.
+func ValidateHost(host string) error {
 	if host == "" || strings.TrimSpace(host) != host || strings.ContainsAny(host, "/\\:@[]\t\r\n ") {
 		return errors.New("host must be a DNS name or IP address without a port")
 	}
@@ -134,6 +133,22 @@ func validateHost(host string) error {
 				return errors.New("host is not a valid DNS name")
 			}
 		}
+	}
+	return nil
+}
+
+// ValidateUsername applies the stable IBM i username character contract.
+func ValidateUsername(username string) error {
+	if !userPattern.MatchString(username) {
+		return errors.New("username contains unsupported characters")
+	}
+	return nil
+}
+
+// ValidatePort applies the existing SSH port range contract.
+func ValidatePort(port int) error {
+	if port < 1 || port > 65535 {
+		return errors.New("port must be between 1 and 65535")
 	}
 	return nil
 }
