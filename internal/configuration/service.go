@@ -1,7 +1,7 @@
 // Package configuration owns the reusable application services for
 // the Nexus configuration lifecycle. The package depends only on
-// internal/profile, internal/credential, internal/remote, and
-// internal/mapepire. It MUST NOT import internal/mcp, the cmd/* flag
+// internal/profile, internal/credential, internal/remote, and the IBM i
+// Mapepire stdio policy. It MUST NOT import internal/mcp, the cmd/* flag
 // surface, or the stdin/stdout transport owned by the entry points.
 // Future slices (TUI shell, profile CRUD, credential/trust flows,
 // readiness diagnostics) consume this package as a
@@ -21,8 +21,8 @@ import (
 	"strings"
 	"time"
 
+	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
 	"bac-nexus/internal/credential"
-	"bac-nexus/internal/mapepire"
 	"bac-nexus/internal/profile"
 	"bac-nexus/internal/remote"
 )
@@ -54,7 +54,7 @@ type VaultsStore interface {
 type (
 	SecretReader  func(label string) ([]byte, error)
 	LineReader    func(label string) (string, error)
-	DiscoverJarFn func() mapepire.DiscoveryResult
+	DiscoverJarFn func() mapepirestdio.DiscoveryResult
 	VerifyJarFn   func(path string) error
 	InspectKeyFn  func(ctx context.Context, host string, port int) (remote.HostKeyObservation, error)
 )
@@ -300,12 +300,12 @@ func (d Dependencies) runSetup(ctx context.Context) error {
 	discovery := d.DiscoverJAR()
 	jar := ""
 	automaticallyDiscovered := false
-	if discovery.Status == mapepire.DiscoveryFound && discovery.VerifiedCandidateCount == 1 && discovery.Path != "" {
+	if discovery.Status == mapepirestdio.DiscoveryFound && discovery.VerifiedCandidateCount == 1 && discovery.Path != "" {
 		jar = discovery.Path
 		automaticallyDiscovered = true
 	} else {
 		switch {
-		case discovery.Status == mapepire.DiscoveryAmbiguous:
+		case discovery.Status == mapepirestdio.DiscoveryAmbiguous:
 			_, err = fmt.Fprintf(d.Notices, "Mapepire Server 2.3.5 auto-discovery found %d verified candidates; a unique candidate is required. Enter the absolute path manually.\n", discovery.VerifiedCandidateCount)
 		case discovery.RejectedCandidateCount > 0:
 			_, err = fmt.Fprintf(d.Notices, "Mapepire Server 2.3.5 auto-discovery found no verified candidate; %d exact-location candidate(s) failed verification. Enter the absolute path manually.\n", discovery.RejectedCandidateCount)

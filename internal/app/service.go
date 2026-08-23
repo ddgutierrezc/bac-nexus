@@ -28,9 +28,9 @@ var ErrServiceUnavailable = errors.New("service unavailable: recovery not comple
 // needs; it never widens to expose infrastructure the service must not
 // reach.
 
-// CatalogResolver returns the catalog candidates for a bounded query.
+// CatalogResolver returns catalog candidates for a validated semantic search.
 type CatalogResolver interface {
-	Resolve(ctx context.Context, query catalog.Query) ([]catalog.Candidate, error)
+	Resolve(ctx context.Context, search catalog.Search) ([]catalog.Candidate, error)
 }
 
 // SnapshotAcquirer builds the immutable in-memory snapshot for one
@@ -122,7 +122,7 @@ func (s *Service) Available() bool { return s.ready }
 // cancellation, or a candidate set larger than catalog.MaxCandidates.
 // A successful call records an allow audit event; a denied or failed
 // call records the matching deny classification.
-func (s *Service) ResolveCatalog(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) {
+func (s *Service) ResolveCatalog(ctx context.Context, search catalog.Search, selector security.Selector) ([]catalog.Candidate, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, ctx.Err()
 	}
@@ -154,7 +154,7 @@ func (s *Service) ResolveCatalog(ctx context.Context, query catalog.Query, selec
 	if s.deps.Resolver == nil {
 		return nil, errors.New("service catalog resolver is required")
 	}
-	raw, err := s.deps.Resolver.Resolve(ctx, query)
+	raw, err := s.deps.Resolver.Resolve(ctx, search)
 	if err != nil {
 		if auditErr := s.recordDenied(ctx, audit.CapabilityCatalogResolve, audit.TargetClassIBMiCatalog, err); auditErr != nil {
 			return nil, auditErr
@@ -224,11 +224,11 @@ func (s *Service) ReadSelectedSource(ctx context.Context, selection catalog.Cand
 	}
 	var original catalog.Candidate
 	if cursor == "" {
-		query, err := catalog.BuildQuery(selection.Item, selection.ProductionLibrary)
+		search, err := catalog.NewSearch(selection.Item, selection.ProductionLibrary)
 		if err != nil {
 			return source.Page{}, source.ErrInvalidRequest
 		}
-		candidates, err := s.deps.Resolver.Resolve(ctx, query)
+		candidates, err := s.deps.Resolver.Resolve(ctx, search)
 		if err != nil {
 			return source.Page{}, source.ErrStaleCoordinate
 		}
@@ -284,14 +284,14 @@ func (s *Service) ReadSelectedSource(ctx context.Context, selection catalog.Cand
 // in the re-queried candidate set, the coordinate is stale and the
 // caller must restart at line 1.
 func (s *Service) freshnessCheck(ctx context.Context, original catalog.Candidate) error {
-	query, err := catalog.BuildQuery(original.Item, original.ProductionLibrary)
+	search, err := catalog.NewSearch(original.Item, original.ProductionLibrary)
 	if err != nil {
 		return source.ErrStaleCoordinate
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	current, err := s.deps.Resolver.Resolve(ctx, query)
+	current, err := s.deps.Resolver.Resolve(ctx, search)
 	if err != nil {
 		return source.ErrStaleCoordinate
 	}

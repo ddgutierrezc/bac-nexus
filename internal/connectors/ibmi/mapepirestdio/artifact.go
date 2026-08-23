@@ -1,4 +1,4 @@
-package mapepire
+package mapepirestdio
 
 import (
 	"crypto/rand"

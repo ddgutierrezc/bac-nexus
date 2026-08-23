@@ -17,22 +17,22 @@ import (
 )
 
 type fakeService struct {
-	resolveFn    func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error)
+	resolveFn    func(ctx context.Context, search catalog.Search, selector security.Selector) ([]catalog.Candidate, error)
 	readFn       func(ctx context.Context, selection catalog.Candidate, cursor string, page source.Range) (source.Page, error)
 	resolveCalls int
 	readCalls    int
-	lastQuery    catalog.Query
+	lastSearch   catalog.Search
 	lastSelector security.Selector
 	lastCursor   string
 	lastRange    source.Range
 }
 
-func (f *fakeService) ResolveCatalog(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) {
+func (f *fakeService) ResolveCatalog(ctx context.Context, search catalog.Search, selector security.Selector) ([]catalog.Candidate, error) {
 	f.resolveCalls++
-	f.lastQuery = query
+	f.lastSearch = search
 	f.lastSelector = selector
 	if f.resolveFn != nil {
-		return f.resolveFn(ctx, query, selector)
+		return f.resolveFn(ctx, search, selector)
 	}
 	return nil, nil
 }
@@ -77,19 +77,19 @@ func hasFieldContaining(typ reflect.Type, substring string) (bool, string) {
 
 // canned resolve/read functions shared by the behavior tables.
 var (
-	resolveSuccess = func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) {
+	resolveSuccess = func(ctx context.Context, search catalog.Search, selector security.Selector) ([]catalog.Candidate, error) {
 		return []catalog.Candidate{validCandidate(), validCandidate()}, nil
 	}
-	resolvePassThrough = func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) {
+	resolvePassThrough = func(ctx context.Context, search catalog.Search, selector security.Selector) ([]catalog.Candidate, error) {
 		return nil, nil
 	}
-	resolveCtx = func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) {
+	resolveCtx = func(ctx context.Context, search catalog.Search, selector security.Selector) ([]catalog.Candidate, error) {
 		return nil, context.Canceled
 	}
-	resolveCreds = func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) {
+	resolveCreds = func(ctx context.Context, search catalog.Search, selector security.Selector) ([]catalog.Candidate, error) {
 		return nil, credential.ErrCredentialsUnavailable
 	}
-	resolveUnauth = func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error) {
+	resolveUnauth = func(ctx context.Context, search catalog.Search, selector security.Selector) ([]catalog.Candidate, error) {
 		return nil, security.ErrUnauthorized
 	}
 
@@ -166,7 +166,7 @@ func TestTypedInputOutputSchemasAreBounded(t *testing.T) {
 func TestResolveCatalogHandlerBehavior(t *testing.T) {
 	tests := []struct {
 		name      string
-		resolveFn func(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error)
+		resolveFn func(ctx context.Context, search catalog.Search, selector security.Selector) ([]catalog.Candidate, error)
 		input     ResolveCatalogInput
 		check     func(t *testing.T, out ResolveCatalogOutput, svc *fakeService, err error)
 	}{
@@ -195,8 +195,8 @@ func TestResolveCatalogHandlerBehavior(t *testing.T) {
 				if svc.lastSelector != security.SelectorResolveCatalog {
 					t.Fatalf("selector = %q, want resolve_catalog_candidates", svc.lastSelector)
 				}
-				if svc.lastQuery.Statement == "" || !slices.Equal(svc.lastQuery.Parameters, []string{"%PISA061%", "PRODLIB"}) {
-					t.Fatalf("query = %+v, want bounded catalog query", svc.lastQuery)
+				if svc.lastSearch.Item != "PISA061" || svc.lastSearch.ProductionLibrary != "PRODLIB" {
+					t.Fatalf("search = %+v, want normalized catalog criteria", svc.lastSearch)
 				}
 			},
 		},

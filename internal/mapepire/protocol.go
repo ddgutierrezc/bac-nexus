@@ -5,33 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"path"
-	"strings"
 )
 
 const (
-	ServerVersion     = "2.3.5"
-	ServerSHA256      = "41b1cfa67778ac204426f1dda0b51bd3f45fe3b89c91121d968660140acc0876"
-	RemoteJar         = ".bac-nexus/components/mapepire/2.3.5/mapepire-server-2.3.5.jar"
-	MaxFrameBytes     = 1 << 20
-	MaxServerJARBytes = 64 << 20
+	MaxFrameBytes = 1 << 20
+	MaxQueryRows  = 1000
 )
 
-const DefaultJavaHome = "/QOpenSys/QIBM/ProdData/JavaVM/jdk80/64bit"
-
-var SingleModeEnvironment = []string{
-	"QIBM_JAVA_STDIO_CONVERT=N",
-	"QIBM_PASE_DESCRIPTOR_STDIO=B",
-	"QIBM_USE_DESCRIPTOR_STDIO=Y",
-	"QIBM_MULTI_THREADED=Y",
-}
-
-var SingleModeJavaArguments = []string{
-	"-Dos400.stdio.convert=N",
-	"-jar",
-	RemoteJar,
-	"--single",
-}
+var ErrInvalidQueryRowLimit = errors.New("Mapepire query row limit must be between 1 and 1000")
 
 type Request struct {
 	ID          string   `json:"id"`
@@ -45,8 +26,8 @@ type Request struct {
 	ContID      string   `json:"cont_id,omitempty"`
 }
 
-func ConnectRequest(id string) Request {
-	return Request{ID: id, Type: "connect", Technique: "tcp", Application: "BAC Nexus catalog spike", Props: "access=read only"}
+func ConnectRequest(id, application string) Request {
+	return Request{ID: id, Type: "connect", Technique: "tcp", Application: application, Props: "access=read only"}
 }
 
 func PreparedQueryRequest(id, sql string, rows int, parameters []string) Request {
@@ -91,34 +72,4 @@ func DecodeFrame(reader io.Reader, target any) error {
 			return io.ErrNoProgress
 		}
 	}
-}
-
-func VerifyServerJAR(path string) error {
-	return verifyServerJAR(path, ServerSHA256)
-}
-
-func verifyServerJAR(path, expected string) error {
-	file, _, err := openVerifiedLocalJAR(path, expected)
-	if err != nil {
-		return err
-	}
-	return file.Close()
-}
-
-func JavaCommand(javaHome, remoteJar string) (string, error) {
-	if javaHome == "" {
-		javaHome = DefaultJavaHome
-	}
-	if !strings.HasPrefix(javaHome, "/QOpenSys/QIBM/ProdData/JavaVM/") || strings.Contains(javaHome, "..") {
-		return "", errors.New("unsafe IBM i Java home")
-	}
-	if !strings.HasPrefix(remoteJar, "/") || strings.Contains(remoteJar, "..") {
-		return "", errors.New("unsafe remote Mapepire path")
-	}
-	java := path.Join(javaHome, "bin", "java")
-	return strings.Join(SingleModeEnvironment, " ") + " " + shellQuote(java) + " -Dos400.stdio.convert=N -jar " + shellQuote(remoteJar) + " --single", nil
-}
-
-func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }

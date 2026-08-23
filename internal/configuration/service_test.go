@@ -19,8 +19,8 @@ import (
 	"strings"
 	"testing"
 
+	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
 	"bac-nexus/internal/credential"
-	"bac-nexus/internal/mapepire"
 	"bac-nexus/internal/profile"
 	"bac-nexus/internal/remote"
 )
@@ -68,12 +68,14 @@ func (f *fakeVaultReader) Get(_ string, master []byte) ([]byte, error) {
 func newServiceDeps(t *testing.T) Dependencies {
 	t.Helper()
 	return Dependencies{
-		Profiles:    stubProfiles{},
-		Vaults:      stubVaults{},
-		ReadLine:    func(string) (string, error) { return "", io.EOF },
-		ReadSecret:  func(string) ([]byte, error) { return nil, io.EOF },
-		DiscoverJAR: func() mapepire.DiscoveryResult { return mapepire.DiscoveryResult{Status: mapepire.DiscoveryNotFound} },
-		VerifyJAR:   func(string) error { return nil },
+		Profiles:   stubProfiles{},
+		Vaults:     stubVaults{},
+		ReadLine:   func(string) (string, error) { return "", io.EOF },
+		ReadSecret: func(string) ([]byte, error) { return nil, io.EOF },
+		DiscoverJAR: func() mapepirestdio.DiscoveryResult {
+			return mapepirestdio.DiscoveryResult{Status: mapepirestdio.DiscoveryNotFound}
+		},
+		VerifyJAR: func(string) error { return nil },
 		InspectKey: func(context.Context, string, int) (remote.HostKeyObservation, error) {
 			return remote.HostKeyObservation{}, nil
 		},
@@ -101,7 +103,7 @@ func TestPackageRespectsInwardPointingBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	approved := map[string]bool{
-		"bac-nexus/internal/credential": true, "bac-nexus/internal/mapepire": true,
+		"bac-nexus/internal/connectors/ibmi/mapepirestdio": true, "bac-nexus/internal/credential": true,
 		"bac-nexus/internal/profile": true, "bac-nexus/internal/remote": true,
 		"crypto/subtle": true, "encoding/json": true, "errors": true,
 		"fmt": true, "io": true, "os": true, "path/filepath": true,

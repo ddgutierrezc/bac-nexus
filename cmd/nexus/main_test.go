@@ -59,7 +59,7 @@ func (fakeAuthorizer) Authorize(ctx context.Context, sel security.Selector, tgt 
 
 type fakeResolver struct{}
 
-func (fakeResolver) Resolve(ctx context.Context, q catalog.Query) ([]catalog.Candidate, error) {
+func (fakeResolver) Resolve(ctx context.Context, q catalog.Search) ([]catalog.Candidate, error) {
 	return []catalog.Candidate{{Item: "PISA061", SourceLibrary: "QRPGLESRC", SourceFileBase: "QRPGLESRC", ObjectType: "RPGLE", SourceType: "RPG", Application: "APP", Version: "V1", ProductionLibrary: "PRODLIB"}}, nil
 }
 

@@ -2,7 +2,6 @@ package catalog
 
 import (
 	"errors"
-	"strings"
 	"testing"
 )
 
@@ -30,19 +29,13 @@ func TestIsSystemName(t *testing.T) {
 	}
 }
 
-func TestBuildQueryUsesParametersAndBounds(t *testing.T) {
-	query, err := BuildQuery("pisa061", "prod$lib")
+func TestNewSearchValidatesAndNormalizes(t *testing.T) {
+	search, err := NewSearch("pisa061", "prod$lib")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(query.Statement, "PISA061") || strings.Contains(query.Statement, "PROD$LIB") {
-		t.Fatal("query embeds user input")
-	}
-	if got, want := query.Parameters, []string{"%PISA061%", "PROD$LIB"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
-		t.Fatalf("parameters = %#v, want %#v", got, want)
-	}
-	if !strings.Contains(query.Statement, "FETCH FIRST 51 ROWS ONLY") {
-		t.Fatal("query does not request the cap sentinel row")
+	if search.Item != "PISA061" || search.ProductionLibrary != "PROD$LIB" {
+		t.Fatalf("search = %#v", search)
 	}
 }
 

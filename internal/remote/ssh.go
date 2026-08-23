@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"bac-nexus/internal/mapepire"
+	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
 	"bac-nexus/internal/profile"
 	"bac-nexus/internal/source"
 
@@ -421,8 +421,8 @@ func (c *sessionChannel) Close() error {
 	return c.sess.Close()
 }
 
-func (c *Client) StartMapepire(ctx context.Context, javaHome, remoteJar string) (Channel, error) {
-	command, err := mapepire.JavaCommand(javaHome, remoteJar)
+func (c *Client) StartMapepire(ctx context.Context, policy mapepirestdio.LaunchPolicy) (Channel, error) {
+	command, err := mapepirestdio.BuildCommand(policy)
 	if err != nil {
 		return nil, err
 	}

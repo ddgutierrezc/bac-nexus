@@ -79,12 +79,12 @@ type fakeCatalogResolver struct {
 	candidates []catalog.Candidate
 	err        error
 	queries    int
-	query      catalog.Query
+	search     catalog.Search
 }
 
-func (f *fakeCatalogResolver) Resolve(ctx context.Context, query catalog.Query) ([]catalog.Candidate, error) {
+func (f *fakeCatalogResolver) Resolve(ctx context.Context, search catalog.Search) ([]catalog.Candidate, error) {
 	f.queries++
-	f.query = query
+	f.search = search
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -410,11 +410,11 @@ func TestServiceResolveCatalogBounds(t *testing.T) {
 			}
 			in.resolver.candidates = tt.candidates
 			in.authz.decision = allowCatalogDecision()
-			query, err := catalog.BuildQuery("PISA061", "")
+			search, err := catalog.NewSearch("PISA061", "")
 			if err != nil {
-				t.Fatalf("BuildQuery error = %v", err)
+				t.Fatalf("NewSearch error = %v", err)
 			}
-			got, err := in.svc.ResolveCatalog(context.Background(), query, security.SelectorResolveCatalog)
+			got, err := in.svc.ResolveCatalog(context.Background(), search, security.SelectorResolveCatalog)
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
 					t.Fatalf("ResolveCatalog error = %v, want %v", err, tt.wantErr)
@@ -455,11 +455,11 @@ func TestServiceResolveCatalogRejectsCredentialsUnavailable(t *testing.T) {
 	}
 	in.creds.err = credential.ErrCredentialsUnavailable
 
-	query, err := catalog.BuildQuery("PISA061", "")
+	search, err := catalog.NewSearch("PISA061", "")
 	if err != nil {
-		t.Fatalf("BuildQuery error = %v", err)
+		t.Fatalf("NewSearch error = %v", err)
 	}
-	_, err = svc.ResolveCatalog(context.Background(), query, security.SelectorResolveCatalog)
+	_, err = svc.ResolveCatalog(context.Background(), search, security.SelectorResolveCatalog)
 	if !errors.Is(err, credential.ErrCredentialsUnavailable) {
 		t.Fatalf("ResolveCatalog error = %v, want ErrCredentialsUnavailable", err)
 	}
@@ -484,11 +484,11 @@ func TestServiceResolveCatalogRejectsPolicyDenial(t *testing.T) {
 		Reason:   "selector not allowlisted",
 	}
 
-	query, err := catalog.BuildQuery("PISA061", "")
+	search, err := catalog.NewSearch("PISA061", "")
 	if err != nil {
-		t.Fatalf("BuildQuery error = %v", err)
+		t.Fatalf("NewSearch error = %v", err)
 	}
-	_, err = in.svc.ResolveCatalog(context.Background(), query, security.Selector("rogue"))
+	_, err = in.svc.ResolveCatalog(context.Background(), search, security.Selector("rogue"))
 	if !errors.Is(err, security.ErrUnauthorized) {
 		t.Fatalf("ResolveCatalog error = %v, want ErrUnauthorized", err)
 	}
@@ -507,11 +507,11 @@ func TestServiceRejectsContextCancellationOnResolveCatalog(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	query, err := catalog.BuildQuery("PISA061", "")
+	search, err := catalog.NewSearch("PISA061", "")
 	if err != nil {
-		t.Fatalf("BuildQuery error = %v", err)
+		t.Fatalf("NewSearch error = %v", err)
 	}
-	_, err = in.svc.ResolveCatalog(ctx, query, security.SelectorResolveCatalog)
+	_, err = in.svc.ResolveCatalog(ctx, search, security.SelectorResolveCatalog)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("ResolveCatalog error = %v, want context.Canceled", err)
 	}
@@ -690,11 +690,11 @@ func TestServiceAuditsCatalogResolution(t *testing.T) {
 			in.resolver.candidates = makeFiftyCandidates()
 			in.authz.decision = tt.decision
 
-			query, err := catalog.BuildQuery("PISA061", "")
+			search, err := catalog.NewSearch("PISA061", "")
 			if err != nil {
-				t.Fatalf("BuildQuery error = %v", err)
+				t.Fatalf("NewSearch error = %v", err)
 			}
-			_, _ = in.svc.ResolveCatalog(context.Background(), query, security.SelectorResolveCatalog)
+			_, _ = in.svc.ResolveCatalog(context.Background(), search, security.SelectorResolveCatalog)
 			if len(in.aud.events) == 0 {
 				t.Fatal("no audit events recorded")
 			}
@@ -726,11 +726,11 @@ func TestServiceAuditsThroughProductionRecorderWithAllowlistedPolicyID(t *testin
 	if err := service.Startup(context.Background()); err != nil {
 		t.Fatalf("Startup error = %v", err)
 	}
-	query, err := catalog.BuildQuery(candidate.Item, candidate.ProductionLibrary)
+	search, err := catalog.NewSearch(candidate.Item, candidate.ProductionLibrary)
 	if err != nil {
-		t.Fatalf("BuildQuery error = %v", err)
+		t.Fatalf("NewSearch error = %v", err)
 	}
-	if _, err := service.ResolveCatalog(context.Background(), query, security.SelectorResolveCatalog); err != nil {
+	if _, err := service.ResolveCatalog(context.Background(), search, security.SelectorResolveCatalog); err != nil {
 		t.Fatalf("authorized ResolveCatalog error = %v", err)
 	}
 	events := recorder.Events()
@@ -738,7 +738,7 @@ func TestServiceAuditsThroughProductionRecorderWithAllowlistedPolicyID(t *testin
 		t.Fatalf("authorized audit events = %+v", events)
 	}
 	authorizer.decision = security.Decision_{Decision: security.DecisionDeny, Reason: "selector not allowlisted"}
-	if _, err := service.ResolveCatalog(context.Background(), query, security.Selector("rogue")); !errors.Is(err, security.ErrUnauthorized) {
+	if _, err := service.ResolveCatalog(context.Background(), search, security.Selector("rogue")); !errors.Is(err, security.ErrUnauthorized) {
 		t.Fatalf("denied ResolveCatalog error = %v, want ErrUnauthorized", err)
 	}
 	events = recorder.Events()

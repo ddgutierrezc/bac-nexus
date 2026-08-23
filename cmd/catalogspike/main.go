@@ -14,6 +14,8 @@ import (
 
 	"bac-nexus/internal/catalog"
 	"bac-nexus/internal/configuration"
+	"bac-nexus/internal/connectors/ibmi/catalogados"
+	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
 	"bac-nexus/internal/credential"
 	"bac-nexus/internal/mapepire"
 	"bac-nexus/internal/profile"
@@ -131,26 +133,27 @@ func runOffline(args []string) error {
 	if flags.NArg() != 0 {
 		return errors.New("offline does not accept positional arguments")
 	}
-	query, err := catalog.BuildQuery(*item, *productionLibrary)
+	search, err := catalog.NewSearch(*item, *productionLibrary)
 	if err != nil {
 		return err
 	}
 	verified := false
 	if *jar != "" {
-		if err := mapepire.VerifyServerJAR(*jar); err != nil {
+		if err := mapepirestdio.VerifyServerJAR(*jar); err != nil {
 			return err
 		}
 		verified = true
 	}
-	return writeOfflineOutput(os.Stdout, query, verified)
+	return writeOfflineOutput(os.Stdout, search, verified)
 }
 
-func writeOfflineOutput(writer io.Writer, query catalog.Query, verified bool) error {
+func writeOfflineOutput(writer io.Writer, search catalog.Search, verified bool) error {
+	_, parameters, rowLimit := catalogados.PreparedSearch(search)
 	result := diagnostic{
-		Status: "offline-diagnostic", Query: queryDiagnostic{Statement: "catalogados.search.v1", ParameterCount: len(query.Parameters), RowCap: query.RowLimit},
-		MapepireVersion: mapepire.ServerVersion, MapepireSHA256: mapepire.ServerSHA256,
-		RemoteComponent: mapepire.RemoteJar, ProtocolRequests: protocolDiagnostics(query),
-		LaunchEnvironment: mapepire.SingleModeEnvironment, JavaArguments: mapepire.SingleModeJavaArguments,
+		Status: "offline-diagnostic", Query: queryDiagnostic{Statement: "catalogados.search.v1", ParameterCount: len(parameters), RowCap: rowLimit},
+		MapepireVersion: mapepirestdio.ServerVersion, MapepireSHA256: mapepirestdio.ServerSHA256,
+		RemoteComponent: mapepirestdio.RemoteJar, ProtocolRequests: protocolDiagnostics(rowLimit, len(parameters)),
+		LaunchEnvironment: mapepirestdio.SingleModeEnvironment, JavaArguments: mapepirestdio.SingleModeJavaArguments,
 		ArtifactVerified:   verified,
 		LiveOperationBlock: "use the explicit live subcommand after configuration and approvals",
 	}
@@ -180,7 +183,7 @@ func runConfigure(args []string) error {
 		return err
 	}
 	if *jar != "" {
-		if err := mapepire.VerifyServerJAR(*jar); err != nil {
+		if err := mapepirestdio.VerifyServerJAR(*jar); err != nil {
 			return err
 		}
 	}
@@ -222,7 +225,7 @@ func runLive(args []string) error {
 	if *profileName == "" {
 		return errors.New("live requires -profile")
 	}
-	query, err := catalog.BuildQuery(*item, *productionLibrary)
+	search, err := catalog.NewSearch(*item, *productionLibrary)
 	if err != nil {
 		return err
 	}
@@ -241,7 +244,7 @@ func runLive(args []string) error {
 	if jarPath == "" {
 		return errors.New("live requires a configured Mapepire JAR or explicit -mapepire-jar override")
 	}
-	if err := mapepire.VerifyServerJAR(jarPath); err != nil {
+	if err := mapepirestdio.VerifyServerJAR(jarPath); err != nil {
 		return err
 	}
 	vaultRoot, err := resolveCredentialsRoot(*credentialsRoot)
@@ -262,15 +265,15 @@ func runLive(args []string) error {
 		return err
 	}
 	defer client.Close()
-	remoteJar, err := mapepire.EnsureServerJAR(client, jarPath)
+	remoteJar, err := mapepirestdio.EnsureServerJAR(client, jarPath)
 	if err != nil {
 		return err
 	}
-	channel, err := client.StartMapepire(ctx, p.JavaHome, remoteJar)
+	channel, err := client.StartMapepire(ctx, mapepirestdio.LaunchPolicy{JavaHome: p.JavaHome, RemoteJAR: remoteJar})
 	if err != nil {
 		return err
 	}
-	candidates, err := mapepire.NewSession(channel).Catalog(ctx, query)
+	candidates, err := (catalogados.Resolver{Executor: mapepire.NewSession(channel, "BAC Nexus catalog spike")}).Resolve(ctx, search)
 	if err != nil {
 		return err
 	}
@@ -446,7 +449,7 @@ type setupDependencies struct {
 	ReadLine    func(string) (string, error)
 	ReadExact   func(string) (string, error)
 	ReadSecret  secretReader
-	DiscoverJAR func() mapepire.DiscoveryResult
+	DiscoverJAR func() mapepirestdio.DiscoveryResult
 	VerifyJAR   func(string) error
 	InspectKey  func(context.Context, string, int) (remote.HostKeyObservation, error)
 	Output      io.Writer
@@ -475,7 +478,7 @@ func runSetup(args []string) error {
 	return executeSetup(setupDependencies{
 		Profiles: profile.Store{Root: profileRoot}, Vaults: credential.Store{Root: vaultRoot},
 		ReadLine: readLine, ReadExact: readExact, ReadSecret: remote.TerminalSecretPrompt().Prompt,
-		DiscoverJAR: mapepire.DiscoverInstalledServerJAR, VerifyJAR: mapepire.VerifyServerJAR,
+		DiscoverJAR: mapepirestdio.DiscoverInstalledServerJAR, VerifyJAR: mapepirestdio.VerifyServerJAR,
 		InspectKey: remote.InspectHostKey, Output: os.Stdout, Notices: os.Stderr,
 	})
 }
@@ -555,10 +558,10 @@ func resolveCredentialsRoot(override string) (string, error) {
 	return credential.DefaultRoot()
 }
 
-func protocolDiagnostics(query catalog.Query) []protocolDiagnostic {
+func protocolDiagnostics(rowLimit, parameterCount int) []protocolDiagnostic {
 	return []protocolDiagnostic{
 		{ID: "connect-1", Type: "connect"},
-		{ID: "query-1", Type: "prepare_sql_execute", RowCap: query.RowLimit, ParameterCount: len(query.Parameters)},
+		{ID: "query-1", Type: "prepare_sql_execute", RowCap: rowLimit, ParameterCount: parameterCount},
 		{ID: "close-1", Type: "sqlclose", ContinuationID: "query-1"},
 		{ID: "exit-1", Type: "exit"},
 	}

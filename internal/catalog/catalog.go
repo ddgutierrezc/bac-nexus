@@ -9,7 +9,6 @@ import (
 
 const (
 	MaxCandidates = 50
-	queryRowLimit = MaxCandidates + 1
 )
 
 var systemNamePattern = regexp.MustCompile(`^[A-Z$#@][A-Z0-9_$#@]{0,9}$`)
@@ -17,10 +16,12 @@ var systemNamePattern = regexp.MustCompile(`^[A-Z$#@][A-Z0-9_$#@]{0,9}$`)
 var ErrCandidateLimit = errors.New("catalog candidate limit exceeded")
 var ErrCandidateNotFound = errors.New("catalog candidate not found")
 
-type Query struct {
-	Statement  string   `json:"statement"`
-	Parameters []string `json:"parameters"`
-	RowLimit   int      `json:"rowLimit"`
+// Search is the validated, normalized domain request for Catalogados
+// candidates. Connector-specific query construction remains outside this
+// package.
+type Search struct {
+	Item              string
+	ProductionLibrary string
 }
 
 type Candidate struct {
@@ -47,43 +48,17 @@ func IsSystemName(value string) bool {
 	return systemNamePattern.MatchString(strings.ToUpper(value))
 }
 
-func BuildQuery(item, productionLibrary string) (Query, error) {
+// NewSearch validates and normalizes the user-visible catalog criteria.
+func NewSearch(item, productionLibrary string) (Search, error) {
 	item = strings.ToUpper(strings.TrimSpace(item))
 	productionLibrary = strings.ToUpper(strings.TrimSpace(productionLibrary))
 	if !IsSystemName(item) {
-		return Query{}, fmt.Errorf("invalid catalog item %q", item)
+		return Search{}, fmt.Errorf("invalid catalog item %q", item)
 	}
 	if productionLibrary != "" && !IsSystemName(productionLibrary) {
-		return Query{}, fmt.Errorf("invalid production library %q", productionLibrary)
+		return Search{}, fmt.Errorf("invalid production library %q", productionLibrary)
 	}
-
-	productionPredicate := "UPPER(PDNAME) = UPPER(PDNAME)"
-	parameters := []string{"%" + item + "%"}
-	if productionLibrary != "" {
-		productionPredicate = "UPPER(PDNAME) = UPPER(?)"
-		parameters = append(parameters, productionLibrary)
-	}
-
-	statement := fmt.Sprintf(`SELECT SHSNAM AS Item,
-  SHSTYP AS Tipo_de_Fuente,
-  SHOTYP AS Tipo_Objeto,
-  PDAPPL AS Aplicacion,
-  PDVERS AS Version,
-  PDNAME AS Biblioteca_Produccion,
-  PDSLIB AS Biblioteca_Fuentes,
-  PDSFIL AS Archivo_Fuentes,
-  PDDESC AS Descripcion
-FROM pde400.SAHDR, pde400.SIHDR, pde400.prdmst
-WHERE SHIIDÑ = SIIIDÑ
-  AND SHENDR = 99999
-  AND SIDCOD = ''
-  AND SHAVPÑ = PDAVPÑ
-  AND UPPER(SHSNAM) LIKE UPPER(?)
-  AND %s
-ORDER BY SHSNAM, PDSLIB, PDSFIL, SHOTYP, SHSTYP, PDNAME, PDAPPL, PDVERS
-FETCH FIRST %d ROWS ONLY`, productionPredicate, queryRowLimit)
-
-	return Query{Statement: statement, Parameters: parameters, RowLimit: queryRowLimit}, nil
+	return Search{Item: item, ProductionLibrary: productionLibrary}, nil
 }
 
 func BoundedCandidates(rows []Candidate) ([]Candidate, error) {

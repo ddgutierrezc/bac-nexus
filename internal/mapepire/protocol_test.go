@@ -2,8 +2,9 @@ package mapepire
 
 import (
 	"bytes"
+	"go/parser"
+	"go/token"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -23,6 +24,29 @@ func TestPreparedQueryIsProperlyJSONEncoded(t *testing.T) {
 	}
 	if got := decoded.Parameters[0]; got != "%A\"$B%" {
 		t.Fatalf("parameter = %q", got)
+	}
+}
+
+func TestPackageImportsOnlyStandardLibrary(t *testing.T) {
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkgs, err := parser.ParseDir(token.NewFileSet(), root, func(info os.FileInfo) bool {
+		return strings.HasSuffix(info.Name(), ".go") && !strings.HasSuffix(info.Name(), "_test.go")
+	}, parser.ImportsOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pkg := range pkgs {
+		for _, file := range pkg.Files {
+			for _, imp := range file.Imports {
+				path := strings.Trim(imp.Path.Value, "\"")
+				if strings.Contains(path, ".") {
+					t.Fatalf("internal/mapepire imports non-standard package %q", path)
+				}
+			}
+		}
 	}
 }
 
@@ -86,30 +110,5 @@ func TestDecodeFrame(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestVerifyServerJARRejectsDifferentArtifact(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "mapepire-server-2.3.5.jar")
-	if err := os.WriteFile(path, []byte("not the approved artifact"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := VerifyServerJAR(path); err == nil {
-		t.Fatal("expected checksum mismatch")
-	}
-}
-
-func TestJavaCommandUsesOnlyPinnedShape(t *testing.T) {
-	command, err := JavaCommand("", "/home/NEXUS/"+RemoteJar)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, required := range []string{"QIBM_JAVA_STDIO_CONVERT=N", "'/QOpenSys/QIBM/ProdData/JavaVM/jdk80/64bit/bin/java'", "-Dos400.stdio.convert=N", "--single"} {
-		if !strings.Contains(command, required) {
-			t.Fatalf("command omitted %q: %s", required, command)
-		}
-	}
-	if _, err := JavaCommand("/tmp/java;id", "/home/NEXUS/"+RemoteJar); err == nil {
-		t.Fatal("expected unsafe Java path rejection")
 	}
 }

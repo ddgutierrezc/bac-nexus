@@ -18,7 +18,7 @@ import (
 
 // Service is the narrow dependency surface the MCP server requires.
 type Service interface {
-	ResolveCatalog(ctx context.Context, query catalog.Query, selector security.Selector) ([]catalog.Candidate, error)
+	ResolveCatalog(ctx context.Context, search catalog.Search, selector security.Selector) ([]catalog.Candidate, error)
 	ReadSelectedSource(ctx context.Context, selection catalog.Candidate, cursor string, page source.Range) (source.Page, error)
 }
 
@@ -120,11 +120,11 @@ func (s *Server) resolveCatalog(ctx context.Context, _ *mcp.CallToolRequest, inp
 	if err := ctx.Err(); err != nil {
 		return nil, ResolveCatalogOutput{}, err
 	}
-	query, err := catalog.BuildQuery(input.Item, input.ProductionLibrary)
+	search, err := catalog.NewSearch(input.Item, input.ProductionLibrary)
 	if err != nil {
 		return nil, ResolveCatalogOutput{}, err
 	}
-	candidates, err := s.service.ResolveCatalog(ctx, query, security.SelectorResolveCatalog)
+	candidates, err := s.service.ResolveCatalog(ctx, search, security.SelectorResolveCatalog)
 	if err != nil {
 		return nil, ResolveCatalogOutput{}, err
 	}

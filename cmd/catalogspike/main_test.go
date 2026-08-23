@@ -13,8 +13,9 @@ import (
 	"testing"
 
 	"bac-nexus/internal/catalog"
+	"bac-nexus/internal/connectors/ibmi/catalogados"
+	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
 	"bac-nexus/internal/credential"
-	"bac-nexus/internal/mapepire"
 	"bac-nexus/internal/profile"
 	"bac-nexus/internal/remote"
 
@@ -89,15 +90,16 @@ func TestCommandExitBehavior(t *testing.T) {
 }
 
 func TestOfflineOutputRedactsSQLAndParameters(t *testing.T) {
-	query, err := catalog.BuildQuery("PISA061", "PRODLIB")
+	search, err := catalog.NewSearch("PISA061", "PRODLIB")
 	if err != nil {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
-	if err := writeOfflineOutput(&output, query, false); err != nil {
+	if err := writeOfflineOutput(&output, search, false); err != nil {
 		t.Fatal(err)
 	}
-	for _, sensitive := range append([]string{query.Statement}, query.Parameters...) {
+	statement, parameters, _ := catalogados.PreparedSearch(search)
+	for _, sensitive := range append([]string{statement}, parameters...) {
 		if strings.Contains(output.String(), sensitive) {
 			t.Fatalf("offline output exposed sensitive query content: %q", output.String())
 		}
@@ -191,8 +193,8 @@ func fakeHostKeyInspection(context.Context, string, int) (remote.HostKeyObservat
 	return remote.HostKeyObservation{Algorithm: ssh.KeyAlgoED25519, Fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", TrustCandidate: profile.HostKeyTrustTOFU}, nil
 }
 
-func noJARDiscovery() mapepire.DiscoveryResult {
-	return mapepire.DiscoveryResult{Status: mapepire.DiscoveryNotFound}
+func noJARDiscovery() mapepirestdio.DiscoveryResult {
+	return mapepirestdio.DiscoveryResult{Status: mapepirestdio.DiscoveryNotFound}
 }
 
 func TestExecuteSetupHappyPathDoesNotExposeSecrets(t *testing.T) {
@@ -253,8 +255,8 @@ func TestExecuteSetupStoresAutomaticallyDiscoveredJARWithoutManualPrompt(t *test
 	verifiedPath := ""
 	err := executeSetup(setupDependencies{
 		Profiles: profiles, Vaults: vaults, ReadLine: readLine, ReadSecret: readSecret,
-		DiscoverJAR: func() mapepire.DiscoveryResult {
-			return mapepire.DiscoveryResult{Status: mapepire.DiscoveryFound, Path: jar, VerifiedCandidateCount: 1}
+		DiscoverJAR: func() mapepirestdio.DiscoveryResult {
+			return mapepirestdio.DiscoveryResult{Status: mapepirestdio.DiscoveryFound, Path: jar, VerifiedCandidateCount: 1}
 		},
 		VerifyJAR: func(path string) error { verifiedPath = path; return nil }, InspectKey: fakeHostKeyInspection,
 		Output: io.Discard, Notices: &notices,
@@ -276,17 +278,17 @@ func TestExecuteSetupStoresAutomaticallyDiscoveredJARWithoutManualPrompt(t *test
 func TestExecuteSetupDiscoveryFallbackIsSanitizedAndVerifiesBeforeSecrets(t *testing.T) {
 	tests := []struct {
 		name       string
-		discovery  mapepire.DiscoveryResult
+		discovery  mapepirestdio.DiscoveryResult
 		wantNotice string
 	}{
 		{
 			name:       "invalid exact-location candidate",
-			discovery:  mapepire.DiscoveryResult{Status: mapepire.DiscoveryNotFound, RejectedCandidateCount: 1},
+			discovery:  mapepirestdio.DiscoveryResult{Status: mapepirestdio.DiscoveryNotFound, RejectedCandidateCount: 1},
 			wantNotice: "1 exact-location candidate(s) failed verification",
 		},
 		{
 			name:       "multiple verified candidates",
-			discovery:  mapepire.DiscoveryResult{Status: mapepire.DiscoveryAmbiguous, VerifiedCandidateCount: 2},
+			discovery:  mapepirestdio.DiscoveryResult{Status: mapepirestdio.DiscoveryAmbiguous, VerifiedCandidateCount: 2},
 			wantNotice: "2 verified candidates",
 		},
 	}
@@ -307,7 +309,7 @@ func TestExecuteSetupDiscoveryFallbackIsSanitizedAndVerifiesBeforeSecrets(t *tes
 			err := executeSetup(setupDependencies{
 				Profiles: &fakeProfiles{}, Vaults: &fakeVaults{}, ReadLine: readLine,
 				ReadSecret:  func(string) ([]byte, error) { secretPrompts++; return []byte("secret"), nil },
-				DiscoverJAR: func() mapepire.DiscoveryResult { return tt.discovery },
+				DiscoverJAR: func() mapepirestdio.DiscoveryResult { return tt.discovery },
 				VerifyJAR:   func(string) error { return errors.New("sensitive verifier detail: C:\\private\\candidate.jar") },
 				InspectKey:  fakeHostKeyInspection, Output: io.Discard, Notices: &notices,
 			})
