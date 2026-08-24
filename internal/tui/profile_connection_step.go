@@ -55,7 +55,7 @@ func (m Model) updateProfileConnectionStep(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 		m.profileName.Focus()
 		return m, nil
 	case "?":
-		m.status, m.err = "Ayuda: completa Host, Usuario y Puerto SSH; Tab cambia el foco.", nil
+		m.status, m.err = m.text("wizard.connection.help", nil), nil
 		return m, nil
 	case "tab":
 		return m.moveProfileConnectionFocus(1)
@@ -133,7 +133,7 @@ func (m Model) profileConnectionValid() bool {
 
 func (m Model) connectionProgressGuard() (wizardProgressGuard, profileConnectionFocus) {
 	for _, focus := range []profileConnectionFocus{profileConnectionFocusHost, profileConnectionFocusUsername, profileConnectionFocusPort} {
-		if feedback, ok := wizardFeedbackFromRow(m.connectionFieldState(focus)); ok {
+		if feedback, ok := m.connectionFieldFeedback(focus); ok {
 			return wizardProgressGuard{state: wizardProgressBlocked, feedback: feedback}, focus
 		}
 	}
@@ -142,22 +142,44 @@ func (m Model) connectionProgressGuard() (wizardProgressGuard, profileConnection
 
 // profileConnectionState returns one relevant deterministic status, favoring
 // the focused field and otherwise the first invalid field in form order.
-func (m Model) profileConnectionState() string {
+type connectionValidation uint8
+
+const (
+	connectionValid connectionValidation = iota
+	connectionHostRequired
+	connectionHostInvalid
+	connectionUsernameRequired
+	connectionUsernameInvalid
+	connectionPortNumber
+	connectionPortInvalid
+)
+
+func (m Model) profileConnectionValidation() connectionValidation {
 	order := []profileConnectionFocus{profileConnectionFocusHost, profileConnectionFocusUsername, profileConnectionFocusPort}
 	for _, focus := range order {
 		if focus == m.connectionFocus {
-			if state := m.connectionFieldState(focus); state != "" && (m.connectionValidate || m.connectionFieldValue(focus) != "") {
+			if state := m.connectionFieldState(focus); state != connectionValid && (m.connectionValidate || m.connectionFieldValue(focus) != "") {
 				return state
 			}
 			break
 		}
 	}
 	for _, focus := range order {
-		if state := m.connectionFieldState(focus); state != "" && (m.connectionValidate || m.connectionFieldValue(focus) != "") {
+		if state := m.connectionFieldState(focus); state != connectionValid && (m.connectionValidate || m.connectionFieldValue(focus) != "") {
 			return state
 		}
 	}
-	return ""
+	return connectionValid
+}
+
+// profileConnectionState is retained as a display seam for existing callers;
+// control flow uses profileConnectionValidation instead.
+func (m Model) profileConnectionState() string {
+	feedback, ok := m.connectionFeedback(m.profileConnectionValidation())
+	if !ok {
+		return ""
+	}
+	return "[ERR] " + feedback.message
 }
 
 func (m Model) connectionFieldValue(focus profileConnectionFocus) string {
@@ -173,71 +195,84 @@ func (m Model) connectionFieldValue(focus profileConnectionFocus) string {
 	}
 }
 
-func (m Model) connectionFieldState(focus profileConnectionFocus) string {
+func (m Model) connectionFieldState(focus profileConnectionFocus) connectionValidation {
 	var value string
 	switch focus {
 	case profileConnectionFocusHost:
 		value = m.connectionHost.Value()
 		if value == "" {
-			return "[ERR] Host requerido"
+			return connectionHostRequired
 		}
 		if profile.ValidateHost(value) != nil {
-			return "[ERR] Host inválido"
+			return connectionHostInvalid
 		}
 	case profileConnectionFocusUsername:
 		value = m.connectionUsername.Value()
 		if value == "" {
-			return "[ERR] Usuario requerido"
+			return connectionUsernameRequired
 		}
 		if profile.ValidateUsername(value) != nil {
-			return "[ERR] Usuario inválido"
+			return connectionUsernameInvalid
 		}
 	case profileConnectionFocusPort:
 		value = m.connectionPort.Value()
 		port, err := strconv.Atoi(value)
 		if value == "" || err != nil {
-			return "[ERR] Puerto SSH debe ser un número"
+			return connectionPortNumber
 		}
 		if profile.ValidatePort(port) != nil {
-			return "[ERR] Puerto SSH debe estar entre 1 y 65535"
+			return connectionPortInvalid
 		}
 	}
-	return ""
+	return connectionValid
+}
+
+func (m Model) connectionFieldFeedback(focus profileConnectionFocus) (wizardFeedback, bool) {
+	return m.connectionFeedback(m.connectionFieldState(focus))
+}
+
+func (m Model) connectionFeedback(state connectionValidation) (wizardFeedback, bool) {
+	ids := map[connectionValidation]string{connectionHostRequired: "wizard.validation.host_required", connectionHostInvalid: "wizard.validation.host_invalid", connectionUsernameRequired: "wizard.validation.username_required", connectionUsernameInvalid: "wizard.validation.username_invalid", connectionPortNumber: "wizard.validation.port_number", connectionPortInvalid: "wizard.validation.port_invalid"}
+	id, ok := ids[state]
+	if !ok {
+		return wizardFeedback{}, false
+	}
+	return wizardFeedback{kind: wizardFeedbackError, message: m.text(id, nil)}, true
 }
 
 func (m Model) renderProfileConnectionStep() string {
 	frameWidth, frameHeight := m.shellFrameDimensions()
 	inner, height := m.shellInnerWidth(frameWidth), m.shellInnerHeight(frameHeight)
 	t := newHomeTheme(m.noColor)
-	footer := renderFooterText(inner, t, profileConnectionStepFooter, m.buildInfo)
+	footer := renderFooterText(inner, t, m.text("wizard.footer.connection", nil), m.buildInfo)
 	return m.renderWizardShell(m.renderProfileConnectionHeader(inner, t), footer, m.renderProfileConnectionPanel(inner, height, t))
 }
 
 func (m Model) renderProfileConnectionHeader(width int, t homeTheme) string {
-	return renderWizardHeader(width, t, m.profileDraftName)
+	return m.renderWizardHeader(width, t, m.profileDraftName)
 }
 
 func (m Model) renderProfileConnectionPanel(width, height int, t homeTheme) string {
 	panel := newWizardPanelLayout(width, height, t)
 	contentWidth := panel.contentWidth
 	rhythm := newWizardRhythm(height)
-	lines := renderWizardTitleRow(contentWidth, t, connectionPanelTitle, connectionStepIndicator)
+	lines := renderWizardTitleRow(contentWidth, t, m.text("wizard.connection.title", nil), m.text("wizard.step.connection", nil))
 	lines = appendWizardGap(lines, rhythm.titleDivider)
 	lines = append(lines, renderWizardDivider(contentWidth, t))
-	lines = append(lines, t.wizardContentHeading.Render(wrapWizardText("Conexión con IBM i", contentWidth, "")[0]))
+	lines = append(lines, t.wizardContentHeading.Render(wrapWizardText(m.text("wizard.connection.section", nil), contentWidth, "")[0]))
 	lines = appendWizardGap(lines, rhythm.sectionDescription)
-	for _, text := range []string{"Indica cómo localizar el IBM i y qué usuario utilizará Nexus.", "Nexus todavía no se conectará al servidor en este paso."} {
+	for _, text := range strings.Split(m.text("wizard.connection.description", nil), "\n") {
 		for _, line := range wrapWizardText(text, contentWidth, "") {
 			lines = append(lines, t.metadata.Render(line))
 		}
 	}
 	lines = appendWizardGap(lines, rhythm.descriptionControl)
-	lines = append(lines, m.renderConnectionInputRow("Host", m.connectionHost, profileConnectionFocusHost, contentWidth, t))
+	lines = append(lines, m.renderConnectionInputRow(m.text("wizard.connection.host", nil), m.connectionHost, profileConnectionFocusHost, contentWidth, t))
 	lines = appendWizardGap(lines, rhythm.controls)
-	lines = append(lines, m.renderConnectionInputRow("Usuario", m.connectionUsername, profileConnectionFocusUsername, contentWidth, t))
+	lines = append(lines, m.renderConnectionInputRow(m.text("wizard.connection.username", nil), m.connectionUsername, profileConnectionFocusUsername, contentWidth, t))
 	lines = appendWizardGap(lines, rhythm.controls)
 	lines = append(lines, m.renderConnectionPortRow(contentWidth, t))
-	if feedback, ok := m.wizardFeedbackFor(m.profileConnectionState()); ok {
+	if feedback, ok := m.wizardFeedbackForFeedback(m.connectionFeedback(m.profileConnectionValidation())); ok {
 		lines = appendWizardGap(lines, rhythm.feedback)
 		lines = append(lines, renderWizardFeedback(contentWidth, t, feedback))
 	}
@@ -251,12 +286,12 @@ func (m Model) renderProfileConnectionPanel(width, height int, t homeTheme) stri
 func (m Model) profileConnectionFocusRange(width, height int, t homeTheme) wizardLineRange {
 	panel := newWizardPanelLayout(width, height, t)
 	cw, rhythm := panel.contentWidth, newWizardRhythm(height)
-	lines := len(renderWizardTitleRow(cw, t, connectionPanelTitle, connectionStepIndicator)) + rhythm.titleDivider + 1 + 1 + rhythm.sectionDescription
-	for _, text := range []string{"Indica cómo localizar el IBM i y qué usuario utilizará Nexus.", "Nexus todavía no se conectará al servidor en este paso."} {
+	lines := len(renderWizardTitleRow(cw, t, m.text("wizard.connection.title", nil), m.text("wizard.step.connection", nil))) + rhythm.titleDivider + 1 + 1 + rhythm.sectionDescription
+	for _, text := range strings.Split(m.text("wizard.connection.description", nil), "\n") {
 		lines += len(wrapWizardText(text, cw, ""))
 	}
 	lines += rhythm.descriptionControl
-	rows := []string{m.renderConnectionInputRow("Host", m.connectionHost, profileConnectionFocusHost, cw, t), m.renderConnectionInputRow("Usuario", m.connectionUsername, profileConnectionFocusUsername, cw, t), m.renderConnectionPortRow(cw, t)}
+	rows := []string{m.renderConnectionInputRow(m.text("wizard.connection.host", nil), m.connectionHost, profileConnectionFocusHost, cw, t), m.renderConnectionInputRow(m.text("wizard.connection.username", nil), m.connectionUsername, profileConnectionFocusUsername, cw, t), m.renderConnectionPortRow(cw, t)}
 	index := int(m.connectionFocus)
 	if index <= int(profileConnectionFocusPort) {
 		for i := 0; i < index; i++ {
@@ -269,7 +304,7 @@ func (m Model) profileConnectionFocusRange(width, height int, t homeTheme) wizar
 	for _, row := range rows {
 		lines += len(strings.Split(row, "\n")) + rhythm.controls
 	}
-	if feedback, ok := m.wizardFeedbackFor(m.profileConnectionState()); ok {
+	if feedback, ok := m.wizardFeedbackForFeedback(m.connectionFeedback(m.profileConnectionValidation())); ok {
 		lines += rhythm.feedback + len(strings.Split(renderWizardFeedback(cw, t, feedback), "\n"))
 	}
 	start := lines + rhythm.actions + 1
@@ -281,7 +316,7 @@ func (m Model) profileConnectionFocusRange(width, height int, t homeTheme) wizar
 }
 
 func renderProfileConnectionTitleRow(width int, t homeTheme) []string {
-	return renderWizardTitleRow(width, t, connectionPanelTitle, connectionStepIndicator)
+	return renderWizardTitleRow(width, t, "Crear perfil IBM i", "Paso 2 de 9 — Conexión")
 }
 
 func (m Model) renderConnectionInputRow(label string, input textinput.Model, focus profileConnectionFocus, width int, t homeTheme) string {
@@ -289,8 +324,8 @@ func (m Model) renderConnectionInputRow(label string, input textinput.Model, foc
 }
 
 func (m Model) renderConnectionPortRow(width int, t homeTheme) string {
-	const label = "Puerto SSH"
-	const defaultPort = "Predeterminado: 22"
+	label := m.text("wizard.connection.port", nil)
+	defaultPort := m.text("wizard.connection.default_port", nil)
 	if width < 34 {
 		lines := []string{m.renderConnectionInputRow(label, m.connectionPort, profileConnectionFocusPort, width, t)}
 		for _, line := range wrapWizardText(defaultPort, width, "") {
@@ -316,5 +351,5 @@ func profileConnectionFieldGap(height int) int {
 }
 
 func (m Model) renderProfileConnectionActions(width int, t homeTheme) string {
-	return renderWizardActions(width, t, "< VOLVER >", "[ CONTINUAR ]", m.connectionFocus == profileConnectionFocusBack, m.connectionFocus == profileConnectionFocusContinue, m.noColor)
+	return renderWizardActions(width, t, m.text("action.back", nil), m.text("action.continue", nil), m.connectionFocus == profileConnectionFocusBack, m.connectionFocus == profileConnectionFocusContinue, m.noColor)
 }

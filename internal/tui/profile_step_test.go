@@ -203,7 +203,7 @@ func TestProfileStepValidationWaitsForProfilesAndFailsClosedOnLoadError(t *testi
 	if state := m.profileNameState(); state != "[OK] Nombre disponible" || !m.profileNameValid() {
 		t.Fatalf("post-load validation = %q, valid=%v", state, m.profileNameValid())
 	}
-	failed, _ := m.Update(operationMsg{text: "Unable to load profiles", err: errors.New("offline")})
+	failed, _ := m.Update(operationMsg{code: operationLoadFailed, err: errors.New("offline")})
 	m = failed.(Model)
 	if state := m.profileNameState(); state != "" || m.profileNameValid() {
 		t.Fatalf("failed-load validation = %q, valid=%v", state, m.profileNameValid())
@@ -266,7 +266,7 @@ func TestProfileStepContinueDistinguishesProfileLoadingFromLoadFailure(t *testin
 	}
 
 	loadErr := errors.New("offline")
-	updated, _ = m.Update(operationMsg{text: "Unable to load profiles", err: loadErr})
+	updated, _ = m.Update(operationMsg{code: operationLoadFailed, err: loadErr})
 	m = updated.(Model)
 	m.profileFocus = profileFocusContinue
 	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})

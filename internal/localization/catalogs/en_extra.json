@@ -1,0 +1,7 @@
+[
+ {"id":"home.help","translation":"Help: ↑/↓ navigate; Enter selects; q exits."},
+ {"id":"wizard.connection.port","translation":"SSH port"},
+ {"id":"wizard.identity.footer","translation":"Tab next  •  Space select  •  Enter continue  •  Esc back  •  ? help"},
+ {"id":"localization.profile_count","one":"{{.Count}} profile available","other":"{{.Count}} profiles available"},
+ {"id":"domain.trust.tofu","translation":"TOFU"},{"id":"domain.trust.verified","translation":"Verified"},{"id":"domain.credential.vault","translation":"Vault"},{"id":"domain.credential.prompt","translation":"Prompt"},{"id":"wizard.profile.new","translation":"NEW"},{"id":"wizard.profile.example","translation":"Example: CRI400F, CRI400FDev, CRI400FProd"},{"id":"overflow.above","translation":"▲ more"},{"id":"overflow.below","translation":"▼ more"}
+]

@@ -23,7 +23,7 @@ func (m Model) renderWizardShell(header, footer, panel string) string {
 	vp := m.wizardViewport
 	vp.Width, vp.Height = width, viewportHeight
 	vp.SetContent(panel)
-	body := strings.TrimRight(vp.View(), "\n") + "\n" + wizardOverflowIndicator(vp, width, t)
+	body := strings.TrimRight(vp.View(), "\n") + "\n" + wizardOverflowIndicator(vp, width, t, m.text("overflow.above", nil), m.text("overflow.below", nil))
 
 	layout := t.shellLayout(width)
 	layout.Add(header)
@@ -40,15 +40,15 @@ func (m Model) renderWizardShell(header, footer, panel string) string {
 func wizardOverflowIndicator(vp interface {
 	AtTop() bool
 	AtBottom() bool
-}, width int, t homeTheme) string {
+}, width int, t homeTheme, above, below string) string {
 	indicator := ""
 	switch {
 	case !vp.AtTop() && !vp.AtBottom():
-		indicator = "▲ más  ▼ más"
+		indicator = above + "  " + below
 	case !vp.AtTop():
-		indicator = "▲ más"
+		indicator = above
 	case !vp.AtBottom():
-		indicator = "▼ más"
+		indicator = below
 	}
 	if indicator == "" {
 		return ""
@@ -63,7 +63,7 @@ func (m *Model) refreshWizardViewport() {
 	frameWidth, frameHeight := m.shellFrameDimensions()
 	width, height := m.shellInnerWidth(frameWidth), m.shellInnerHeight(frameHeight)
 	t := newHomeTheme(m.noColor)
-	footer := profileStepFooter
+	footer := m.text("wizard.footer.profile", nil)
 	panel := ""
 	anchor := ""
 	var focusRange wizardLineRange
@@ -72,61 +72,20 @@ func (m *Model) refreshWizardViewport() {
 	case screenProfileStep:
 		panel = m.renderProfileStepPanel(width, height, t)
 		focusRange, hasFocusRange = m.profileStepFocusRange(width, height, t), true
-		if m.profileFocus == profileFocusName {
-			anchor = "▸ " + profileInputLabel
-		} else if m.profileFocus == profileFocusCancel {
-			anchor = "< CANCELAR >"
-		} else {
-			anchor = "[ CONTINUAR ]"
-		}
 	case screenProfileConnection:
-		footer = profileConnectionStepFooter
+		footer = m.text("wizard.footer.connection", nil)
 		panel = m.renderProfileConnectionPanel(width, height, t)
 		focusRange, hasFocusRange = m.profileConnectionFocusRange(width, height, t), true
-		switch m.connectionFocus {
-		case profileConnectionFocusHost:
-			anchor = "Host"
-		case profileConnectionFocusUsername:
-			anchor = "Usuario"
-		case profileConnectionFocusPort:
-			anchor = "Puerto SSH"
-		case profileConnectionFocusBack:
-			anchor = "< VOLVER >"
-		default:
-			anchor = "[ CONTINUAR ]"
-		}
 	case screenProfileIdentity:
-		footer = profileIdentityFooter
+		footer = m.text("wizard.identity.footer", nil)
 		identityPanel := m.renderProfileIdentityPanelContent(width, height, t)
 		panel = identityPanel.text
 		focusRange, hasFocusRange = identityPanel.ranges[m.identityFocus]
-		switch m.identityFocus {
-		case profileIdentityFocusKnown:
-			anchor = "Verificar"
-		case profileIdentityFocusObserved:
-			anchor = "Confiar"
-		case profileIdentityFocusBack:
-			anchor = "< VOLVER >"
-		default:
-			anchor = "[ CONTINUAR ]"
-		}
 	}
 	if m.status != "" {
-		if feedback, ok := wizardFeedbackFromRow(m.status); ok {
-			switch feedback.kind {
-			case wizardFeedbackOK:
-				anchor = "[OK]"
-			case wizardFeedbackInfo:
-				anchor = "[INFO]"
-			case wizardFeedbackWarning:
-				anchor = "[WARN]"
-			case wizardFeedbackError:
-				anchor = "[ERR]"
-			default:
-				anchor = "[--]"
-			}
-		} else {
-			anchor = "Ayuda:"
+		if feedback, ok := m.wizardContextFeedback(); ok {
+			anchor = wizardFeedbackMarker(feedback.kind)
+			hasFocusRange = false
 		}
 	}
 	if m.err != nil {
@@ -145,22 +104,26 @@ func (m *Model) refreshWizardViewport() {
 	m.revealWizardFocusRange()
 }
 
-func (m *Model) setWizardFocusRange(panel, anchor string) {
-	m.wizardFocusStart, m.wizardFocusEnd = 0, 0
-	if anchor == "" {
-		return
+func wizardFeedbackMarker(kind wizardFeedbackKind) string {
+	switch kind {
+	case wizardFeedbackOK:
+		return "[OK]"
+	case wizardFeedbackInfo:
+		return "[INFO]"
+	case wizardFeedbackWarning:
+		return "[WARN]"
+	case wizardFeedbackError:
+		return "[ERR]"
+	default:
+		return "[--]"
 	}
-	lines := strings.Split(panel, "\n")
-	for i, line := range lines {
-		if strings.Contains(line, anchor) {
+}
+
+func (m *Model) setWizardFocusRange(panel, marker string) {
+	m.wizardFocusStart, m.wizardFocusEnd = 0, 0
+	for i, line := range strings.Split(panel, "\n") {
+		if strings.Contains(line, marker) {
 			m.wizardFocusStart, m.wizardFocusEnd = i, i
-			// A focused choice is a complete visual block. Its extent continues
-			// through its wrapped description/note until the next blank row.
-			if m.screen == screenProfileIdentity && (m.identityFocus == profileIdentityFocusKnown || m.identityFocus == profileIdentityFocusObserved) {
-				for j := i + 1; j < len(lines) && strings.TrimSpace(lines[j]) != ""; j++ {
-					m.wizardFocusEnd = j
-				}
-			}
 			return
 		}
 	}

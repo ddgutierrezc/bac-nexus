@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"bac-nexus/internal/configuration"
+	"bac-nexus/internal/localization"
 	"bac-nexus/internal/profile"
 )
 
@@ -47,9 +48,20 @@ type profileStore interface {
 type profilesMsg struct{ profiles []profile.Profile }
 type profileMsg struct{ profile profile.Profile }
 type operationMsg struct {
-	text string
+	code operationCode
 	err  error
 }
+
+type operationCode uint8
+
+const (
+	operationLoadFailed operationCode = iota
+	operationRefreshFailed
+	operationProfileSaved
+	operationProfileCreated
+	operationProfileUpdated
+	operationProfileDeleted
+)
 
 // profileStepAcceptedMsg is deliberately transport-free: later wizard steps
 // can consume the accepted draft without Step 1 persisting any profile data.
@@ -135,6 +147,7 @@ type Model struct {
 	status             string
 	err                error
 	security           *SecurityModel
+	localizer          localization.Localizer
 }
 
 // BuildInfo is the build identity supplied by the composition root. The TUI
@@ -151,16 +164,32 @@ func NewModel(store configuration.ProfilesStore) Model {
 // NewModelWithBuildInfo constructs the Home model with build identity supplied
 // by the caller. Empty values retain truthful local-build defaults.
 func NewModelWithBuildInfo(store configuration.ProfilesStore, buildInfo BuildInfo) Model {
+	return NewModelWithBuildInfoAndLocalizer(store, buildInfo, localization.Spanish())
+}
+
+// NewModelWithBuildInfoAndLocalizer is the explicit composition seam for a
+// fully validated locale. Production callers use Spanish through the default.
+func NewModelWithBuildInfoAndLocalizer(store configuration.ProfilesStore, buildInfo BuildInfo, localizer localization.Localizer) Model {
 	if buildInfo.Version == "" {
 		buildInfo.Version = "dev"
 	}
 	if buildInfo.Revision == "" {
 		buildInfo.Revision = "unknown"
 	}
-	m := Model{store: store, screen: screenHome, homeSelected: actionCreate, noColor: noColorEnabled(), buildInfo: buildInfo, wizardViewport: viewport.New(1, 1), legacyViewport: viewport.New(1, 1)}
-	m.form = newFields(profile.Profile{})
+	if localizer == nil {
+		panic("nil localizer")
+	}
+	m := Model{store: store, screen: screenHome, homeSelected: actionCreate, noColor: noColorEnabled(), buildInfo: buildInfo, wizardViewport: viewport.New(1, 1), legacyViewport: viewport.New(1, 1), localizer: localizer}
+	m.form = m.newFields(profile.Profile{})
 	m.profileName = newProfileNameInput()
 	return m
+}
+
+func (m Model) text(id string, data map[string]any) string {
+	if m.localizer == nil {
+		return localization.Spanish().Text(id, data)
+	}
+	return m.localizer.Text(id, data)
 }
 
 func noColorEnabled() bool {
@@ -172,19 +201,19 @@ func noColorEnabled() bool {
 // the default profile-only constructor used by existing callers.
 func NewModelWithSecurity(store configuration.ProfilesStore, ctx context.Context, services SecurityServices) Model {
 	m := NewModel(store)
-	m.security = ptrSecurityModel(NewSecurityModel(ctx, "", services))
+	m.security = ptrSecurityModel(NewSecurityModelWithLocalizer(ctx, "", services, m.localizer))
 	m.security.noColor = m.noColor
 	return m
 }
 
 func ptrSecurityModel(model SecurityModel) *SecurityModel { return &model }
 
-func newFields(p profile.Profile) []field {
+func (m Model) newFields(p profile.Profile) []field {
 	values := []struct{ label, value string }{
-		{"Name", p.Name}, {"Host", p.Host}, {"Port", strconv.Itoa(p.Port)},
-		{"Username", p.Username}, {"Fingerprint", p.HostKeyFingerprint},
-		{"Trust (tofu/verified)", string(p.HostKeyTrust)}, {"Java home", p.JavaHome},
-		{"Mapepire JAR", p.MapepireJAR}, {"Credential mode (vault/prompt)", string(p.CredentialMode)},
+		{m.text("form.label.name", nil), p.Name}, {m.text("form.label.host", nil), p.Host}, {m.text("form.label.port", nil), strconv.Itoa(p.Port)},
+		{m.text("form.label.username", nil), p.Username}, {m.text("form.label.fingerprint", nil), p.HostKeyFingerprint},
+		{m.text("form.label.trust", nil), m.trustDisplay(p.HostKeyTrust)}, {m.text("form.label.java_home", nil), p.JavaHome},
+		{m.text("form.label.mapepire_jar", nil), p.MapepireJAR}, {m.text("form.label.credential_mode", nil), m.credentialModeDisplay(p.CredentialMode)},
 	}
 	fields := make([]field, len(values))
 	for i, v := range values {
@@ -204,7 +233,7 @@ func (m Model) Init() tea.Cmd {
 	return func() tea.Msg {
 		profiles, err := m.store.List(profileLimit)
 		if err != nil {
-			return operationMsg{text: "Unable to load profiles", err: err}
+			return operationMsg{code: operationLoadFailed, err: err}
 		}
 		return profilesMsg{profiles: profiles}
 	}
@@ -234,7 +263,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case profileMsg:
 		m.profiles = replaceProfile(m.profiles, msg.profile)
-		m.screen, m.status, m.err = screenDetail, "Profile saved", nil
+		m.screen, m.status, m.err = screenDetail, m.text("operation.profile_saved", nil), nil
 		return m, nil
 	case profileStepAcceptedMsg:
 		m.profileDraftName = msg.name
@@ -256,8 +285,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshWizardViewport()
 		return m, nil
 	case operationMsg:
-		m.status, m.err = msg.text, msg.err
-		if msg.err != nil && (msg.text == "Unable to load profiles" || msg.text == "Unable to refresh profiles") {
+		m.status, m.err = m.operationText(msg.code), msg.err
+		if msg.err != nil && (msg.code == operationLoadFailed || msg.code == operationRefreshFailed) {
 			m.profilesLoaded, m.profilesLoadFailed = false, true
 		}
 		if msg.err == nil {
@@ -343,7 +372,7 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "?":
-			m.status, m.err = "Ayuda: ↑/↓ navegar; Enter seleccionar; q salir.", nil
+			m.status, m.err = m.text("home.help", nil), nil
 		case "tab":
 			if m.readinessCanScroll() {
 				if m.homeFocus == homeFocusReadiness {
@@ -371,7 +400,7 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "enter":
 			action := m.selectedHomeAction()
 			if !action.available {
-				m.status, m.err = action.label+": todavía no está disponible", nil
+				m.status, m.err = m.text("home.unavailable", map[string]any{"Action": action.label}), nil
 				return m, nil
 			}
 			switch action.id {
@@ -403,7 +432,7 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "d":
 			if len(m.profiles) > 0 {
 				m.confirm = m.profiles[m.selected].Name
-				m.confirmInput = newConfirmationInput()
+				m.confirmInput = m.newConfirmationInput()
 				m.screen = screenConfirm
 			}
 		}
@@ -418,12 +447,12 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "d":
 			if len(m.profiles) > 0 {
 				m.confirm = m.profiles[m.selected].Name
-				m.confirmInput = newConfirmationInput()
+				m.confirmInput = m.newConfirmationInput()
 				m.screen = screenConfirm
 			}
 		case "s":
 			if len(m.profiles) > 0 && m.security != nil {
-				security := NewSecurityModel(m.security.ctx, m.profiles[m.selected].Name, m.security.services)
+				security := NewSecurityModelWithLocalizer(m.security.ctx, m.profiles[m.selected].Name, m.security.services, m.localizer)
 				security.noColor = m.noColor
 				m.security, m.screen = &security, screenSecurity
 			}
@@ -442,9 +471,9 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, func() tea.Msg {
 				_, err := m.store.Delete(name, profile.DeleteConfirmation("delete "+name))
 				if err != nil {
-					return operationMsg{text: "Profile was not deleted", err: err}
+					return operationMsg{code: operationProfileDeleted, err: err}
 				}
-				return operationMsg{text: "Profile deleted"}
+				return operationMsg{code: operationProfileDeleted}
 			}
 		}
 		if m.screen == screenConfirm {
@@ -555,12 +584,15 @@ func (m Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.formEdit == "" {
-			return m, func() tea.Msg { _, err := m.store.Save(p); return operationMsg{text: "Profile created", err: err} }
+			return m, func() tea.Msg {
+				_, err := m.store.Save(p)
+				return operationMsg{code: operationProfileCreated, err: err}
+			}
 		}
 		previous := m.formEdit
 		return m, func() tea.Msg {
 			_, err := m.store.Update(p, previous)
-			return operationMsg{text: "Profile updated", err: err}
+			return operationMsg{code: operationProfileUpdated, err: err}
 		}
 	}
 	index := m.focusIndex()
@@ -595,7 +627,7 @@ func (m Model) focusIndex() int {
 }
 
 func (m *Model) beginForm(p profile.Profile, returnTo screen) {
-	m.form = newFields(p)
+	m.form = m.newFields(p)
 	m.formEdit = p.Name
 	m.formReturn = returnTo
 	if p.Name == "" {
@@ -605,13 +637,16 @@ func (m *Model) beginForm(p profile.Profile, returnTo screen) {
 	m.err = nil
 }
 
-func newConfirmationInput() textinput.Model {
+func (m Model) newConfirmationInput() textinput.Model {
 	input := textinput.New()
-	input.Prompt = "Confirmation: "
+	input.Prompt = m.text("common.confirmation", nil) + ": "
 	input.CharLimit = 256
 	input.Focus()
 	return input
 }
+
+// newConfirmationInput remains for package tests that construct legacy state.
+func newConfirmationInput() textinput.Model { return NewModel(nil).newConfirmationInput() }
 
 func (m Model) formProfile() (profile.Profile, error) {
 	values := make([]string, len(m.form))
@@ -620,26 +655,84 @@ func (m Model) formProfile() (profile.Profile, error) {
 	}
 	port, err := strconv.Atoi(values[2])
 	if err != nil {
-		return profile.Profile{}, fmt.Errorf("port must be a number")
+		return profile.Profile{}, fmt.Errorf("%s", m.text("error.port_number", nil))
 	}
-	p := profile.Profile{Name: values[0], Host: values[1], Port: port, Username: values[3], HostKeyFingerprint: values[4], HostKeyTrust: profile.HostKeyTrust(values[5]), JavaHome: values[6], MapepireJAR: values[7], CredentialMode: profile.CredentialMode(values[8])}
+	trust, err := m.parseTrust(values[5])
+	if err != nil {
+		return profile.Profile{}, err
+	}
+	mode, err := m.parseCredentialMode(values[8])
+	if err != nil {
+		return profile.Profile{}, err
+	}
+	p := profile.Profile{Name: values[0], Host: values[1], Port: port, Username: values[3], HostKeyFingerprint: values[4], HostKeyTrust: trust, JavaHome: values[6], MapepireJAR: values[7], CredentialMode: mode}
 	if err := p.Validate(); err != nil {
 		return profile.Profile{}, err
 	}
 	return p, nil
 }
 
+func (m Model) trustDisplay(value profile.HostKeyTrust) string {
+	if value == profile.HostKeyTrustTOFU {
+		return m.text("domain.trust.tofu", nil)
+	}
+	return m.text("domain.trust.verified", nil)
+}
+func (m Model) credentialModeDisplay(value profile.CredentialMode) string {
+	if value == profile.CredentialModeVault {
+		return m.text("domain.credential.vault", nil)
+	}
+	return m.text("domain.credential.prompt", nil)
+}
+func (m Model) parseTrust(value string) (profile.HostKeyTrust, error) {
+	if value == m.text("domain.trust.tofu", nil) {
+		return profile.HostKeyTrustTOFU, nil
+	}
+	if value == m.text("domain.trust.verified", nil) {
+		return profile.HostKeyTrustVerified, nil
+	}
+	return "", fmt.Errorf("unsupported trust value")
+}
+func (m Model) parseCredentialMode(value string) (profile.CredentialMode, error) {
+	if value == m.text("domain.credential.vault", nil) {
+		return profile.CredentialModeVault, nil
+	}
+	if value == m.text("domain.credential.prompt", nil) {
+		return profile.CredentialModePrompt, nil
+	}
+	return "", fmt.Errorf("unsupported credential mode")
+}
+
+func (m Model) operationText(code operationCode) string {
+	switch code {
+	case operationLoadFailed:
+		return m.text("operation.load_failed", nil)
+	case operationRefreshFailed:
+		return m.text("operation.refresh_failed", nil)
+	case operationProfileSaved:
+		return m.text("operation.profile_saved", nil)
+	case operationProfileCreated:
+		return m.text("operation.profile_created", nil)
+	case operationProfileUpdated:
+		return m.text("operation.profile_updated", nil)
+	case operationProfileDeleted:
+		return m.text("operation.profile_deleted", nil)
+	default:
+		panic("unknown operation code")
+	}
+}
+
 func (m Model) View() string {
 	var b strings.Builder
-	title := lipgloss.NewStyle().Bold(true).Render("Nexus configuration")
+	title := lipgloss.NewStyle().Bold(true).Render(m.text("legacy.title", nil))
 	b.WriteString(title + "\n\n")
 	switch m.screen {
 	case screenHome:
 		return m.renderHome()
 	case screenList:
-		b.WriteString("Profiles\n")
+		b.WriteString(m.text("legacy.list.heading", nil) + "\n")
 		if len(m.profiles) == 0 {
-			b.WriteString("No profiles configured. Press n to create one.\n")
+			b.WriteString(m.text("legacy.list.empty", nil) + "\n")
 		}
 		for i, p := range m.profiles {
 			marker := " "
@@ -648,16 +741,16 @@ func (m Model) View() string {
 			}
 			fmt.Fprintf(&b, "%s %s\n", marker, p.Name)
 		}
-		b.WriteString("\nn new  enter inspect  d delete  b inicio  q quit\n")
+		b.WriteString("\n" + m.text("legacy.list.footer", nil) + "\n")
 	case screenDetail:
 		p := m.profiles[m.selected]
-		fmt.Fprintf(&b, "Profile: %s\nHost: %s:%d\nUsername: %s\nTrust: %s\n\ne edit  d delete  b back\n", p.Name, p.Host, p.Port, p.Username, p.HostKeyTrust)
+		fmt.Fprintf(&b, "%s: %s\n%s: %s:%d\n%s: %s\n%s: %s\n\n%s\n", m.text("legacy.detail.profile", nil), p.Name, m.text("legacy.detail.host", nil), p.Host, p.Port, m.text("legacy.detail.username", nil), p.Username, m.text("legacy.detail.trust", nil), m.trustDisplay(p.HostKeyTrust), m.text("legacy.detail.footer", nil))
 	case screenForm:
-		b.WriteString("Profile fields\n")
+		b.WriteString(m.text("form.fields", nil) + "\n")
 		for i := range m.form {
 			fmt.Fprintf(&b, "%s: %s\n", m.form[i].label, m.form[i].input.View())
 		}
-		b.WriteString("\nenter save  esc cancel\n")
+		b.WriteString("\n" + m.text("form.footer", nil) + "\n")
 	case screenProfileStep:
 		return m.renderProfileStep()
 	case screenProfileConnection:
@@ -665,7 +758,7 @@ func (m Model) View() string {
 	case screenProfileIdentity:
 		return m.renderProfileIdentityStep()
 	case screenConfirm:
-		fmt.Fprintf(&b, "Delete profile %q?\nThis retains a recoverable backup.\nType delete %s exactly, then press enter.\n%s\nn/esc cancel\n", m.confirm, m.confirm, m.confirmInput.View())
+		fmt.Fprintf(&b, "%s\n%s\n%s\n%s\n%s\n", m.text("legacy.confirm.delete", map[string]any{"Name": m.confirm}), m.text("legacy.confirm.retains_backup", nil), m.text("legacy.confirm.type_delete", map[string]any{"Name": m.confirm}), m.confirmInput.View(), m.text("legacy.confirm.cancel", nil))
 	case screenSecurity:
 		if m.security != nil {
 			security := *m.security
@@ -674,10 +767,10 @@ func (m Model) View() string {
 		}
 	}
 	if m.status != "" {
-		b.WriteString("\nStatus: " + m.status + "\n")
+		b.WriteString("\n" + m.text("common.status", nil) + ": " + m.status + "\n")
 	}
 	if m.err != nil {
-		b.WriteString("Error: " + sanitizeError(m.err) + "\n")
+		b.WriteString(m.text("common.error", nil) + ": " + sanitizeError(m.err) + "\n")
 	}
 	return m.renderLegacyViewport(b.String())
 }
@@ -708,7 +801,7 @@ func (m Model) renderLegacyViewport(content string) string {
 		v.Width, v.Height = width, max(height-1, 1)
 		v.SetContent(text)
 	}
-	return strings.TrimRight(v.View(), "\n") + "\n" + wizardOverflowIndicator(v, width, newHomeTheme(m.noColor))
+	return strings.TrimRight(v.View(), "\n") + "\n" + wizardOverflowIndicator(v, width, newHomeTheme(m.noColor), m.text("overflow.above", nil), m.text("overflow.below", nil))
 }
 
 // refreshLegacyViewport preserves a real Bubbles viewport between updates.
@@ -776,9 +869,9 @@ func (m Model) legacyFocusRange() (int, int) {
 	case screenConfirm:
 		start := 2
 		for _, line := range []string{
-			fmt.Sprintf("Delete profile %q?", m.confirm),
-			"This retains a recoverable backup.",
-			fmt.Sprintf("Type delete %s exactly, then press enter.", m.confirm),
+			m.text("legacy.confirm.delete", map[string]any{"Name": m.confirm}),
+			m.text("legacy.confirm.retains_backup", nil),
+			m.text("legacy.confirm.type_delete", map[string]any{"Name": m.confirm}),
 		} {
 			start += len(wrapWizardText(line, width, ""))
 		}
@@ -790,13 +883,13 @@ func (m Model) legacyFocusRange() (int, int) {
 
 func (m Model) legacyViewportContent() string {
 	var b strings.Builder
-	title := lipgloss.NewStyle().Bold(true).Render("Nexus configuration")
+	title := lipgloss.NewStyle().Bold(true).Render(m.text("legacy.title", nil))
 	b.WriteString(title + "\n\n")
 	switch m.screen {
 	case screenList:
-		b.WriteString("Profiles\n")
+		b.WriteString(m.text("legacy.list.heading", nil) + "\n")
 		if len(m.profiles) == 0 {
-			b.WriteString("No profiles configured. Press n to create one.\n")
+			b.WriteString(m.text("legacy.list.empty", nil) + "\n")
 		}
 		for i, p := range m.profiles {
 			marker := " "
@@ -805,24 +898,24 @@ func (m Model) legacyViewportContent() string {
 			}
 			fmt.Fprintf(&b, "%s %s\n", marker, p.Name)
 		}
-		b.WriteString("\nn new  enter inspect  d delete  b inicio  q quit\n")
+		b.WriteString("\n" + m.text("legacy.list.footer", nil) + "\n")
 	case screenDetail:
 		p := m.profiles[m.selected]
-		fmt.Fprintf(&b, "Profile: %s\nHost: %s:%d\nUsername: %s\nTrust: %s\n\ne edit  d delete  b back\n", p.Name, p.Host, p.Port, p.Username, p.HostKeyTrust)
+		fmt.Fprintf(&b, "%s: %s\n%s: %s:%d\n%s: %s\n%s: %s\n\n%s\n", m.text("legacy.detail.profile", nil), p.Name, m.text("legacy.detail.host", nil), p.Host, p.Port, m.text("legacy.detail.username", nil), p.Username, m.text("legacy.detail.trust", nil), m.trustDisplay(p.HostKeyTrust), m.text("legacy.detail.footer", nil))
 	case screenForm:
-		b.WriteString("Profile fields\n")
+		b.WriteString(m.text("form.fields", nil) + "\n")
 		for i := range m.form {
 			fmt.Fprintf(&b, "%s: %s\n", m.form[i].label, m.form[i].input.View())
 		}
-		b.WriteString("\nenter save  esc cancel\n")
+		b.WriteString("\n" + m.text("form.footer", nil) + "\n")
 	case screenConfirm:
-		fmt.Fprintf(&b, "Delete profile %q?\nThis retains a recoverable backup.\nType delete %s exactly, then press enter.\n%s\nn/esc cancel\n", m.confirm, m.confirm, m.confirmInput.View())
+		fmt.Fprintf(&b, "%s\n%s\n%s\n%s\n%s\n", m.text("legacy.confirm.delete", map[string]any{"Name": m.confirm}), m.text("legacy.confirm.retains_backup", nil), m.text("legacy.confirm.type_delete", map[string]any{"Name": m.confirm}), m.confirmInput.View(), m.text("legacy.confirm.cancel", nil))
 	}
 	if m.status != "" {
-		b.WriteString("\nStatus: " + m.status + "\n")
+		b.WriteString("\n" + m.text("common.status", nil) + ": " + m.status + "\n")
 	}
 	if m.err != nil {
-		b.WriteString("Error: " + sanitizeError(m.err) + "\n")
+		b.WriteString(m.text("common.error", nil) + ": " + sanitizeError(m.err) + "\n")
 	}
 	return b.String()
 }
@@ -833,7 +926,7 @@ func (m Model) reload() tea.Cmd {
 	return func() tea.Msg {
 		profiles, err := m.store.List(profileLimit)
 		if err != nil {
-			return operationMsg{text: "Unable to refresh profiles", err: err}
+			return operationMsg{code: operationRefreshFailed, err: err}
 		}
 		return profilesMsg{profiles: profiles}
 	}

@@ -7,6 +7,7 @@ import (
 
 	"bac-nexus/internal/configuration"
 	"bac-nexus/internal/credential"
+	"bac-nexus/internal/localization"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -58,7 +59,7 @@ type SecurityModel struct {
 	services     SecurityServices
 	screen       securityScreen
 	status       credential.Presence
-	text         string
+	result       string
 	err          error
 	width        int
 	height       int
@@ -69,22 +70,40 @@ type SecurityModel struct {
 	viewport     viewport.Model
 	viewportText string
 	noColor      bool
+	localizer    localization.Localizer
 }
 
 func NewSecurityModel(ctx context.Context, profileName string, services SecurityServices) SecurityModel {
+	return NewSecurityModelWithLocalizer(ctx, profileName, services, localization.Spanish())
+}
+
+// NewSecurityModelWithLocalizer is the explicit locale injection seam.
+func NewSecurityModelWithLocalizer(ctx context.Context, profileName string, services SecurityServices, localizer localization.Localizer) SecurityModel {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	m := SecurityModel{ctx: ctx, profile: profileName, services: services, screen: securityMenu, viewport: viewport.New(1, 1), noColor: noColorEnabled()}
-	labels := []string{"Fingerprint", "Provenance", "Exact confirmation"}
+	if localizer == nil {
+		panic("nil localizer")
+	}
+	m := SecurityModel{ctx: ctx, profile: profileName, services: services, screen: securityMenu, viewport: viewport.New(1, 1), noColor: noColorEnabled(), localizer: localizer}
+	labels := []string{m.text("security.trust.fingerprint", nil), m.text("security.trust.provenance", nil), m.text("security.trust.confirmation", nil)}
 	for i, label := range labels {
 		m.trust[i] = textinput.New()
 		m.trust[i].Prompt = label + ": "
 		m.trust[i].CharLimit = 256
 	}
-	m.confirm = newConfirmationInput()
+	m.confirm = m.newConfirmationInput()
 	m.trust[0].Focus()
 	return m
+}
+
+func (m SecurityModel) text(id string, data map[string]any) string { return m.localizer.Text(id, data) }
+
+func (m SecurityModel) newConfirmationInput() textinput.Model {
+	input := textinput.New()
+	input.Prompt, input.CharLimit = m.text("common.confirmation", nil)+": ", 256
+	input.Focus()
+	return input
 }
 
 func (m SecurityModel) Init() tea.Cmd { return m.statusCmd() }
@@ -92,11 +111,11 @@ func (m SecurityModel) Init() tea.Cmd { return m.statusCmd() }
 func (m SecurityModel) statusCmd() tea.Cmd {
 	return func() tea.Msg {
 		if m.services == nil {
-			return securityOutcomeMsg{text: "Credential status unavailable", err: configuration.ErrCredentialUnavailable}
+			return securityOutcomeMsg{text: m.text("operation.unavailable", nil), err: configuration.ErrCredentialUnavailable}
 		}
 		presence, err := m.services.Status(m.ctx, m.profile)
 		if err != nil {
-			return securityOutcomeMsg{text: "Credential status unavailable", err: err}
+			return securityOutcomeMsg{text: m.text("operation.unavailable", nil), err: err}
 		}
 		return credentialStatusMsg{presence: presence}
 	}
@@ -109,7 +128,7 @@ func (m SecurityModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, nil
 	case credentialStatusMsg:
-		m.status, m.text, m.err = msg.presence, "", nil
+		m.status, m.result, m.err = msg.presence, "", nil
 		m.refreshViewport()
 		return m, nil
 	case securityOutcomeMsg:
@@ -118,7 +137,7 @@ func (m SecurityModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cancel = nil
 		}
 		m.screen = securityResult
-		m.text, m.err = msg.text, msg.err
+		m.result, m.err = msg.text, msg.err
 		m.refreshViewport()
 		return m, nil
 	case tofuObservationMsg:
@@ -131,7 +150,7 @@ func (m SecurityModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.tofuEvidence, m.err, m.screen = msg.evidence, nil, securityConfirmTOFU
-		m.confirm = newConfirmationInput()
+		m.confirm = m.newConfirmationInput()
 		m.refreshViewport()
 		return m, nil
 	case tea.KeyMsg:
@@ -167,7 +186,7 @@ func (m SecurityModel) updateSecurityKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.cancel()
 				m.cancel = nil
 			}
-			m.screen, m.text = securityMenu, "Operation cancelled"
+			m.screen, m.result = securityMenu, m.text("operation.cancelled", nil)
 		}
 		return m, nil
 	}
@@ -194,16 +213,16 @@ func (m SecurityModel) updateSecurityKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "s":
 			return m.start(func(ctx context.Context) (string, error) {
 				outcome, err := m.services.Set(ctx, m.profile)
-				return "Credential " + string(outcome), err
+				return m.credentialOutcomeText(outcome), err
 			})
 		case "r":
 			return m.start(func(ctx context.Context) (string, error) {
 				outcome, err := m.services.Rotate(ctx, m.profile)
-				return "Credential " + string(outcome), err
+				return m.credentialOutcomeText(outcome), err
 			})
 		case "d":
 			m.screen = securityConfirmCredential
-			m.confirm = newConfirmationInput()
+			m.confirm = m.newConfirmationInput()
 		case "m":
 			m.screen = securityConfirmMigration
 		case "t":
@@ -223,7 +242,7 @@ func (m SecurityModel) updateSecurityKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if key == "enter" && strings.TrimSpace(m.confirm.Value()) == "delete credential "+m.profile {
 			return m.start(func(ctx context.Context) (string, error) {
 				outcome, err := m.services.Delete(ctx, m.profile, "delete credential "+m.profile)
-				return "Credential " + string(outcome), err
+				return m.credentialOutcomeText(outcome), err
 			})
 		}
 		if key == "n" || key == "esc" {
@@ -233,7 +252,7 @@ func (m SecurityModel) updateSecurityKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if key == "y" || key == "enter" {
 			return m.start(func(ctx context.Context) (string, error) {
 				outcome, err := m.services.Migrate(ctx, m.profile, true)
-				return "Credential " + string(outcome), err
+				return m.credentialOutcomeText(outcome), err
 			})
 		}
 		if key == "n" {
@@ -243,7 +262,7 @@ func (m SecurityModel) updateSecurityKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if key == "enter" && strings.TrimSpace(m.confirm.Value()) == "enroll "+m.tofuEvidence {
 			return m.start(func(ctx context.Context) (string, error) {
 				outcome, err := m.services.EnrollTOFU(ctx, m.profile, m.tofuEvidence, strings.TrimSpace(m.confirm.Value()))
-				return "Host key " + string(outcome), err
+				return m.trustOutcomeText(outcome), err
 			})
 		}
 		if key == "n" || key == "esc" {
@@ -262,7 +281,7 @@ func (m SecurityModel) updateSecurityKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			fingerprint, provenance, confirmation := strings.TrimSpace(m.trust[0].Value()), strings.TrimSpace(m.trust[1].Value()), strings.TrimSpace(m.trust[2].Value())
 			return m.start(func(ctx context.Context) (string, error) {
 				outcome, err := m.services.EnrollManual(ctx, m.profile, fingerprint, provenance, confirmation)
-				return "Host key " + string(outcome), err
+				return m.trustOutcomeText(outcome), err
 			})
 		}
 		index := m.trustIndex()
@@ -276,11 +295,31 @@ func (m SecurityModel) updateSecurityKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m SecurityModel) credentialOutcomeText(outcome configuration.CredentialOutcome) string {
+	switch outcome {
+	case configuration.CredentialOutcomeStored:
+		return m.text("operation.credential_stored", nil)
+	case configuration.CredentialOutcomeRotated:
+		return m.text("operation.credential_rotated", nil)
+	case configuration.CredentialOutcomeDeleted:
+		return m.text("operation.credential_deleted", nil)
+	default:
+		return m.text("operation.unavailable", nil)
+	}
+}
+
+func (m SecurityModel) trustOutcomeText(outcome configuration.TrustOutcome) string {
+	if outcome == configuration.TrustOutcomeEnrolled {
+		return m.text("operation.host_key_enrolled", nil)
+	}
+	return m.text("operation.unavailable", nil)
+}
+
 type securityOperation func(context.Context) (string, error)
 
 func (m SecurityModel) start(operation securityOperation) (tea.Model, tea.Cmd) {
 	if m.services == nil {
-		m.screen, m.text, m.err = securityResult, "Operation unavailable", configuration.ErrCredentialUnavailable
+		m.screen, m.result, m.err = securityResult, m.text("operation.unavailable", nil), configuration.ErrCredentialUnavailable
 		return m, nil
 	}
 	ctx, cancel := context.WithTimeout(m.ctx, securityOperationTimeout)
@@ -323,14 +362,14 @@ func (m SecurityModel) View() string {
 	}
 	// The header and overflow disclosure are fixed. All functional content,
 	// including the menu instructions and warnings, belongs to the viewport.
-	header := wrapWizardText("Security for "+m.profile, width, "")
+	header := wrapWizardText(m.text("security.header", map[string]any{"Profile": m.profile}), width, "")
 	viewportHeight := max(height-len(header)-1, 1)
 	content := m.viewportContent(width)
 	if m.viewport.Width != width || m.viewport.Height != viewportHeight || m.viewportText != content {
 		m.viewport.Width, m.viewport.Height = width, viewportHeight
 		m.viewport.SetContent(content)
 	}
-	return strings.Join(header, "\n") + "\n" + strings.TrimRight(m.viewport.View(), "\n") + "\n" + wizardOverflowIndicator(m.viewport, width, newHomeTheme(m.noColor))
+	return strings.Join(header, "\n") + "\n" + strings.TrimRight(m.viewport.View(), "\n") + "\n" + wizardOverflowIndicator(m.viewport, width, newHomeTheme(m.noColor), m.text("overflow.above", nil), m.text("overflow.below", nil))
 }
 
 func (m *SecurityModel) refreshViewport() {
@@ -342,7 +381,7 @@ func (m *SecurityModel) refreshViewport() {
 	if height <= 0 {
 		height = 24
 	}
-	headerHeight := len(wrapWizardText("Security for "+m.profile, width, ""))
+	headerHeight := len(wrapWizardText(m.text("security.header", map[string]any{"Profile": m.profile}), width, ""))
 	m.viewport.Width, m.viewport.Height = width, max(height-headerHeight-1, 1)
 	m.viewportText = m.viewportContent(width)
 	m.viewport.SetContent(m.viewportText)
@@ -370,45 +409,44 @@ func (m SecurityModel) viewportContent(width int) string {
 	}
 	switch m.screen {
 	case securityMenu:
-		appendText("Credential: " + credentialPresence(m.status))
-		appendText("s set  r rotate  d delete  m migrate")
-		appendText("t manual trust  o inspect TOFU  esc back")
+		appendText(m.text("security.status", map[string]any{"Status": credentialPresence(m.status, m.localizer)}))
+		appendText(m.text("security.menu", nil))
 	case securityProgress:
-		appendText("Operation in progress; esc cancels.")
+		appendText(m.text("security.progress", nil))
 	case securityConfirmCredential:
-		appendText("Delete this profile credential? Type delete credential " + m.profile + " exactly, then press enter.")
+		appendText(m.text("security.confirm_credential", map[string]any{"Profile": m.profile}))
 		b.WriteString(m.confirm.View() + "\n")
 	case securityConfirmMigration:
-		appendText("Migrate the legacy credential vault? Type y only after review.")
+		appendText(m.text("security.confirm_migration", nil))
 	case securityConfirmTOFU:
-		appendText("WARNING: remote inspection is unverified TOFU. Observed evidence:")
+		appendText(m.text("security.tofu_warning", nil))
 		appendText(m.tofuEvidence)
-		appendText("Type enroll " + m.tofuEvidence + " exactly, then press enter.")
+		appendText(m.text("security.confirm_tofu", map[string]any{"Evidence": m.tofuEvidence}))
 		b.WriteString(m.confirm.View() + "\n")
 	case securityTrust:
-		appendText("Manual verified host-key enrollment")
+		appendText(m.text("security.manual", nil))
 		for i := range m.trust {
 			b.WriteString(m.trust[i].View() + "\n")
 		}
 	case securityResult:
-		appendText(m.text)
+		appendText(m.result)
 		if m.err != nil {
-			for _, line := range wrapWizardText(sanitizeError(m.err), width, "Error: ") {
+			for _, line := range wrapWizardText(sanitizeError(m.err), width, m.text("security.error_prefix", nil)) {
 				b.WriteString(line + "\n")
 			}
 		}
-		appendText("b back")
+		appendText(m.text("security.footer_back", nil))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func credentialPresence(p credential.Presence) string {
+func credentialPresence(p credential.Presence, localizer localization.Localizer) string {
 	switch p {
 	case credential.PresencePresent:
-		return "present"
+		return localizer.Text("credential.present", nil)
 	case credential.PresenceAbsent:
-		return "absent"
+		return localizer.Text("credential.absent", nil)
 	default:
-		return "unavailable"
+		return localizer.Text("credential.unavailable", nil)
 	}
 }

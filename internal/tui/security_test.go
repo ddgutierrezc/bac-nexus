@@ -91,7 +91,7 @@ func TestSecurityModelKeepsCredentialMaterialOutOfStateMessagesAndView(t *testin
 		t.Fatal("credential material crossed the TUI boundary")
 	}
 	updated, _ = updated.(SecurityModel).Update(msg)
-	if !strings.Contains(updated.(SecurityModel).View(), "Credential stored") {
+	if !strings.Contains(updated.(SecurityModel).View(), "Credencial almacenada") {
 		t.Fatalf("opaque outcome was not rendered: %q", updated.(SecurityModel).View())
 	}
 }
@@ -137,7 +137,7 @@ func TestSecurityModelShowsStatusAndTrustActionsWithoutPersistingInspection(t *t
 	services := &securityServiceStub{status: credential.PresenceUnavailable}
 	m := NewSecurityModel(context.Background(), "dev", services)
 	updated, cmd := m.Update(credentialStatusMsg{presence: credential.PresenceUnavailable})
-	if cmd != nil || !strings.Contains(updated.(SecurityModel).View(), "unavailable") {
+	if cmd != nil || !strings.Contains(updated.(SecurityModel).View(), "no disponible") {
 		t.Fatalf("status classification missing: %q", updated.(SecurityModel).View())
 	}
 	updated, cmd = updated.(SecurityModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
@@ -211,7 +211,7 @@ func TestSecurityViewportKeepsFunctionalContentReachableAtNarrowSizes(t *testing
 				return strings.Join(strings.Fields(ansiEscape.ReplaceAllString(views, "")), " ")
 			}
 			reachable := normalizeRuntimeViews(seen)
-			for _, want := range []string{"Type enroll", "then press enter."} {
+			for _, want := range []string{"Escribe enroll", "luego presiona enter."} {
 				if !strings.Contains(reachable, want) {
 					t.Fatalf("menu instruction %q is unreachable:\n%s", want, view)
 				}
@@ -230,7 +230,7 @@ func TestSecurityViewportKeepsFunctionalContentReachableAtNarrowSizes(t *testing
 				trustSeen += "\n" + trust.View()
 			}
 			trustReachable := normalizeRuntimeViews(trustSeen)
-			for _, want := range []string{"Manual verified host-key enrollment", "Fingerprint:", "Provenance:", "Exact confirmation:"} {
+			for _, want := range []string{"Registro manual de clave de host verificada", "Fingerprint:", "Procedencia:", "Confirmación exacta:"} {
 				if !strings.Contains(trustReachable, want) {
 					t.Fatalf("trust behavior changed or content was unreachable: %q", want)
 				}

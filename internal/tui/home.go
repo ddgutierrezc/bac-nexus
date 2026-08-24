@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -62,18 +61,18 @@ type homeAction struct {
 
 func (m Model) emptyHomeMenu() []homeMenuRow {
 	return []homeMenuRow{
-		{actionCreate, "Crear un perfil", "create", true},
-		{actionReadiness, "Verificar preparación", "readiness", false},
-		{actionDiagnostics, "Diagnósticos", "diagnostics", false},
-		{actionIntegrations, "Integraciones MCP", "integrations", false},
-		{actionConfiguration, "Configuración", "configuration", false},
-		{actionExit, "Salir", "exit", true},
+		{actionCreate, m.text("home.menu.create", nil), "create", true},
+		{actionReadiness, m.text("home.menu.readiness", nil), "readiness", false},
+		{actionDiagnostics, m.text("home.menu.diagnostics", nil), "diagnostics", false},
+		{actionIntegrations, m.text("home.menu.integrations", nil), "integrations", false},
+		{actionConfiguration, m.text("home.menu.configuration", nil), "configuration", false},
+		{actionExit, m.text("home.menu.exit", nil), "exit", true},
 	}
 }
 
 func (m Model) populatedHomeMenu() []homeMenuRow {
 	rows := []homeMenuRow{
-		{actionManage, "Administrar perfiles", "manage", true},
+		{actionManage, m.text("home.menu.manage", nil), "manage", true},
 	}
 	rows = append(rows, m.emptyHomeMenu()...)
 	return rows
@@ -308,7 +307,7 @@ func (m Model) renderReadinessFieldsetBox(width int, t homeTheme) string {
 
 func (m Model) readinessFieldsetLines(width int, t homeTheme) []string {
 	innerWidth := width
-	title := readinessFieldsetTitle
+	title := m.text("home.readiness.summary", nil)
 	prefixWidth := 1 + lipgloss.Width(title) + 1
 	fillTotal := innerWidth - 2 - prefixWidth
 	if fillTotal < 0 {
@@ -435,13 +434,11 @@ func truncateToDisplayWidth(s string, width int) string {
 	return b.String()
 }
 
-const readinessFieldsetTitle = "Resumen de preparación"
-
 func (m Model) renderMenuBlock(width int, t homeTheme) string {
 	if width < 12 {
 		return m.renderMenu(width, t)
 	}
-	heading := t.menuHeading.Render("Perfiles IBM i")
+	heading := t.menuHeading.Render(m.text("home.profile_heading", nil))
 	body := m.renderMenu(width, t)
 	return heading + "\n" + body
 }
@@ -452,7 +449,7 @@ func (m Model) renderMinimalHome() string {
 	var b strings.Builder
 	b.WriteString("BAC NEXUS\n")
 	t := newHomeTheme(true)
-	b.WriteString(t.menuHeading.Render("Perfiles IBM i") + "\n")
+	b.WriteString(t.menuHeading.Render(m.text("home.profile_heading", nil)) + "\n")
 	for _, row := range m.minimalMenu() {
 		line := "  " + row.label
 		if row.id == m.homeSelected {
@@ -514,22 +511,22 @@ func (m Model) headerStatusState() headerStatusMode {
 
 func (m Model) headerProfileSegment() string {
 	if !m.profilesLoaded {
-		return "PERFIL: NO EVALUADO"
+		return m.text("home.header.profile.unassessed", nil)
 	}
 	if len(m.profiles) == 0 {
-		return "PERFIL: NINGUNO"
+		return m.text("home.header.profile.none", nil)
 	}
-	return "PERFIL: SIN SELECCIONAR"
+	return m.text("home.header.profile.empty", nil)
 }
 
 func (m Model) headerStatusSegment() string {
 	if !m.profilesLoaded {
-		return "ESTADO: NO EVALUADO"
+		return m.text("home.header.status.unassessed", nil)
 	}
 	if len(m.profiles) == 0 {
-		return "ESTADO: REQUIERE CONFIGURACIÓN"
+		return m.text("home.header.status.configuration_required", nil)
 	}
-	return "ESTADO: PENDIENTE DE VERIFICACIÓN"
+	return m.text("home.header.status.pending_verification", nil)
 }
 
 func (m Model) renderBrand(width int, t homeTheme) string {
@@ -541,12 +538,12 @@ func (m Model) renderBrand(width int, t homeTheme) string {
 	}
 	brandRows = append(brandRows, t.identity.Render("BAC NEXUS"))
 	brandRows = append(brandRows, "")
-	brandRows = append(brandRows, t.tagline.Render("Contexto IBM i seguro para desarrolladores y agentes de IA"))
+	brandRows = append(brandRows, t.tagline.Render(m.text("home.tagline", nil)))
 	return lipgloss.PlaceHorizontal(width, lipgloss.Center, lipgloss.JoinVertical(lipgloss.Center, brandRows...))
 }
 
 func (m Model) renderFooter(width int, t homeTheme) string {
-	text := "↑/↓ navegar  •  Enter seleccionar  •  ? ayuda  •  q salir"
+	text := m.text("home.footer", nil)
 	return renderFooterText(width, t, text, m.buildInfo)
 }
 
@@ -592,16 +589,16 @@ func (m Model) renderFeedback(width int, t homeTheme) string {
 }
 
 func (m Model) readinessSummary() string {
-	profile := "[--] Perfil IBM i: no evaluado"
+	profile := m.text("home.readiness.unassessed", nil)
 	if m.profilesLoaded {
 		switch {
 		case len(m.profiles) == 0:
-			profile = "[WARN] Perfil IBM i: ninguno configurado"
+			profile = m.text("home.readiness.none", nil)
 		default:
-			profile = fmt.Sprintf("[OK] Perfil IBM i: %d disponibles", len(m.profiles))
+			profile = m.text("home.readiness.available", map[string]any{"Count": len(m.profiles)})
 		}
 	}
-	return profile + "\n[--] Preparación local: no evaluada"
+	return profile + "\n" + m.text("home.readiness.local", nil)
 }
 
 func (m Model) renderStatusRow(row string, width int, indicator string, t homeTheme) string {
@@ -657,14 +654,14 @@ func (m Model) visibleHomeActions() []homeAction {
 func (m Model) minimalMenu() []homeMenuRow {
 	if m.profilesLoaded && len(m.profiles) > 0 {
 		return []homeMenuRow{
-			{actionManage, "Administrar perfiles", "manage", true},
-			{actionCreate, "Crear un perfil", "create", true},
-			{actionExit, "Salir", "exit", true},
+			{actionManage, m.text("home.menu.manage", nil), "manage", true},
+			{actionCreate, m.text("home.menu.create", nil), "create", true},
+			{actionExit, m.text("home.menu.exit", nil), "exit", true},
 		}
 	}
 	return []homeMenuRow{
-		{actionCreate, "Crear un perfil", "create", true},
-		{actionExit, "Salir", "exit", true},
+		{actionCreate, m.text("home.menu.create", nil), "create", true},
+		{actionExit, m.text("home.menu.exit", nil), "exit", true},
 	}
 }
 

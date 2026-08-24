@@ -174,6 +174,13 @@ func (m Model) wizardFeedbackFor(validation string) (wizardFeedback, bool) {
 	return wizardFeedbackFromRow(validation)
 }
 
+func (m Model) wizardFeedbackForFeedback(validation wizardFeedback, present bool) (wizardFeedback, bool) {
+	if feedback, ok := m.wizardContextFeedback(); ok {
+		return feedback, true
+	}
+	return validation, present
+}
+
 // wizardPanelLayout is the single geometry contract for profile wizard panels.
 // It deliberately measures the usable shell width once so rendering and focus
 // ranges cannot drift between Steps 1–3.
@@ -228,12 +235,12 @@ func appendWizardGap(lines []string, count int) []string {
 	return lines
 }
 
-func renderWizardHeader(width int, t homeTheme, profile string) string {
+func (m Model) renderWizardHeader(width int, t homeTheme, profile string) string {
 	segments := []struct {
 		text  string
 		style lipgloss.Style
 	}{
-		{"BAC NEXUS", t.headerBrand}, {"PERFIL: " + profile, t.headerProfile}, {"ESTADO: CONFIGURANDO", t.headerStatus},
+		{"BAC NEXUS", t.headerBrand}, {m.text("wizard.header.profile", map[string]any{"Profile": profile}), t.headerProfile}, {m.text("wizard.header.configuring", nil), t.headerStatus},
 	}
 	joined := "  " + strings.Join([]string{segments[0].text, "│", segments[1].text, "│", segments[2].text}, "  ")
 	if lipgloss.Width(joined) <= width {

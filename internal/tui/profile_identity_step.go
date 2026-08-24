@@ -14,7 +14,6 @@ const (
 	profileIdentityFocusBack
 	profileIdentityFocusContinue
 )
-const profileIdentityFooter = "Tab siguiente  •  Espacio seleccionar  •  Enter continuar  •  Esc volver  •  ? ayuda"
 
 func (m Model) updateProfileIdentityStep(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
@@ -22,7 +21,7 @@ func (m Model) updateProfileIdentityStep(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen = screenProfileConnection
 		return m, nil
 	case "?":
-		m.status = "Ayuda: Tab cambia el foco; Espacio selecciona una opción."
+		m.status = m.text("wizard.identity.help", nil)
 		return m, nil
 	case "tab":
 		m.identityFocus = profileIdentityFocus((int(m.identityFocus) + 1) % 4)
@@ -48,7 +47,7 @@ func (m Model) updateProfileIdentityStep(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.identityFocus == profileIdentityFocusContinue {
 			guard := wizardProgressGuard{}
 			if m.identityDecision == profileIdentityNone {
-				guard = wizardProgressGuard{state: wizardProgressBlocked, feedback: wizardFeedback{kind: wizardFeedbackWarning, message: "Selecciona una opción antes de continuar"}}
+				guard = wizardProgressGuard{state: wizardProgressBlocked, feedback: wizardFeedback{kind: wizardFeedbackWarning, message: m.text("wizard.identity.warning", nil)}}
 			}
 			if !m.activateWizardProgress(guard, nil) {
 				return m, nil
@@ -65,7 +64,7 @@ func (m Model) renderProfileIdentityStep() string {
 	w, h := m.shellInnerWidth(fw), m.shellInnerHeight(fh)
 	t := newHomeTheme(m.noColor)
 	_ = fw
-	return m.renderWizardShell(m.renderProfileConnectionHeader(w, t), renderFooterText(w, t, profileIdentityFooter, m.buildInfo), m.renderProfileIdentityPanel(w, h, t))
+	return m.renderWizardShell(m.renderProfileConnectionHeader(w, t), renderFooterText(w, t, m.text("wizard.identity.footer", nil), m.buildInfo), m.renderProfileIdentityPanel(w, h, t))
 }
 func (m Model) renderProfileIdentityPanel(w, h int, t homeTheme) string {
 	return m.renderProfileIdentityPanelContent(w, h, t).text
@@ -82,7 +81,7 @@ func (m Model) renderProfileIdentityPanelContent(w, h int, t homeTheme) wizardPa
 	panel := newWizardPanelLayout(w, h, t)
 	cw := panel.contentWidth
 	rhythm := newWizardRhythm(h)
-	lines := renderWizardTitleRow(cw, t, "Crear perfil IBM i", "Paso 3 de 9 — Identidad")
+	lines := renderWizardTitleRow(cw, t, m.text("wizard.identity.title", nil), m.text("wizard.step.identity", nil))
 	ranges := make(map[profileIdentityFocus]wizardLineRange)
 	appendBlock := func(focus profileIdentityFocus, block wizardRenderedBlock) {
 		start := len(lines) + block.start
@@ -91,22 +90,22 @@ func (m Model) renderProfileIdentityPanelContent(w, h int, t homeTheme) wizardPa
 	}
 	lines = appendWizardGap(lines, rhythm.titleDivider)
 	lines = append(lines, renderWizardDivider(cw, t))
-	lines = append(lines, t.wizardContentHeading.Render("Identidad del servidor"))
+	lines = append(lines, t.wizardContentHeading.Render(m.text("wizard.identity.section", nil)))
 	lines = appendWizardGap(lines, rhythm.sectionDescription)
-	for _, x := range wrapWizardText("¿Cómo quieres comprobar que este IBM i es el servidor correcto?", cw, "") {
+	for _, x := range wrapWizardText(m.text("wizard.identity.question", nil), cw, "") {
 		lines = append(lines, t.fieldsetContent.Render(x))
 	}
 	lines = appendWizardGap(lines, rhythm.questionSupporting)
-	for _, x := range wrapWizardText("Elige cómo Nexus debe establecer la confianza SSH de este perfil.", cw, "") {
+	for _, x := range wrapWizardText(strings.Split(m.text("wizard.identity.description", nil), "\n")[0], cw, "") {
 		lines = append(lines, t.metadata.Render(x))
 	}
-	for _, x := range wrapWizardText("Esta decisión solo se registra localmente en el asistente; no conecta con el servidor ni guarda credenciales o perfiles todavía.", cw, "") {
+	for _, x := range wrapWizardText(strings.Split(m.text("wizard.identity.description", nil), "\n")[1], cw, "") {
 		lines = append(lines, t.metadata.Render(x))
 	}
 	lines = appendWizardGap(lines, rhythm.descriptionControl)
-	appendBlock(profileIdentityFocusKnown, renderWizardChoiceBlock(cw, t, WizardChoice{ID: "known-fingerprint", Label: "Verificar un fingerprint conocido", Description: "Ya tengo un fingerprint obtenido mediante una fuente oficial o independiente."}, m.identityFocus == profileIdentityFocusKnown, m.identityDecision == profileIdentityKnownFingerprint))
+	appendBlock(profileIdentityFocusKnown, renderWizardChoiceBlock(cw, t, WizardChoice{ID: "known-fingerprint", Label: m.text("wizard.identity.choice_known.label", nil), Description: m.text("wizard.identity.choice_known.description", nil)}, m.identityFocus == profileIdentityFocusKnown, m.identityDecision == profileIdentityKnownFingerprint))
 	lines = appendWizardGap(lines, rhythm.controls)
-	appendBlock(profileIdentityFocusObserved, renderWizardChoiceBlock(cw, t, WizardChoice{ID: "observed-key", Label: "Confiar en la clave observada ahora", Description: "Nexus inspeccionará la clave presentada por el servidor y mostrará su fingerprint antes de guardarlo.", Note: "Esta primera observación no verifica por sí sola que el servidor sea legítimo."}, m.identityFocus == profileIdentityFocusObserved, m.identityDecision == profileIdentityObservedKey))
+	appendBlock(profileIdentityFocusObserved, renderWizardChoiceBlock(cw, t, WizardChoice{ID: "observed-key", Label: m.text("wizard.identity.choice_observed.label", nil), Description: m.text("wizard.identity.choice_observed.description", nil), Note: m.text("wizard.identity.choice_observed.note", nil)}, m.identityFocus == profileIdentityFocusObserved, m.identityDecision == profileIdentityObservedKey))
 	feedbackStart := -1
 	if feedback, ok := m.wizardFeedbackFor(""); ok {
 		lines = appendWizardGap(lines, rhythm.feedback)
@@ -118,7 +117,7 @@ func (m Model) renderProfileIdentityPanelContent(w, h int, t homeTheme) wizardPa
 	if m.identityDecision == profileIdentityNone {
 		rightState = wizardProgressBlocked
 	}
-	actions := renderWizardActionsBlock(cw, t, "< VOLVER >", "[ CONTINUAR ]", m.identityFocus == profileIdentityFocusBack, m.identityFocus == profileIdentityFocusContinue, m.noColor, wizardActionOptions{rightState: rightState})
+	actions := renderWizardActionsBlock(cw, t, m.text("action.back", nil), m.text("action.continue", nil), m.identityFocus == profileIdentityFocusBack, m.identityFocus == profileIdentityFocusContinue, m.noColor, wizardActionOptions{rightState: rightState})
 	actionStart := len(lines) + actions.start
 	lines = append(lines, strings.Split(actions.text, "\n")...)
 	// A split action block exposes deterministic ranges for both controls. They

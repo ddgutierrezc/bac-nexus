@@ -1130,7 +1130,7 @@ func TestModelCreateReloadsCommittedProfile(t *testing.T) {
 	m := NewModel(store)
 	p := testProfile("created")
 	store.profiles = append(store.profiles, p)
-	updated, cmd := m.Update(operationMsg{text: "Profile created"})
+	updated, cmd := m.Update(operationMsg{code: operationProfileCreated})
 	if cmd == nil || updated.(Model).screen != screenList {
 		t.Fatal("create completion did not schedule a list reload")
 	}

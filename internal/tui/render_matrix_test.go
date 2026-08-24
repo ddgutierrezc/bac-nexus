@@ -135,7 +135,7 @@ func TestSecurityViewportReachabilityAndIndicatorsAcrossRenderMatrix(t *testing.
 				pages := collectModelViewportPages(t, m, tea.KeyPgDown)
 				assertRenderCell(t, pages[0], size.width, size.height, noColor)
 				all := alphaNumericOnly(strings.Join(pages, "\n"))
-				for _, want := range []string{"WARNING: remote inspection is unverified TOFU", "Type enroll", "exactly, then press enter."} {
+				for _, want := range []string{"ADVERTENCIA: la inspección remota es TOFU no verificada", "Escribe enroll", "exactamente y luego presiona enter."} {
 					if !strings.Contains(all, alphaNumericOnly(want)) {
 						t.Fatalf("security viewport did not expose %q", want)
 					}
@@ -383,12 +383,12 @@ func legacyOverflowCases() []legacyOverflowCase {
 					t.Fatalf("list selection %d not revealed", target)
 				}
 			}
-		}, []string{"Profiles", profiles[0].Name, profiles[len(profiles)-1].Name, "n new enter inspect d delete b inicio q quit"}},
+		}, []string{"Perfiles", profiles[0].Name, profiles[len(profiles)-1].Name, "n nuevo enter inspeccionar d eliminar b inicio q salir"}},
 		{"detail", func() Model {
 			m := NewModel(&profileStoreStub{profiles: []profile.Profile{long}})
 			m.screen, m.profiles, m.status, m.err = screenDetail, []profile.Profile{long}, numberedSemanticText("estado funcional extenso", 100), errors.New(numberedSemanticText("error funcional extenso", 100))
 			return m
-		}, nil, []string{"Profile:", "Host:", "Username:", "Trust:", "estado funcional extenso", "error funcional extenso", "e edit d delete b back"}},
+		}, nil, []string{"Perfil:", "Host:", "Usuario:", "Confianza:", "estado funcional extenso", "error funcional extenso", "e editar d eliminar s seguridad b volver"}},
 		{"form", func() Model {
 			m := NewModel(&profileStoreStub{})
 			m.beginForm(long, screenList)
@@ -406,7 +406,7 @@ func legacyOverflowCases() []legacyOverflowCase {
 					t.Fatalf("form focus %q not revealed", m.form[target].label)
 				}
 			}
-		}, []string{"Profile fields", "Name:", "Fingerprint:", "Credential mode:", "enter save esc cancel"}},
+		}, []string{"Campos del perfil", "Nombre:", "Fingerprint:", "Modo de credencial:", "enter guardar esc cancelar"}},
 		{"confirm", func() Model {
 			m := NewModel(&profileStoreStub{})
 			m.screen, m.confirm, m.confirmInput = screenConfirm, numberedSemanticText("profile with semantic spaces", 500), newConfirmationInput()
@@ -417,7 +417,7 @@ func legacyOverflowCases() []legacyOverflowCase {
 			if !strings.Contains(m.confirmInput.Value(), " ") {
 				t.Fatal("confirmation space was not typed")
 			}
-		}, []string{"Delete profile", "This retains a recoverable backup.", "Type delete", "exactly, then press enter.", "n/esc cancel"}},
+		}, []string{"Eliminar el perfil", "Esto conserva una copia de respaldo recuperable.", "Escribe delete", "exactamente y luego presiona enter.", "n/esc cancelar"}},
 	}
 }
 
