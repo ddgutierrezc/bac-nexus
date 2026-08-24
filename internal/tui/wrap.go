@@ -36,6 +36,17 @@ func wrapWizardText(text string, width int, prefix string) []string {
 			}
 			for word != "" {
 				available := width - lipgloss.Width(line) - lipgloss.Width(separator)
+				freshCapacity := width - lipgloss.Width(indent)
+				if separator != "" && lipgloss.Width(word) <= freshCapacity && lipgloss.Width(word)+lipgloss.Width(separator) > available && line != indent && line != prefix {
+					if separator != "" && lipgloss.Width(line)+lipgloss.Width(separator) <= width {
+						line += separator
+						separator = ""
+					}
+					out = append(out, line)
+					line = indent
+					firstLine = false
+					continue
+				}
 				if available < 1 {
 					// The normalized separator is data, not decoration. Put it on
 					// a continuation by itself when required rather than losing it.

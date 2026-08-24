@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"strings"
@@ -56,6 +57,31 @@ func TestProfileIdentitySelectionAndLocalSeam(t *testing.T) {
 	m = u.(Model)
 	if m.identityBranch != profileIdentityBranchFingerprint || m.screen != screenProfileIdentity {
 		t.Fatal("identity seam drifted")
+	}
+}
+
+func TestProfileIdentityContinueWithoutChoiceShowsWarningAndSelectionClearsIt(t *testing.T) {
+	m := newProfileIdentityTestModel(t, 80, 24)
+	m.noColor = true
+	m.identityFocus = profileIdentityFocusContinue
+
+	u, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatal("continue without a choice emitted an acceptance command")
+	}
+	m = u.(Model)
+	if m.screen != screenProfileIdentity || m.status != "[WARN] Selecciona una opción antes de continuar" {
+		t.Fatalf("unexpected unavailable-continue state: screen=%v status=%q", m.screen, m.status)
+	}
+	if !strings.Contains(m.View(), "[WARN] Selecciona una opción antes de continuar") {
+		t.Fatal("unavailable-continue warning is not rendered")
+	}
+
+	m.identityFocus = profileIdentityFocusKnown
+	u, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = u.(Model)
+	if m.identityDecision != profileIdentityKnownFingerprint || m.status != "" {
+		t.Fatalf("selection did not clear warning: decision=%v status=%q", m.identityDecision, m.status)
 	}
 }
 
@@ -132,30 +158,93 @@ func TestProfileIdentityBackPreservesWizardDraftsAndNewWizardResets(t *testing.T
 	}
 }
 
+func TestProfileIdentityEnterBackPreservesWizardDraftsWithoutPersistence(t *testing.T) {
+	store := &profileStoreStub{}
+	m := newProfileIdentityTestModelWithStore(t, store, 80, 24)
+	m.profileDraftName = "desarrollo"
+	m.connectionDraft = profileConnectionDraft{host: "ibmi.example.test", username: "USER", port: 22}
+	m.identityFocus, m.identityDecision = profileIdentityFocusBack, profileIdentityObservedKey
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd != nil || m.screen != screenProfileConnection || m.profileDraftName != "desarrollo" || m.connectionDraft.host != "ibmi.example.test" || m.identityDecision != profileIdentityObservedKey || store.saveCalls != 0 {
+		t.Fatalf("Enter Back lost local state or persisted data: %#v", m)
+	}
+}
+
+func TestProfileIdentityAcceptedBranchesRemainLocal(t *testing.T) {
+	for _, tt := range []struct {
+		name, want string
+		decision   profileIdentityDecision
+		branch     profileIdentityBranch
+	}{
+		{"known fingerprint", "profileIdentityKnownFingerprint", profileIdentityKnownFingerprint, profileIdentityBranchFingerprint},
+		{"observed key", "profileIdentityObservedKey", profileIdentityObservedKey, profileIdentityBranchObservedKey},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &profileStoreStub{}
+			m := newProfileIdentityTestModelWithStore(t, store, 120, 40)
+			m.identityFocus, m.identityDecision = profileIdentityFocusContinue, tt.decision
+			updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			if cmd == nil || updated.(Model).screen != screenProfileIdentity || len(store.profiles) != 0 || store.saveCalls != 0 {
+				t.Fatal("accepted identity decision left the local wizard seam")
+			}
+			msg := cmd()
+			acceptedMsg, ok := msg.(profileIdentityAcceptedMsg)
+			if !ok || acceptedMsg.decision != tt.decision {
+				t.Fatalf("accepted message = %#v, want %s", msg, tt.want)
+			}
+			accepted, followUp := updated.(Model).Update(msg)
+			m = accepted.(Model)
+			if followUp != nil || m.identityBranch != tt.branch || m.screen != screenProfileIdentity || len(store.profiles) != 0 || store.saveCalls != 0 {
+				t.Fatalf("accepted local branch drifted or persisted data: %#v", m)
+			}
+		})
+	}
+}
+
 func TestProfileIdentityLocalNoticeAndCompleteContentReachability(t *testing.T) {
 	m := newProfileIdentityTestModel(t, 40, 16)
 	m.noColor = true
-	seen := ""
+	views := make([]string, 0, 120)
 	for range 120 {
 		u, _ := m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
 		m = u.(Model)
 	}
 	for range 120 {
-		seen += "\n" + m.View()
+		views = append(views, m.View())
 		u, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
 		m = u.(Model)
 	}
-	compact := alphaNumericOnly(seen)
-	panelCompact := alphaNumericOnly(m.wizardPanelContent())
+	seen := strings.Join(views, "\n")
+	compact := alphaNumericOnly(runtimePanelFragments(views))
+	shellCompact := alphaNumericOnly(seen)
 	for _, want := range []string{
 		"Paso 3 de 9 — Identidad", "Tab siguiente", "Verificar un fingerprint conocido", "Confiar en la clave observada ahora",
 		"Esta decisión solo se registra localmente", "no conecta con el servidor", "ni guarda credenciales o perfiles todavía.", "< VOLVER >", "[ CONTINUAR ]",
 	} {
 		needle := alphaNumericOnly(want)
-		if !strings.Contains(compact, needle) && !strings.Contains(panelCompact, needle) {
+		observed := compact
+		if want == "Tab siguiente" {
+			observed = shellCompact
+		}
+		if !strings.Contains(observed, needle) {
 			t.Fatalf("viewport did not reconstruct %q:\n%s", want, seen)
 		}
 	}
+}
+
+func newProfileIdentityTestModelWithStore(t *testing.T, store *profileStoreStub, w, h int) Model {
+	t.Helper()
+	m := newProfileConnectionTestModel(t, store, w, h)
+	m.connectionHost.SetValue("ibmi.example.test")
+	m.connectionUsername.SetValue("USER")
+	m.connectionFocus = profileConnectionFocusContinue
+	u, c := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if c == nil {
+		t.Fatal("connection seam missing")
+	}
+	u, _ = u.(Model).Update(c())
+	return u.(Model)
 }
 
 func alphaNumericOnly(text string) string {
@@ -182,6 +271,7 @@ func TestProfileIdentityRendersBounded(t *testing.T) {
 		})
 	}
 }
+
 func TestWrapWizardTextLosslessAndBounded(t *testing.T) {
 	for _, tt := range []struct {
 		text  string
@@ -217,6 +307,39 @@ func TestWrapWizardTextKeepsPrefixAlignmentAndAllContent(t *testing.T) {
 	joined := strings.Join(parts, "")
 	if !strings.Contains(joined, "áéíóú") || !strings.Contains(joined, "siguiente") {
 		t.Fatalf("content was lost: %#v", lines)
+	}
+}
+
+func TestWrapWizardTextKeepsOrdinaryWordsWholeOnFreshLines(t *testing.T) {
+	for _, tt := range []struct {
+		name, text, prefix, whole string
+		width                     int
+	}{
+		{"wide plain line", "1234567890 credenciales", "", "credenciales", 20},
+		{"narrow plain line", "guarda credenciales", "", "credenciales", 12},
+		{"prefixed continuation", "1234567890 credenciales", "[--] ", "credenciales", 20},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			lines := wrapWizardText(tt.text, tt.width, tt.prefix)
+			for _, line := range lines {
+				if lipgloss.Width(line) > tt.width {
+					t.Fatalf("line overflowed: %q", line)
+				}
+			}
+			if tt.whole != "" && !strings.Contains(strings.Join(lines, "\n"), tt.whole) {
+				t.Fatalf("ordinary word was split: %#v", lines)
+			}
+		})
+	}
+}
+
+func TestWrapWizardTextSplitsOverlongTokensDeterministically(t *testing.T) {
+	lines := wrapWizardText("abcdefghijkl", 5, "")
+	if got, want := strings.Join(lines, "\n"), "abcde\nfghij\nkl"; got != want {
+		t.Fatalf("lines = %q, want %q", got, want)
+	}
+	if got, want := reconstructWrappedParagraphs(lines, "abcdefghijkl", ""), "abcdefghijkl"; got != want {
+		t.Fatalf("reconstruction = %q, want %q", got, want)
 	}
 }
 
@@ -386,25 +509,110 @@ func TestIdentityViewportFollowsFocusAndRetainsReachability(t *testing.T) {
 func TestIdentityManualViewportScrollReachesChoiceAndActionsAt40x16(t *testing.T) {
 	m := newProfileIdentityTestModel(t, 40, 16)
 	m.noColor = true
-	// Focus choice 2 first; its structured range must reveal the block start.
-	u, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m = u.(Model)
-	if !strings.Contains(m.View(), "Confiar") {
-		t.Fatalf("choice 2 start is not focused:\n%s", m.View())
-	}
-	seen := m.View()
+	views := make([]string, 0, 161)
 	for range 80 {
-		u, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		u, _ := m.Update(tea.KeyMsg{Type: tea.KeyPgUp})
 		m = u.(Model)
-		seen += "\n" + m.View()
+		views = append(views, m.View())
 	}
-	for _, want := range []string{"Nexus inspeccionará", "Esta primera observación", "< VOLVER >", "[ CONTINUAR ]"} {
-		if !strings.Contains(seen, want) {
-			t.Fatalf("manual viewport scrolling did not reach %q:\n%s", want, seen)
+	for range 80 {
+		u, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m = u.(Model)
+		views = append(views, m.View())
+	}
+	reachable := alphaNumericOnly(runtimePanelFragments(views))
+	for _, want := range []string{
+		"Confiar en la clave observada ahora",
+		"Nexus inspeccionará la clave presentada por el servidor y mostrará su fingerprint antes de guardarlo.",
+		"Esta primera observación no verifica por sí sola que el servidor sea legítimo.",
+		"Esta decisión solo se registra localmente en el asistente; no conecta con el servidor ni guarda credenciales o perfiles todavía.",
+		"< VOLVER >", "[ CONTINUAR ]",
+	} {
+		if !strings.Contains(reachable, alphaNumericOnly(want)) {
+			t.Fatalf("manual viewport scrolling did not reach %q from runtime views:\n%s", want, strings.Join(views, "\n"))
 		}
 	}
-	if !strings.Contains(m.View(), "▲ más") || strings.Contains(m.View(), "▼ más") {
-		t.Fatalf("bottom overflow indicator is incorrect:\n%s", m.View())
+	observed := strings.Join(views, "\n")
+	if !strings.Contains(observed, "▼ más") || !strings.Contains(m.View(), "▲ más") || strings.Contains(m.View(), "▼ más") {
+		t.Fatalf("runtime overflow indicators are incomplete or incorrect:\n%s", observed)
+	}
+}
+
+func TestIdentityUnavailableContinueIsReachableAt40x16(t *testing.T) {
+	previous := lipgloss.ColorProfile()
+	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })
+	for _, noColor := range []bool{false, true} {
+		for _, choice := range []struct {
+			name  string
+			tabs  int
+			value profileIdentityDecision
+		}{
+			{"known", 1, profileIdentityKnownFingerprint},
+			{"observed", 2, profileIdentityObservedKey},
+		} {
+			t.Run(fmt.Sprintf("no-color=%t/%s", noColor, choice.name), func(t *testing.T) {
+				if noColor {
+					lipgloss.SetColorProfile(termenv.Ascii)
+				} else {
+					lipgloss.SetColorProfile(termenv.TrueColor)
+				}
+				m := newProfileIdentityTestModel(t, 40, 16)
+				m.noColor = noColor
+				for range 3 {
+					u, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+					m = u.(Model)
+				}
+				if m.identityFocus != profileIdentityFocusContinue {
+					t.Fatalf("Tab navigation did not reach Continue: %v", m.identityFocus)
+				}
+				u, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+				if cmd != nil {
+					t.Fatal("unavailable Continue emitted a command")
+				}
+				m = u.(Model)
+				if m.screen != screenProfileIdentity || m.identityDecision != profileIdentityNone || m.identityBranch != profileIdentityBranchNone || m.status != "[WARN] Selecciona una opción antes de continuar" {
+					t.Fatalf("unavailable Continue changed state: %#v", m)
+				}
+				views := []string{m.View()}
+				for range 80 {
+					u, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+					m = u.(Model)
+					views = append(views, m.View())
+				}
+				reachable := runtimePanelFragments(views)
+				for _, want := range []string{"[WARN] Selecciona una opción antes de continuar", "[ CONTINUAR ]"} {
+					if !strings.Contains(alphaNumericOnly(reachable), alphaNumericOnly(want)) {
+						t.Fatalf("runtime frames did not reach %q:\n%s", want, strings.Join(views, "\n"))
+					}
+				}
+				for _, view := range views {
+					if noColor && ansiEscape.MatchString(view) {
+						t.Fatalf("NO_COLOR view contains ANSI: %q", view)
+					}
+					for _, line := range strings.Split(ansiEscape.ReplaceAllString(view, ""), "\n") {
+						if lipgloss.Width(line) > 40 {
+							t.Fatalf("frame overflowed 40 cells: %q", line)
+						}
+					}
+				}
+				for range choice.tabs {
+					u, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+					m = u.(Model)
+				}
+				u, cmd = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+				if cmd != nil {
+					t.Fatal("selection emitted a command")
+				}
+				m = u.(Model)
+				if m.identityDecision != choice.value || m.status != "" {
+					t.Fatalf("selection did not clear warning: decision=%v status=%q", m.identityDecision, m.status)
+				}
+				u, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+				if cmd != nil || u.(Model).screen != screenProfileIdentity {
+					t.Fatal("Enter on a selected choice must remain a no-op")
+				}
+			})
+		}
 	}
 }
 

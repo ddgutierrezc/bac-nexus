@@ -210,6 +210,72 @@ func TestProfileStepValidationWaitsForProfilesAndFailsClosedOnLoadError(t *testi
 	}
 }
 
+func TestProfileStepContinueBlockedFeedbackFocusAndCorrection(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		profiles []profile.Profile
+		value    string
+		feedback string
+	}{
+		{"empty", nil, "", "[WARN] Ingresa un nombre de perfil antes de continuar"},
+		{"invalid", nil, "bad name", "[ERR] Nombre de perfil inválido"},
+		{"duplicate", []profile.Profile{testProfile("CRI400F")}, "cri400f", "[ERR] Ya existe un perfil con ese nombre"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newProfileStepTestModel(&profileStoreStub{profiles: tt.profiles}, 120, 40)
+			m.profileName.SetValue(tt.value)
+			m.profileFocus = profileFocusContinue
+			updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			m = updated.(Model)
+			if cmd != nil || m.screen != screenProfileStep || m.profileDraftName != "" || m.status != tt.feedback || m.profileFocus != profileFocusName || !m.profileName.Focused() {
+				t.Fatalf("blocked continue = screen:%v draft:%q status:%q focus:%v real-focus:%v", m.screen, m.profileDraftName, m.status, m.profileFocus, m.profileName.Focused())
+			}
+			if !strings.Contains(m.View(), tt.feedback) {
+				t.Fatalf("blocked feedback is not rendered: %q", m.View())
+			}
+		})
+	}
+
+	m := newProfileStepTestModel(&profileStoreStub{}, 120, 40)
+	m.profileName.SetValue("bad name")
+	m.profileFocus = profileFocusContinue
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	m.profileName.SetValue("")
+	m = typeProfileName(t, m, "valid")
+	if m.status != "" || m.profileNameState() != "[OK] Nombre disponible" {
+		t.Fatalf("editing correction did not clear blocked feedback: status=%q state=%q", m.status, m.profileNameState())
+	}
+	m.profileFocus = profileFocusContinue
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil || updated.(Model).screen != screenProfileStep {
+		t.Fatal("valid corrected name did not expose the existing local seam")
+	}
+}
+
+func TestProfileStepContinueDistinguishesProfileLoadingFromLoadFailure(t *testing.T) {
+	m := NewModel(&profileStoreStub{})
+	m.noColor = true
+	m.beginProfileStep()
+	m.profileName.SetValue("valid")
+	m.profileFocus = profileFocusContinue
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd != nil || m.status != "[INFO] Cargando perfiles" || !m.profileName.Focused() || !strings.Contains(m.View(), "[INFO] Cargando perfiles") {
+		t.Fatalf("pending load feedback = status:%q focused:%v view:%q", m.status, m.profileName.Focused(), m.View())
+	}
+
+	loadErr := errors.New("offline")
+	updated, _ = m.Update(operationMsg{text: "Unable to load profiles", err: loadErr})
+	m = updated.(Model)
+	m.profileFocus = profileFocusContinue
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd != nil || !errors.Is(m.err, loadErr) || !strings.Contains(m.View(), "[ERR] offline") || strings.Contains(m.View(), "Cargando perfiles") {
+		t.Fatalf("load failure was not distinguishable from loading: err=%v status=%q view=%q", m.err, m.status, m.View())
+	}
+}
+
 func TestProfileStepEnterCancelAndFutureSeamDoNotSave(t *testing.T) {
 	store := &profileStoreStub{}
 	m := newProfileStepTestModel(store, 120, 40)
@@ -259,8 +325,12 @@ func TestProfileStepHelpDoesNotChangeValidation(t *testing.T) {
 	before := m.profileNameState()
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	m = updated.(Model)
-	if m.profileNameState() != before || strings.Count(m.View(), "[OK]") != 1 || !strings.Contains(m.View(), "Ayuda:") {
+	if m.profileNameState() != before || strings.Count(m.View(), "[OK]") != 0 || !strings.Contains(m.View(), "Ayuda:") {
 		t.Fatalf("help changed validation state: %q", m.View())
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if !strings.Contains(updated.(Model).View(), "[OK]") {
+		t.Fatal("clearing help did not reveal validation")
 	}
 }
 
@@ -326,10 +396,11 @@ func TestProfileStepFooterAndResponsiveBounds(t *testing.T) {
 	}
 }
 
-func TestProfileStepVisualRhythmAndPanelCap(t *testing.T) {
+func TestProfileStepVisualRhythmAndSharedPanelGeometry(t *testing.T) {
 	m := newProfileStepTestModel(&profileStoreStub{}, 120, 40)
 	view := m.View()
 	panel := m.renderProfileStepPanel(114, 36, newHomeTheme(true))
+	layout := newWizardPanelLayout(114, 36, newHomeTheme(true))
 	panelWidth := 0
 	for _, line := range strings.Split(panel, "\n") {
 		left, right := strings.Index(line, "┌"), strings.LastIndex(line, "┐")
@@ -338,8 +409,9 @@ func TestProfileStepVisualRhythmAndPanelCap(t *testing.T) {
 			break
 		}
 	}
-	if panelWidth != profileStepPanelMaxWidth {
-		t.Fatalf("panel width = %d, want controlled cap %d", panelWidth, profileStepPanelMaxWidth)
+	visibleWidth := layout.panelWidth + 4 // Border and horizontal panel padding are visible cells.
+	if panelWidth != visibleWidth {
+		t.Fatalf("panel width = %d, want visible shared geometry %d", panelWidth, visibleWidth)
 	}
 	fullLines := strings.Split(panel, "\n")
 	titleAndStepSameLine := false

@@ -112,7 +112,22 @@ func (m *Model) refreshWizardViewport() {
 		}
 	}
 	if m.status != "" {
-		anchor = "Ayuda:"
+		if feedback, ok := wizardFeedbackFromRow(m.status); ok {
+			switch feedback.kind {
+			case wizardFeedbackOK:
+				anchor = "[OK]"
+			case wizardFeedbackInfo:
+				anchor = "[INFO]"
+			case wizardFeedbackWarning:
+				anchor = "[WARN]"
+			case wizardFeedbackError:
+				anchor = "[ERR]"
+			default:
+				anchor = "[--]"
+			}
+		} else {
+			anchor = "Ayuda:"
+		}
 	}
 	if m.err != nil {
 		anchor = "[ERR]"

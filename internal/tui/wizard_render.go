@@ -90,16 +90,133 @@ func renderWizardChoiceBlock(width int, t homeTheme, choice WizardChoice, focuse
 // Compact terminals retain controls and feedback, while taller screens gain
 // only semantic separation rather than blank rows between every line.
 type wizardRhythm struct {
-	top, titleDivider, sectionDescription, relatedText            int
-	descriptionControl, controls, feedback, actions, panelPadding int
+	top, titleDivider, sectionDescription, questionSupporting, relatedText int
+	descriptionControl, controls, feedback, actions, panelPadding          int
+}
+
+// wizardFeedbackKind defines the complete semantic vocabulary available inside
+// wizard panels. It keeps feedback presentation independent from Home status rows.
+type wizardFeedbackKind uint8
+
+const (
+	wizardFeedbackOK wizardFeedbackKind = iota
+	wizardFeedbackInfo
+	wizardFeedbackWarning
+	wizardFeedbackError
+	wizardFeedbackNeutral
+)
+
+type wizardFeedback struct {
+	kind    wizardFeedbackKind
+	message string
+}
+
+func renderWizardFeedback(width int, t homeTheme, feedback wizardFeedback) string {
+	prefix, style := "[--] ", t.statusNeutral
+	switch feedback.kind {
+	case wizardFeedbackOK:
+		prefix, style = "[OK] ", t.statusOK
+	case wizardFeedbackInfo:
+		prefix, style = "[INFO] ", t.statusInfo
+	case wizardFeedbackWarning:
+		prefix, style = "[WARN] ", t.statusWarning
+	case wizardFeedbackError:
+		prefix, style = "[ERR] ", t.statusError
+	}
+	lines := wrapWizardText(feedback.message, width, prefix)
+	for i := range lines {
+		lines[i] = style.Render(lines[i])
+	}
+	return strings.Join(lines, "\n")
+}
+
+func wizardFeedbackFromRow(row string) (wizardFeedback, bool) {
+	marker, message, found := strings.Cut(row, " ")
+	if !found || message == "" {
+		return wizardFeedback{}, false
+	}
+	kind := wizardFeedbackNeutral
+	switch marker {
+	case "[OK]":
+		kind = wizardFeedbackOK
+	case "[INFO]":
+		kind = wizardFeedbackInfo
+	case "[WARN]":
+		kind = wizardFeedbackWarning
+	case "[ERR]":
+		kind = wizardFeedbackError
+	case "[--]":
+	default:
+		return wizardFeedback{}, false
+	}
+	return wizardFeedback{kind: kind, message: message}, true
+}
+
+func (m Model) wizardContextFeedback() (wizardFeedback, bool) {
+	if m.err != nil {
+		return wizardFeedback{kind: wizardFeedbackError, message: sanitizeError(m.err)}, true
+	}
+	if feedback, ok := wizardFeedbackFromRow(m.status); ok {
+		return feedback, true
+	}
+	if m.status != "" {
+		return wizardFeedback{kind: wizardFeedbackInfo, message: m.status}, true
+	}
+	return wizardFeedback{}, false
+}
+
+// wizardFeedbackFor selects the one feedback block a wizard panel may render.
+// Explicit operation feedback is more actionable than local field validation.
+func (m Model) wizardFeedbackFor(validation string) (wizardFeedback, bool) {
+	if feedback, ok := m.wizardContextFeedback(); ok {
+		return feedback, true
+	}
+	return wizardFeedbackFromRow(validation)
+}
+
+// wizardPanelLayout is the single geometry contract for profile wizard panels.
+// It deliberately measures the usable shell width once so rendering and focus
+// ranges cannot drift between Steps 1–3.
+type wizardPanelLayout struct {
+	panelWidth, contentWidth, contentTopOffset int
+	style                                      lipgloss.Style
+}
+
+func newWizardPanelLayout(usableWidth, height int, t homeTheme) wizardPanelLayout {
+	panelWidth := usableWidth - 4 // Narrow terminals retain two safe cells per side.
+	switch {
+	case usableWidth >= 100:
+		panelWidth = (usableWidth*74 + 99) / 100 // Large terminals: approximately 74%.
+	case usableWidth >= 52:
+		panelWidth = (usableWidth*88 + 99) / 100 // Medium terminals: approximately 88%.
+	}
+	panelWidth = min(max(panelWidth, 1), min(usableWidth, 104))
+
+	style, inset, topOffset := t.panel, 4, 1
+	if height >= 30 {
+		style, inset, topOffset = t.panel.Padding(1, 2), 6, 2
+	}
+	return wizardPanelLayout{
+		panelWidth:       panelWidth,
+		contentWidth:     max(panelWidth-inset, 1),
+		contentTopOffset: topOffset,
+		style:            style,
+	}
+}
+
+func (l wizardPanelLayout) render(usableWidth int, lines []string) string {
+	// Lip Gloss applies the panel border and horizontal padding outside Width.
+	// Supplying the matching content extent keeps the visible border at the
+	// layout's measured panel width on every terminal size.
+	return centerHomeBlock(usableWidth, l.style.Width(l.panelWidth+2).Render(strings.Join(lines, "\n")))
 }
 
 func newWizardRhythm(height int) wizardRhythm {
 	if height >= 30 {
-		return wizardRhythm{top: 3, titleDivider: 1, sectionDescription: 1, relatedText: 0, descriptionControl: 1, controls: 1, feedback: 1, actions: 2, panelPadding: 1}
+		return wizardRhythm{top: 3, titleDivider: 1, sectionDescription: 1, questionSupporting: 1, relatedText: 0, descriptionControl: 1, controls: 1, feedback: 1, actions: 2, panelPadding: 1}
 	}
 	if height >= 18 {
-		return wizardRhythm{top: 1, titleDivider: 0, sectionDescription: 0, relatedText: 0, descriptionControl: 1, controls: 0, feedback: 1, actions: 1}
+		return wizardRhythm{top: 1, titleDivider: 0, sectionDescription: 1, questionSupporting: 1, relatedText: 0, descriptionControl: 1, controls: 0, feedback: 1, actions: 1}
 	}
 	return wizardRhythm{}
 }
@@ -206,27 +323,27 @@ func renderWizardInputRow(label string, input textinput.Model, focused bool, wid
 
 // renderWizardActions preserves the approved Step 1 action focus semantics
 // for every wizard screen without introducing a second focus surface.
-type wizardActionOptions struct{ rightEnabled bool }
+type wizardActionOptions struct{ rightState wizardProgressState }
 
 func renderWizardActions(width int, t homeTheme, left, right string, leftFocused, rightFocused, noColor bool, options ...wizardActionOptions) string {
 	return renderWizardActionsBlock(width, t, left, right, leftFocused, rightFocused, noColor, options...).text
 }
 
 func renderWizardActionsBlock(width int, t homeTheme, left, right string, leftFocused, rightFocused, noColor bool, options ...wizardActionOptions) wizardRenderedBlock {
-	rightEnabled := true
+	rightState := wizardProgressReady
 	if len(options) > 0 {
-		rightEnabled = options[0].rightEnabled
+		rightState = options[0].rightState
 	}
 	if leftFocused {
 		left = "▸ " + left
 	}
-	if rightFocused {
+	if rightFocused && rightState != wizardProgressDisabled {
 		right = "▸ " + right
-		if rightEnabled && !noColor {
+		if rightState == wizardProgressReady && !noColor {
 			right = lipgloss.NewStyle().Background(lipgloss.Color(bacRed)).Foreground(lipgloss.Color(white)).Bold(true).Render(right)
 		}
 	}
-	if !rightEnabled {
+	if rightState == wizardProgressDisabled {
 		right += " [--]"
 		right = t.statusNeutral.Render(right)
 	}

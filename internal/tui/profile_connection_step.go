@@ -67,7 +67,8 @@ func (m Model) updateProfileConnectionStep(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 			if m.connectionFieldValid(m.connectionFocus) {
 				return m.moveProfileConnectionFocus(1)
 			}
-			m.connectionValidate = true
+			guard, focus := m.connectionProgressGuard()
+			m.activateWizardProgress(guard, func() { m.connectionFocus = focus; m.connectionValidate = true; m.focusProfileConnectionInput() })
 			return m, nil
 		case profileConnectionFocusBack:
 			m.screen, m.status, m.err = screenProfileStep, "", nil
@@ -75,8 +76,8 @@ func (m Model) updateProfileConnectionStep(msg tea.KeyMsg) (tea.Model, tea.Cmd) 
 			m.profileName.Focus()
 			return m, nil
 		case profileConnectionFocusContinue:
-			if !m.profileConnectionValid() {
-				m.connectionValidate = true
+			guard, focus := m.connectionProgressGuard()
+			if !m.activateWizardProgress(guard, func() { m.connectionFocus = focus; m.connectionValidate = true; m.focusProfileConnectionInput() }) {
 				return m, nil
 			}
 			host := strings.TrimSpace(m.connectionHost.Value())
@@ -128,6 +129,15 @@ func (m Model) profileConnectionValid() bool {
 	return m.connectionFieldValid(profileConnectionFocusHost) &&
 		m.connectionFieldValid(profileConnectionFocusUsername) &&
 		m.connectionFieldValid(profileConnectionFocusPort)
+}
+
+func (m Model) connectionProgressGuard() (wizardProgressGuard, profileConnectionFocus) {
+	for _, focus := range []profileConnectionFocus{profileConnectionFocusHost, profileConnectionFocusUsername, profileConnectionFocusPort} {
+		if feedback, ok := wizardFeedbackFromRow(m.connectionFieldState(focus)); ok {
+			return wizardProgressGuard{state: wizardProgressBlocked, feedback: feedback}, focus
+		}
+	}
+	return wizardProgressGuard{}, profileConnectionFocusContinue
 }
 
 // profileConnectionState returns one relevant deterministic status, favoring
@@ -208,18 +218,14 @@ func (m Model) renderProfileConnectionHeader(width int, t homeTheme) string {
 }
 
 func (m Model) renderProfileConnectionPanel(width, height int, t homeTheme) string {
-	panelWidth := min(max(width-12, 34), profileStepPanelMaxWidth)
-	if panelWidth > width {
-		panelWidth = width
-	}
-	panelStyle, contentInset := profileStepPanelStyle(t, height)
-	contentWidth := max(panelWidth-contentInset, 1)
+	panel := newWizardPanelLayout(width, height, t)
+	contentWidth := panel.contentWidth
 	rhythm := newWizardRhythm(height)
 	lines := renderWizardTitleRow(contentWidth, t, connectionPanelTitle, connectionStepIndicator)
 	lines = appendWizardGap(lines, rhythm.titleDivider)
 	lines = append(lines, renderWizardDivider(contentWidth, t))
-	lines = appendWizardGap(lines, rhythm.sectionDescription)
 	lines = append(lines, t.wizardContentHeading.Render(wrapWizardText("Conexión con IBM i", contentWidth, "")[0]))
+	lines = appendWizardGap(lines, rhythm.sectionDescription)
 	for _, text := range []string{"Indica cómo localizar el IBM i y qué usuario utilizará Nexus.", "Nexus todavía no se conectará al servidor en este paso."} {
 		for _, line := range wrapWizardText(text, contentWidth, "") {
 			lines = append(lines, t.metadata.Render(line))
@@ -231,28 +237,21 @@ func (m Model) renderProfileConnectionPanel(width, height int, t homeTheme) stri
 	lines = append(lines, m.renderConnectionInputRow("Usuario", m.connectionUsername, profileConnectionFocusUsername, contentWidth, t))
 	lines = appendWizardGap(lines, rhythm.controls)
 	lines = append(lines, m.renderConnectionPortRow(contentWidth, t))
-	if state := m.profileConnectionState(); state != "" {
-		lines = append(lines, m.renderProfileStatus(state, contentWidth, t))
-	}
-	if m.status != "" || m.err != nil {
+	if feedback, ok := m.wizardFeedbackFor(m.profileConnectionState()); ok {
 		lines = appendWizardGap(lines, rhythm.feedback)
-		lines = append(lines, m.renderFeedback(contentWidth, t))
+		lines = append(lines, renderWizardFeedback(contentWidth, t, feedback))
 	}
 	lines = appendWizardGap(lines, rhythm.actions)
 	lines = append(lines, m.renderProfileConnectionActions(contentWidth, t))
-	return centerHomeBlock(width, panelStyle.Width(panelWidth-2).Render(strings.Join(lines, "\n")))
+	return panel.render(width, lines)
 }
 
 // profileConnectionFocusRange mirrors panel composition using line counts,
 // keeping input and action focus independent of display-string matching.
 func (m Model) profileConnectionFocusRange(width, height int, t homeTheme) wizardLineRange {
-	pw := min(max(width-12, 34), profileStepPanelMaxWidth)
-	if pw > width {
-		pw = width
-	}
-	_, inset := profileStepPanelStyle(t, height)
-	cw, rhythm := max(pw-inset, 1), newWizardRhythm(height)
-	lines := len(renderWizardTitleRow(cw, t, connectionPanelTitle, connectionStepIndicator)) + rhythm.titleDivider + 1 + rhythm.sectionDescription + 1
+	panel := newWizardPanelLayout(width, height, t)
+	cw, rhythm := panel.contentWidth, newWizardRhythm(height)
+	lines := len(renderWizardTitleRow(cw, t, connectionPanelTitle, connectionStepIndicator)) + rhythm.titleDivider + 1 + 1 + rhythm.sectionDescription
 	for _, text := range []string{"Indica cómo localizar el IBM i y qué usuario utilizará Nexus.", "Nexus todavía no se conectará al servidor en este paso."} {
 		lines += len(wrapWizardText(text, cw, ""))
 	}
@@ -264,22 +263,18 @@ func (m Model) profileConnectionFocusRange(width, height int, t homeTheme) wizar
 			lines += len(strings.Split(rows[i], "\n")) + rhythm.controls
 		}
 		start := lines + 1
-		if height >= 30 {
-			start++
-		}
+		start += panel.contentTopOffset - 1
 		return wizardLineRange{start: start, end: start + len(strings.Split(rows[index], "\n")) - 1}
 	}
 	for _, row := range rows {
 		lines += len(strings.Split(row, "\n")) + rhythm.controls
 	}
-	if state := m.profileConnectionState(); state != "" {
-		lines += len(strings.Split(m.renderProfileStatus(state, cw, t), "\n"))
-	}
-	if m.status != "" || m.err != nil {
-		lines += rhythm.feedback + len(strings.Split(m.renderFeedback(cw, t), "\n"))
+	if feedback, ok := m.wizardFeedbackFor(m.profileConnectionState()); ok {
+		lines += rhythm.feedback + len(strings.Split(renderWizardFeedback(cw, t, feedback), "\n"))
 	}
 	start := lines + rhythm.actions + 1
-	if height >= 30 {
+	start += panel.contentTopOffset - 1
+	if m.connectionFocus == profileConnectionFocusContinue && len(strings.Split(m.renderProfileConnectionActions(cw, t), "\n")) > 1 {
 		start++
 	}
 	return wizardLineRange{start: start, end: start}

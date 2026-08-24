@@ -344,10 +344,116 @@ func TestProfileConnectionInvalidValuesBlockContinueWithOneError(t *testing.T) {
 				t.Fatal("invalid data reached accepted seam")
 			}
 			view := m.View()
-			if !strings.Contains(view, tt.want) || strings.Count(view, "[ERR]") != 1 {
+			if !strings.Contains(view, tt.want) || strings.Count(view, "[ERR]") != 1 || m.connectionFocus != firstInvalidConnectionFocus(tt.host, tt.user, tt.port) {
 				t.Fatalf("invalid state = %q", view)
 			}
+			if !connectionInputFocused(m) {
+				t.Fatalf("first invalid field did not retain real input focus: %#v", m)
+			}
 		})
+	}
+}
+
+func TestProfileConnectionContinuePrioritizesFirstInvalidField(t *testing.T) {
+	for _, tt := range []struct {
+		name                 string
+		host, username, port string
+		wantFocus            profileConnectionFocus
+		wantFeedback         string
+		inputFocused         func(Model) bool
+	}{
+		{
+			name:         "invalid host wins over invalid username and port",
+			host:         "bad host",
+			username:     "bad user",
+			port:         "not-a-port",
+			wantFocus:    profileConnectionFocusHost,
+			wantFeedback: "[ERR] Host inválido",
+			inputFocused: func(m Model) bool { return m.connectionHost.Focused() },
+		},
+		{
+			name:         "invalid username wins over invalid port",
+			host:         "ibmi.example.test",
+			username:     "bad user",
+			port:         "not-a-port",
+			wantFocus:    profileConnectionFocusUsername,
+			wantFeedback: "[ERR] Usuario inválido",
+			inputFocused: func(m Model) bool { return m.connectionUsername.Focused() },
+		},
+		{
+			name:         "invalid port is selected after valid host and username",
+			host:         "ibmi.example.test",
+			username:     "USER",
+			port:         "not-a-port",
+			wantFocus:    profileConnectionFocusPort,
+			wantFeedback: "[ERR] Puerto SSH debe ser un número",
+			inputFocused: func(m Model) bool { return m.connectionPort.Focused() },
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newProfileConnectionTestModel(t, &profileStoreStub{}, 120, 40)
+			m.connectionHost.SetValue(tt.host)
+			m.connectionUsername.SetValue(tt.username)
+			m.connectionPort.SetValue(tt.port)
+			m.connectionFocus = profileConnectionFocusContinue
+
+			updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			m = updated.(Model)
+			if cmd != nil || m.screen != screenProfileConnection || m.connectionFocus != tt.wantFocus || !tt.inputFocused(m) {
+				t.Fatalf("blocked Continue state = screen:%v focus:%v real-focus:%v command:%v", m.screen, m.connectionFocus, tt.inputFocused(m), cmd != nil)
+			}
+			if m.status != tt.wantFeedback || strings.Count(m.View(), "[ERR]") != 1 || !strings.Contains(m.View(), tt.wantFeedback) {
+				t.Fatalf("blocked Continue feedback = status:%q view:%q", m.status, m.View())
+			}
+		})
+	}
+}
+
+func TestProfileConnectionContinueCorrectsBlockedFeedbackAndReachesLocalSeam(t *testing.T) {
+	m := newProfileConnectionTestModel(t, &profileStoreStub{}, 120, 40)
+	m.connectionHost.SetValue("bad host")
+	m.connectionUsername.SetValue("USER")
+	m.connectionFocus = profileConnectionFocusContinue
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if cmd != nil || m.status != "[ERR] Host inválido" || m.connectionFocus != profileConnectionFocusHost || !m.connectionHost.Focused() {
+		t.Fatalf("blocked host feedback/focus = status:%q focus:%v real-focus:%v", m.status, m.connectionFocus, m.connectionHost.Focused())
+	}
+	m.connectionHost.SetValue("")
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ibmi.example.test")})
+	m = updated.(Model)
+	if m.status != "" || m.connectionValidate || m.profileConnectionState() != "" {
+		t.Fatalf("editing correction retained blocked feedback: status=%q validate=%v state=%q", m.status, m.connectionValidate, m.profileConnectionState())
+	}
+	m.connectionFocus = profileConnectionFocusContinue
+	updated, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("valid corrected connection did not emit the existing local seam")
+	}
+	if _, ok := cmd().(profileConnectionAcceptedMsg); !ok || updated.(Model).screen != screenProfileConnection {
+		t.Fatalf("valid corrected connection emitted the wrong seam: %T", cmd())
+	}
+}
+
+func firstInvalidConnectionFocus(host, user, port string) profileConnectionFocus {
+	m := Model{}
+	m.connectionHost.SetValue(host)
+	m.connectionUsername.SetValue(user)
+	m.connectionPort.SetValue(port)
+	_, focus := m.connectionProgressGuard()
+	return focus
+}
+
+func connectionInputFocused(m Model) bool {
+	switch m.connectionFocus {
+	case profileConnectionFocusHost:
+		return m.connectionHost.Focused()
+	case profileConnectionFocusUsername:
+		return m.connectionUsername.Focused()
+	case profileConnectionFocusPort:
+		return m.connectionPort.Focused()
+	default:
+		return false
 	}
 }
 
@@ -382,7 +488,7 @@ func TestProfileConnectionContentTextBlockUsesCompactRelatedSpacing(t *testing.T
 	description := wizardLineIndex(lines, "Indica cómo localizar el IBM i y qué usuario utilizará Nexus.")
 	information := wizardLineIndex(lines, "Nexus todavía no se conectará al servidor en este paso.")
 	host := wizardLineIndex(lines, "▸ Host")
-	if heading < 0 || description != heading+1 || information != description+1 {
+	if heading < 0 || description != heading+2 || information != description+1 || strings.TrimSpace(strings.ReplaceAll(lines[heading+1], "│", "")) != "" {
 		t.Fatalf("related text block is not compact: heading=%d description=%d information=%d", heading, description, information)
 	}
 	if host != information+2 || strings.TrimSpace(strings.ReplaceAll(lines[information+1], "│", "")) != "" {

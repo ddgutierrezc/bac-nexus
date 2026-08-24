@@ -207,8 +207,12 @@ func TestSecurityViewportKeepsFunctionalContentReachableAtNarrowSizes(t *testing
 				seen += "\n" + m.View()
 			}
 			view = m.View()
+			normalizeRuntimeViews := func(views string) string {
+				return strings.Join(strings.Fields(ansiEscape.ReplaceAllString(views, "")), " ")
+			}
+			reachable := normalizeRuntimeViews(seen)
 			for _, want := range []string{"Type enroll", "then press enter."} {
-				if !strings.Contains(seen, want) {
+				if !strings.Contains(reachable, want) {
 					t.Fatalf("menu instruction %q is unreachable:\n%s", want, view)
 				}
 			}
@@ -218,10 +222,17 @@ func TestSecurityViewportKeepsFunctionalContentReachableAtNarrowSizes(t *testing
 			trust := NewSecurityModel(context.Background(), "profile-with-a-long-name", services)
 			updated, _ = trust.Update(tea.WindowSizeMsg{Width: size.width, Height: size.height})
 			updated, _ = updated.(SecurityModel).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
-			m = updated.(SecurityModel)
+			trust = updated.(SecurityModel)
+			trustSeen := trust.View()
+			for i := 0; i < 120; i++ {
+				updated, _ = trust.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+				trust = updated.(SecurityModel)
+				trustSeen += "\n" + trust.View()
+			}
+			trustReachable := normalizeRuntimeViews(trustSeen)
 			for _, want := range []string{"Manual verified host-key enrollment", "Fingerprint:", "Provenance:", "Exact confirmation:"} {
-				if !strings.Contains(m.viewportText, want) {
-					t.Fatalf("trust behavior changed or content lost: %q", want)
+				if !strings.Contains(trustReachable, want) {
+					t.Fatalf("trust behavior changed or content was unreachable: %q", want)
 				}
 			}
 		})

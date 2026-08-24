@@ -6,7 +6,6 @@ import (
 	"bac-nexus/internal/profile"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 type profileStepFocus uint8
@@ -19,10 +18,7 @@ const (
 
 const profileStepFooter = "Tab siguiente  •  Enter continuar  •  Esc volver  •  ? ayuda"
 
-const (
-	profileStepPanelMaxWidth = 72
-	profileInputLabel        = "Nombre"
-)
+const profileInputLabel = "Nombre"
 
 func newProfileNameInput() textinput.Model {
 	input := textinput.New()
@@ -69,6 +65,23 @@ func (m Model) profileNameValid() bool {
 	return m.profileNameState() == "[OK] Nombre disponible"
 }
 
+func (m Model) profileProgressGuard() wizardProgressGuard {
+	if m.profileName.Value() == "" {
+		return wizardProgressGuard{state: wizardProgressBlocked, feedback: wizardFeedback{kind: wizardFeedbackWarning, message: "Ingresa un nombre de perfil antes de continuar"}}
+	}
+	if !m.profilesLoaded || m.profilesLoadFailed {
+		return wizardProgressGuard{state: wizardProgressBlocked, feedback: wizardFeedback{kind: wizardFeedbackInfo, message: "Cargando perfiles"}}
+	}
+	if feedback, ok := wizardFeedbackFromRow(m.profileNameState()); ok && feedback.kind == wizardFeedbackError {
+		return wizardProgressGuard{state: wizardProgressBlocked, feedback: feedback}
+	}
+	return wizardProgressGuard{}
+}
+
+func (m *Model) activateProfileProgress() bool {
+	return m.activateWizardProgress(m.profileProgressGuard(), func() { m.profileFocus = profileFocusName; m.profileName.Focus() })
+}
+
 func (m Model) updateProfileStep(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	switch key {
@@ -85,7 +98,7 @@ func (m Model) updateProfileStep(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		switch m.profileFocus {
 		case profileFocusName:
-			if m.profileNameValid() {
+			if m.activateProfileProgress() {
 				return m.moveProfileFocus(1 + int(profileFocusContinue-profileFocusCancel))
 			}
 			return m, nil
@@ -93,7 +106,7 @@ func (m Model) updateProfileStep(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.screen, m.status, m.err = screenHome, "", nil
 			return m, nil
 		case profileFocusContinue:
-			if !m.profileNameValid() {
+			if !m.activateProfileProgress() {
 				return m, nil
 			}
 			// This defensive normalization is a no-op after strict raw validation;
@@ -146,65 +159,47 @@ func profileStepTopGap(height int) int {
 }
 
 func (m Model) renderProfileStepPanel(width, height int, t homeTheme) string {
-	panelWidth := min(max(width-12, 34), profileStepPanelMaxWidth)
-	if panelWidth > width {
-		panelWidth = width
-	}
-	panelStyle, contentInset := profileStepPanelStyle(t, height)
-	contentWidth := max(panelWidth-contentInset, 1)
+	panel := newWizardPanelLayout(width, height, t)
+	contentWidth := panel.contentWidth
 	state := m.profileNameState()
 	rhythm := newWizardRhythm(height)
 	lines := renderWizardTitleRow(contentWidth, t, "Crear perfil IBM i", "Paso 1 de 9 — Perfil")
 	lines = appendWizardGap(lines, rhythm.titleDivider)
 	lines = append(lines, renderWizardDivider(contentWidth, t))
-	lines = appendWizardGap(lines, rhythm.sectionDescription)
 	lines = append(lines, m.renderProfileNameLabel(contentWidth, t))
-	lines = appendWizardGap(lines, rhythm.relatedText)
+	lines = appendWizardGap(lines, rhythm.sectionDescription)
 	lines = append(lines, profileStepGuidance(contentWidth, height, t)...)
-	lines = appendWizardGap(lines, rhythm.descriptionControl)
 	for _, line := range wrapWizardText("Ej: CRI400F, CRI400FDev, CRI400FProd", contentWidth, "") {
 		lines = append(lines, t.metadata.Render(line))
 	}
-	lines = appendWizardGap(lines, rhythm.controls)
+	lines = appendWizardGap(lines, rhythm.descriptionControl)
 	lines = append(lines, m.renderProfileInput(contentWidth, t))
-	if state != "" {
-		lines = append(lines, m.renderProfileStatus(state, contentWidth, t))
-	}
-	if m.status != "" || m.err != nil {
+	if feedback, ok := m.wizardFeedbackFor(state); ok {
 		lines = appendWizardGap(lines, rhythm.feedback)
-		lines = append(lines, m.renderFeedback(contentWidth, t))
+		lines = append(lines, renderWizardFeedback(contentWidth, t, feedback))
 	}
 	lines = appendWizardGap(lines, rhythm.actions)
 	lines = append(lines, m.renderProfileActions(contentWidth, t))
-	panel := panelStyle.Width(panelWidth - 2).Render(strings.Join(lines, "\n"))
-	return centerHomeBlock(width, panel)
+	return panel.render(width, lines)
 }
 
 // profileStepFocusRange is derived from the same structured sections used to
 // render the panel. It deliberately never searches rendered/ANSI text.
 func (m Model) profileStepFocusRange(width, height int, t homeTheme) wizardLineRange {
-	panelWidth := min(max(width-12, 34), profileStepPanelMaxWidth)
-	if panelWidth > width {
-		panelWidth = width
-	}
-	_, inset := profileStepPanelStyle(t, height)
-	cw, rhythm := max(panelWidth-inset, 1), newWizardRhythm(height)
-	lines := len(renderWizardTitleRow(cw, t, "Crear perfil IBM i", "Paso 1 de 9 — Perfil")) + rhythm.titleDivider + 1 + rhythm.sectionDescription + 1 + rhythm.relatedText + len(profileStepGuidance(cw, height, t)) + rhythm.descriptionControl + len(wrapWizardText("Ej: CRI400F, CRI400FDev, CRI400FProd", cw, "")) + rhythm.controls
+	panel := newWizardPanelLayout(width, height, t)
+	cw, rhythm := panel.contentWidth, newWizardRhythm(height)
+	lines := len(renderWizardTitleRow(cw, t, "Crear perfil IBM i", "Paso 1 de 9 — Perfil")) + rhythm.titleDivider + 1 + 1 + rhythm.sectionDescription + len(profileStepGuidance(cw, height, t)) + len(wrapWizardText("Ej: CRI400F, CRI400FDev, CRI400FProd", cw, "")) + rhythm.descriptionControl
 	start := lines + 1
-	if height >= 30 {
-		start++
-	}
+	start += panel.contentTopOffset - 1
 	end := start + len(strings.Split(m.renderProfileInput(cw, t), "\n")) - 1
 	if m.profileFocus == profileFocusCancel || m.profileFocus == profileFocusContinue {
 		start = lines + len(strings.Split(m.renderProfileInput(cw, t), "\n"))
-		if m.profileNameState() != "" {
-			start += len(strings.Split(m.renderProfileStatus(m.profileNameState(), cw, t), "\n"))
-		}
-		if m.status != "" || m.err != nil {
-			start += rhythm.feedback + len(strings.Split(m.renderFeedback(cw, t), "\n"))
+		if feedback, ok := m.wizardFeedbackFor(m.profileNameState()); ok {
+			start += rhythm.feedback + len(strings.Split(renderWizardFeedback(cw, t, feedback), "\n"))
 		}
 		start += rhythm.actions + 1
-		if height >= 30 {
+		start += panel.contentTopOffset - 1
+		if m.profileFocus == profileFocusContinue && len(strings.Split(m.renderProfileActions(cw, t), "\n")) > 1 {
 			start++
 		}
 		end = start
@@ -232,16 +227,6 @@ func profileStepGuidance(width, height int, t homeTheme) []string {
 // to opposite edges whenever their display widths leave a readable middle gap.
 func renderProfileStepTitleRow(width int, t homeTheme) []string {
 	return renderWizardTitleRow(width, t, "Crear perfil IBM i", "Paso 1 de 9 — Perfil")
-}
-
-// profileStepPanelStyle derives the wizard surface from the shared panel and
-// adds breathing room only where the shell has enough height to retain all
-// controls and its pinned footer.
-func profileStepPanelStyle(t homeTheme, height int) (lipgloss.Style, int) {
-	if height >= 30 {
-		return t.panel.Padding(1, 2), 6
-	}
-	return t.panel, 4
 }
 
 func appendProfileStepGap(lines []string, size int) []string {
@@ -284,20 +269,6 @@ func (m Model) renderProfileNameLabel(width int, t homeTheme) string {
 
 func (m Model) renderProfileInput(width int, t homeTheme) string {
 	return renderWizardInputRow(profileInputLabel, m.profileName, m.profileFocus == profileFocusName, width, t, wizardInputOptions{})
-}
-
-func (m Model) renderProfileStatus(state string, width int, t homeTheme) string {
-	lines := wrapWizardText(state, width, "")
-	if strings.HasPrefix(state, "[OK]") {
-		for i := range lines {
-			lines[i] = t.statusOK.Render(lines[i])
-		}
-		return strings.Join(lines, "\n")
-	}
-	for i := range lines {
-		lines[i] = t.statusError.Render(lines[i])
-	}
-	return strings.Join(lines, "\n")
 }
 
 func (m Model) renderProfileActions(width int, t homeTheme) string {

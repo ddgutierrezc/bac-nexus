@@ -26,3 +26,4 @@ go.work.sum
 
 extension-items-ibmi-main
 .codegraph/
+.atl/

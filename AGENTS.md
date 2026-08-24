@@ -31,6 +31,12 @@ The purpose of this document is not to freeze the architecture. It is to preserv
 
 ---
 
+## Project skills
+
+- `.agents/skills/bac-nexus-tui/SKILL.md` — Trigger: BAC Nexus TUI, wizard step/Step 4, Bubble Tea, Bubbles, or Lip Gloss work. This documents project intent; OpenCode auto-discovers project-local `.agents/skills/*/SKILL.md`.
+
+---
+
 # 2. Product vision
 
 ## BAC Nexus
