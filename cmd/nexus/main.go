@@ -22,13 +22,14 @@ import (
 	"bac-nexus/internal/mcp"
 	"bac-nexus/internal/profile"
 	"bac-nexus/internal/release"
+	"bac-nexus/internal/remote"
 	"bac-nexus/internal/security"
 	"bac-nexus/internal/tui"
 )
 
 var releaseVersion = "dev"
 var vcsRevision = "unknown"
-var runConfigureTUI = tui.Run
+var runConfigureTUI = tui.RunWithHostIdentityInspector
 
 func main() {
 	err := runCommand(os.Args[1:], os.Stderr)
@@ -203,7 +204,7 @@ func runConfigure(args []string) error {
 		return err
 	}
 	var store configuration.ProfilesStore = profile.Store{Root: root}
-	return runConfigureTUI(context.Background(), store, tui.BuildInfo{Version: releaseVersion, Revision: vcsRevision})
+	return runConfigureTUI(context.Background(), store, tui.BuildInfo{Version: releaseVersion, Revision: vcsRevision}, remote.HostIdentityInspector{})
 }
 
 func printServeHelp(out io.Writer) error {

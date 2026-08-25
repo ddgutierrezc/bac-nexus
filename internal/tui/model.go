@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -16,6 +17,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"bac-nexus/internal/configuration"
+	"bac-nexus/internal/hostidentity"
 	"bac-nexus/internal/localization"
 	"bac-nexus/internal/profile"
 )
@@ -79,23 +81,34 @@ type profileConnectionDraft struct {
 	port           int
 }
 
-type profileIdentityDecision uint8
+type profileIdentityPhase uint8
 
 const (
-	profileIdentityNone profileIdentityDecision = iota
-	profileIdentityKnownFingerprint
-	profileIdentityObservedKey
+	profileIdentityAuthorize profileIdentityPhase = iota
+	profileIdentityLoading
+	profileIdentityReview
+	profileIdentityError
+	profileIdentityCompleted
 )
 
-type profileIdentityBranch uint8
+type profileIdentityDraft struct {
+	host, algorithm, fingerprint string
+	trustMethod                  profile.HostKeyTrust
+	port                         int
+}
 
-const (
-	profileIdentityBranchNone profileIdentityBranch = iota
-	profileIdentityBranchFingerprint
-	profileIdentityBranchObservedKey
-)
+type profileIdentityInspectionMsg struct {
+	request   uint64
+	host      string
+	port      int
+	candidate hostidentity.Candidate
+	err       error
+}
 
-type profileIdentityAcceptedMsg struct{ decision profileIdentityDecision }
+type profileIdentityAcceptedMsg struct {
+	request   uint64
+	candidate hostidentity.Candidate
+}
 
 type field struct {
 	label string
@@ -131,8 +144,14 @@ type Model struct {
 	connectionReady    bool
 	connectionValidate bool
 	identityFocus      profileIdentityFocus
-	identityDecision   profileIdentityDecision
-	identityBranch     profileIdentityBranch
+	identityPhase      profileIdentityPhase
+	identityCandidate  hostidentity.Candidate
+	identityDraft      profileIdentityDraft
+	identityRequest    uint64
+	identityCancel     context.CancelFunc
+	identityInspector  hostidentity.Inspector
+	identityParent     context.Context
+	identityTimeout    time.Duration
 	wizardViewport     viewport.Model
 	legacyViewport     viewport.Model
 	legacyViewportText string
@@ -158,13 +177,25 @@ type BuildInfo struct {
 }
 
 func NewModel(store configuration.ProfilesStore) Model {
-	return NewModelWithBuildInfo(store, BuildInfo{Version: "dev", Revision: "unknown"})
+	return NewModelWithBuildInfoAndInspector(store, BuildInfo{Version: "dev", Revision: "unknown"}, nil)
 }
 
 // NewModelWithBuildInfo constructs the Home model with build identity supplied
 // by the caller. Empty values retain truthful local-build defaults.
 func NewModelWithBuildInfo(store configuration.ProfilesStore, buildInfo BuildInfo) Model {
-	return NewModelWithBuildInfoAndLocalizer(store, buildInfo, localization.Spanish())
+	return NewModelWithBuildInfoAndInspector(store, buildInfo, nil)
+}
+
+// NewModelWithBuildInfoAndInspector composes the optional no-auth inspection boundary.
+func NewModelWithBuildInfoAndInspector(store configuration.ProfilesStore, buildInfo BuildInfo, inspector hostidentity.Inspector) Model {
+	return newModelWithIdentityInspector(store, buildInfo, inspector, context.Background(), identityInspectionTimeout)
+}
+
+func newModelWithIdentityInspector(store configuration.ProfilesStore, buildInfo BuildInfo, inspector hostidentity.Inspector, parent context.Context, timeout time.Duration) Model {
+	m := NewModelWithBuildInfoAndLocalizer(store, buildInfo, localization.Spanish())
+	m.identityInspector = inspector
+	m.identityParent, m.identityTimeout = parent, timeout
+	return m
 }
 
 // NewModelWithBuildInfoAndLocalizer is the explicit composition seam for a
@@ -271,17 +302,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshWizardViewport()
 		return m, nil
 	case profileConnectionAcceptedMsg:
+		changedEndpoint := m.connectionDraft.host != msg.host || m.connectionDraft.port != msg.port
 		m.connectionDraft = profileConnectionDraft{host: msg.host, username: msg.username, port: msg.port}
+		if changedEndpoint {
+			m.resetProfileIdentityStep()
+		}
 		m.beginProfileIdentityStep()
 		m.refreshWizardViewport()
 		return m, nil
-	case profileIdentityAcceptedMsg:
-		m.identityDecision = msg.decision
-		if msg.decision == profileIdentityKnownFingerprint {
-			m.identityBranch = profileIdentityBranchFingerprint
-		} else {
-			m.identityBranch = profileIdentityBranchObservedKey
+	case profileIdentityInspectionMsg:
+		if msg.request != m.identityRequest || m.identityPhase != profileIdentityLoading || msg.host != m.connectionDraft.host || msg.port != m.connectionDraft.port {
+			return m, nil
 		}
+		m.identityCancel = nil
+		if msg.err != nil {
+			if hostidentity.SafeFailure(msg.err) == hostidentity.FailureCancelled {
+				return m, nil
+			}
+			m.identityPhase, m.status, m.err = profileIdentityError, wizardFeedbackRow(wizardFeedback{kind: wizardFeedbackError, message: m.identityFailureText(hostidentity.SafeFailure(msg.err))}), nil
+			m.refreshWizardViewport()
+			return m, nil
+		}
+		m.identityCandidate, m.identityPhase, m.status, m.err = msg.candidate, profileIdentityReview, "", nil
+		m.identityFocus = profileIdentityFocusTrust
+		m.refreshWizardViewport()
+		return m, nil
+	case profileIdentityAcceptedMsg:
+		if msg.request != m.identityRequest || m.identityPhase != profileIdentityReview || msg.candidate != m.identityCandidate {
+			return m, nil
+		}
+		m.identityDraft = profileIdentityDraft{host: m.connectionDraft.host, port: m.connectionDraft.port, algorithm: msg.candidate.Algorithm, fingerprint: msg.candidate.Fingerprint, trustMethod: profile.HostKeyTrustTOFU}
+		m.identityPhase, m.status = profileIdentityCompleted, wizardFeedbackRow(wizardFeedback{kind: wizardFeedbackOK, message: m.text("wizard.identity.completed", nil)})
 		m.refreshWizardViewport()
 		return m, nil
 	case operationMsg:
@@ -500,12 +551,20 @@ func (m *Model) beginProfileStep() {
 }
 
 func (m *Model) resetProfileIdentityStep() {
-	m.identityFocus = profileIdentityFocusKnown
-	m.identityDecision = profileIdentityNone
-	m.identityBranch = profileIdentityBranchNone
+	if m.identityCancel != nil {
+		m.identityCancel()
+	}
+	m.identityFocus = profileIdentityFocusInspect
+	m.identityPhase = profileIdentityAuthorize
+	m.identityCandidate = hostidentity.Candidate{}
+	m.identityDraft = profileIdentityDraft{}
+	m.identityCancel = nil
+	m.identityRequest++
 }
 func (m *Model) beginProfileIdentityStep() {
-	m.identityFocus = profileIdentityFocusKnown
+	if m.identityPhase == profileIdentityAuthorize {
+		m.identityFocus = profileIdentityFocusInspect
+	}
 	m.status, m.err, m.screen = "", nil, screenProfileIdentity
 	m.wizardViewport.SetYOffset(0)
 	m.refreshWizardViewport()
@@ -956,7 +1015,11 @@ func replaceProfile(list []profile.Profile, p profile.Profile) []profile.Profile
 // Run starts the local terminal program. It never creates an MCP server or
 // writes client configuration files.
 func Run(ctx context.Context, store configuration.ProfilesStore, buildInfo BuildInfo) error {
-	program := tea.NewProgram(NewModelWithBuildInfo(store, buildInfo), tuiProgramOptions(ctx)...)
+	return RunWithHostIdentityInspector(ctx, store, buildInfo, nil)
+}
+
+func RunWithHostIdentityInspector(ctx context.Context, store configuration.ProfilesStore, buildInfo BuildInfo, inspector hostidentity.Inspector) error {
+	program := tea.NewProgram(newModelWithIdentityInspector(store, buildInfo, inspector, ctx, identityInspectionTimeout), tuiProgramOptions(ctx)...)
 	_, err := program.Run()
 	return err
 }

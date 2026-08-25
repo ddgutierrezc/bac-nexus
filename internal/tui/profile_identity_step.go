@@ -1,71 +1,178 @@
 package tui
 
 import (
+	"context"
+	"strconv"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"bac-nexus/internal/hostidentity"
+	"golang.org/x/text/language"
 )
 
 type profileIdentityFocus uint8
 
 const (
-	profileIdentityFocusKnown profileIdentityFocus = iota
-	profileIdentityFocusObserved
+	profileIdentityFocusInspect profileIdentityFocus = iota
 	profileIdentityFocusBack
-	profileIdentityFocusContinue
+	profileIdentityFocusTrust
 )
+
+const identityInspectionTimeout = 10 * time.Second
+
+func (m *Model) cancelIdentityInspection() {
+	if m.identityCancel != nil {
+		m.identityCancel()
+		m.identityCancel = nil
+	}
+	m.identityRequest++
+}
+
+func (m Model) identityInspectionCmd(request uint64, host string, port int, ctx context.Context) tea.Cmd {
+	return func() tea.Msg {
+		candidate, err := m.identityInspector.InspectHostKey(ctx, host, port)
+		return profileIdentityInspectionMsg{request: request, host: host, port: port, candidate: candidate, err: err}
+	}
+}
+
+func (m *Model) startIdentityInspection() tea.Cmd {
+	if m.identityPhase == profileIdentityLoading {
+		return nil
+	}
+	if m.identityInspector == nil {
+		m.identityPhase, m.status = profileIdentityError, wizardFeedbackRow(wizardFeedback{kind: wizardFeedbackError, message: m.text("wizard.identity.error", nil)})
+		return nil
+	}
+	m.cancelIdentityInspection()
+	m.identityPhase, m.identityCandidate, m.status, m.err = profileIdentityLoading, hostidentity.Candidate{}, wizardFeedbackRow(wizardFeedback{kind: wizardFeedbackNeutral, message: m.text("wizard.identity.loading", nil)}), nil
+	m.identityFocus = profileIdentityFocusInspect
+	request, host, port := m.identityRequest, m.connectionDraft.host, m.connectionDraft.port
+	parent := m.identityParent
+	if parent == nil {
+		parent = context.Background()
+	}
+	timeout := m.identityTimeout
+	if timeout <= 0 {
+		timeout = identityInspectionTimeout
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	m.identityCancel = cancel
+	return m.identityInspectionCmd(request, host, port, ctx)
+}
 
 func (m Model) updateProfileIdentityStep(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "ctrl+c":
-		m.screen = screenProfileConnection
-		return m, nil
-	case "?":
-		m.status = m.text("wizard.identity.help", nil)
-		return m, nil
-	case "tab":
-		m.identityFocus = profileIdentityFocus((int(m.identityFocus) + 1) % 4)
-		return m, nil
-	case "shift+tab":
-		m.identityFocus = profileIdentityFocus((int(m.identityFocus) + 3) % 4)
-		return m, nil
-	case " ":
-		if m.identityFocus == profileIdentityFocusKnown {
-			m.identityDecision = profileIdentityKnownFingerprint
-			m.status = ""
+		if m.identityPhase == profileIdentityLoading {
+			m.cancelIdentityInspection()
+			m.identityPhase, m.identityCandidate, m.status, m.err, m.identityFocus = profileIdentityAuthorize, hostidentity.Candidate{}, "", nil, profileIdentityFocusInspect
+			return m, nil
 		}
-		if m.identityFocus == profileIdentityFocusObserved {
-			m.identityDecision = profileIdentityObservedKey
-			m.status = ""
+		if m.identityPhase == profileIdentityReview {
+			m.cancelIdentityInspection()
+			m.identityPhase, m.identityCandidate, m.status, m.err, m.identityFocus = profileIdentityAuthorize, hostidentity.Candidate{}, "", nil, profileIdentityFocusInspect
+			return m, nil
 		}
-		return m, nil
-	case "enter":
-		if m.identityFocus == profileIdentityFocusBack {
+		if m.identityPhase == profileIdentityCompleted {
 			m.screen = screenProfileConnection
 			return m, nil
 		}
-		if m.identityFocus == profileIdentityFocusContinue {
-			guard := wizardProgressGuard{}
-			if m.identityDecision == profileIdentityNone {
-				guard = wizardProgressGuard{state: wizardProgressBlocked, feedback: wizardFeedback{kind: wizardFeedbackWarning, message: m.text("wizard.identity.warning", nil)}}
-			}
-			if !m.activateWizardProgress(guard, nil) {
+		if m.identityPhase == profileIdentityError {
+			m.identityPhase, m.status, m.err, m.identityFocus = profileIdentityAuthorize, "", nil, profileIdentityFocusInspect
+			return m, nil
+		}
+		m.screen = screenProfileConnection
+		return m, nil
+	case "?":
+		m.status, m.err = m.text("wizard.identity.help", nil), nil
+		return m, nil
+	case "tab":
+		m.identityFocus = m.nextIdentityFocus(1)
+		return m, nil
+	case "shift+tab":
+		m.identityFocus = m.nextIdentityFocus(-1)
+		return m, nil
+	case "enter":
+		switch m.identityFocus {
+		case profileIdentityFocusBack:
+			if m.identityPhase == profileIdentityReview || m.identityPhase == profileIdentityError {
+				m.cancelIdentityInspection()
+				m.identityPhase, m.identityCandidate, m.status, m.err, m.identityFocus = profileIdentityAuthorize, hostidentity.Candidate{}, "", nil, profileIdentityFocusInspect
 				return m, nil
 			}
-			d := m.identityDecision
-			return m, func() tea.Msg { return profileIdentityAcceptedMsg{d} }
+			m.screen = screenProfileConnection
+			return m, nil
+		case profileIdentityFocusInspect:
+			if m.identityPhase == profileIdentityAuthorize || m.identityPhase == profileIdentityError {
+				return m, m.startIdentityInspection()
+			}
+		case profileIdentityFocusTrust:
+			if m.identityPhase == profileIdentityReview {
+				candidate, request := m.identityCandidate, m.identityRequest
+				return m, func() tea.Msg { return profileIdentityAcceptedMsg{request: request, candidate: candidate} }
+			}
 		}
 	}
 	return m, nil
+}
+
+func (m Model) nextIdentityFocus(delta int) profileIdentityFocus {
+	focuses := []profileIdentityFocus{profileIdentityFocusInspect, profileIdentityFocusBack}
+	if m.identityPhase == profileIdentityReview {
+		focuses = []profileIdentityFocus{profileIdentityFocusBack, profileIdentityFocusTrust}
+	}
+	for i, focus := range focuses {
+		if focus == m.identityFocus {
+			return focuses[(i+delta+len(focuses))%len(focuses)]
+		}
+	}
+	return focuses[0]
 }
 
 func (m Model) renderProfileIdentityStep() string {
 	fw, fh := m.shellFrameDimensions()
 	w, h := m.shellInnerWidth(fw), m.shellInnerHeight(fh)
 	t := newHomeTheme(m.noColor)
-	_ = fw
-	return m.renderWizardShell(m.renderProfileConnectionHeader(w, t), renderFooterText(w, t, m.text("wizard.identity.footer", nil), m.buildInfo), m.renderProfileIdentityPanel(w, h, t))
+	return m.renderWizardShell(m.renderProfileConnectionHeader(w, t), renderFooterText(w, t, m.identityFooter(), m.buildInfo), m.renderProfileIdentityPanel(w, h, t))
 }
+
+func (m Model) identityFooter() string {
+	if m.identityPhase == profileIdentityReview || m.identityPhase == profileIdentityCompleted {
+		return m.text("wizard.identity.footer_review", nil)
+	}
+	return m.text("wizard.identity.footer_authorize", nil)
+}
+
+func (m Model) identityFailureText(failure hostidentity.Failure) string {
+	cause := ""
+	if m.localizer != nil && m.localizer.Locale() == language.English {
+		switch failure {
+		case hostidentity.FailureTimeout:
+			cause = "inspection timed out"
+		case hostidentity.FailureNegotiation:
+			cause = "secure SSH negotiation failed"
+		case hostidentity.FailureNoKey:
+			cause = "no server key was observed"
+		default:
+			cause = "inspection is unavailable"
+		}
+	} else {
+		switch failure {
+		case hostidentity.FailureTimeout:
+			cause = "la inspección agotó el tiempo"
+		case hostidentity.FailureNegotiation:
+			cause = "falló la negociación SSH segura"
+		case hostidentity.FailureNoKey:
+			cause = "no se observó una clave del servidor"
+		default:
+			cause = "la inspección no está disponible"
+		}
+	}
+	return m.text("wizard.identity.error", nil) + ": " + cause
+}
+
 func (m Model) renderProfileIdentityPanel(w, h int, t homeTheme) string {
 	return m.renderProfileIdentityPanelContent(w, h, t).text
 }
@@ -74,58 +181,67 @@ type wizardPanel struct {
 	text   string
 	ranges map[profileIdentityFocus]wizardLineRange
 }
-
 type wizardLineRange struct{ start, end int }
 
 func (m Model) renderProfileIdentityPanelContent(w, h int, t homeTheme) wizardPanel {
 	panel := newWizardPanelLayout(w, h, t)
-	cw := panel.contentWidth
-	rhythm := newWizardRhythm(h)
-	lines := renderWizardTitleRow(cw, t, m.text("wizard.identity.title", nil), m.text("wizard.step.identity", nil))
-	ranges := make(map[profileIdentityFocus]wizardLineRange)
-	appendBlock := func(focus profileIdentityFocus, block wizardRenderedBlock) {
-		start := len(lines) + block.start
-		lines = append(lines, strings.Split(block.text, "\n")...)
-		ranges[focus] = wizardLineRange{start: start, end: start + block.end - block.start}
+	cw, rhythm := panel.contentWidth, newWizardRhythm(h)
+	title := m.text("wizard.identity.title", nil)
+	if m.identityPhase == profileIdentityReview || m.identityPhase == profileIdentityCompleted {
+		title = m.text("wizard.identity.observed_title", nil)
 	}
+	lines := renderWizardTitleRow(cw, t, title, m.text("wizard.step.identity", nil))
+	ranges := make(map[profileIdentityFocus]wizardLineRange)
 	lines = appendWizardGap(lines, rhythm.titleDivider)
 	lines = append(lines, renderWizardDivider(cw, t))
-	lines = append(lines, t.wizardContentHeading.Render(m.text("wizard.identity.section", nil)))
-	lines = appendWizardGap(lines, rhythm.sectionDescription)
-	for _, x := range wrapWizardText(m.text("wizard.identity.question", nil), cw, "") {
-		lines = append(lines, t.fieldsetContent.Render(x))
+	if m.identityPhase == profileIdentityReview || m.identityPhase == profileIdentityCompleted {
+		lines = append(lines, t.wizardContentHeading.Render(m.text("wizard.identity.observed_title", nil)))
+		lines = appendWizardGap(lines, rhythm.sectionDescription)
+		for _, row := range []string{m.text("form.label.host", nil) + "             " + m.connectionDraft.host, m.text("form.label.port", nil) + "           " + strconv.Itoa(m.connectionDraft.port), m.text("wizard.identity.key_type", nil) + "    " + m.identityCandidate.Algorithm, m.text("form.label.fingerprint", nil) + "      " + m.identityCandidate.Fingerprint} {
+			for _, x := range wrapWizardText(row, cw, "") {
+				lines = append(lines, t.fieldsetContent.Render(x))
+			}
+		}
+		lines = appendWizardGap(lines, rhythm.questionSupporting)
+		lines = append(lines, renderWizardFeedback(cw, t, wizardFeedback{kind: wizardFeedbackWarning, message: m.text("wizard.identity.warning_observed", nil)}))
+		for _, text := range []string{m.text("wizard.identity.observed_description_1", nil), m.text("wizard.identity.observed_description_2", nil)} {
+			for _, x := range wrapWizardText(text, cw, "") {
+				lines = append(lines, t.metadata.Render(x))
+			}
+		}
+	} else {
+		lines = append(lines, t.wizardContentHeading.Render(m.text("wizard.identity.section", nil)))
+		lines = appendWizardGap(lines, rhythm.sectionDescription)
+		for _, text := range []string{m.text("wizard.identity.authorize", nil), "Host      " + m.connectionDraft.host, "Puerto    " + strconv.Itoa(m.connectionDraft.port), m.text("wizard.identity.notice_1", nil), m.text("wizard.identity.notice_2", nil)} {
+			for _, x := range wrapWizardText(text, cw, "") {
+				lines = append(lines, t.fieldsetContent.Render(x))
+			}
+			lines = appendWizardGap(lines, rhythm.questionSupporting)
+		}
 	}
-	lines = appendWizardGap(lines, rhythm.questionSupporting)
-	for _, x := range wrapWizardText(strings.Split(m.text("wizard.identity.description", nil), "\n")[0], cw, "") {
-		lines = append(lines, t.metadata.Render(x))
-	}
-	for _, x := range wrapWizardText(strings.Split(m.text("wizard.identity.description", nil), "\n")[1], cw, "") {
-		lines = append(lines, t.metadata.Render(x))
-	}
-	lines = appendWizardGap(lines, rhythm.descriptionControl)
-	appendBlock(profileIdentityFocusKnown, renderWizardChoiceBlock(cw, t, WizardChoice{ID: "known-fingerprint", Label: m.text("wizard.identity.choice_known.label", nil), Description: m.text("wizard.identity.choice_known.description", nil)}, m.identityFocus == profileIdentityFocusKnown, m.identityDecision == profileIdentityKnownFingerprint))
-	lines = appendWizardGap(lines, rhythm.controls)
-	appendBlock(profileIdentityFocusObserved, renderWizardChoiceBlock(cw, t, WizardChoice{ID: "observed-key", Label: m.text("wizard.identity.choice_observed.label", nil), Description: m.text("wizard.identity.choice_observed.description", nil), Note: m.text("wizard.identity.choice_observed.note", nil)}, m.identityFocus == profileIdentityFocusObserved, m.identityDecision == profileIdentityObservedKey))
-	feedbackStart := -1
 	if feedback, ok := m.wizardFeedbackFor(""); ok {
 		lines = appendWizardGap(lines, rhythm.feedback)
-		feedbackStart = len(lines)
 		lines = append(lines, renderWizardFeedback(cw, t, feedback))
 	}
 	lines = appendWizardGap(lines, rhythm.actions)
-	rightState := wizardProgressReady
-	if m.identityDecision == profileIdentityNone {
-		rightState = wizardProgressBlocked
+	primary, primaryState := m.text("wizard.identity.inspect", nil), wizardProgressReady
+	if m.identityPhase == profileIdentityError {
+		primary = m.text("wizard.identity.retry", nil)
 	}
-	actions := renderWizardActionsBlock(cw, t, m.text("action.back", nil), m.text("action.continue", nil), m.identityFocus == profileIdentityFocusBack, m.identityFocus == profileIdentityFocusContinue, m.noColor, wizardActionOptions{rightState: rightState})
-	actionStart := len(lines) + actions.start
+	if m.identityPhase == profileIdentityReview {
+		primary = m.text("wizard.identity.trust", nil)
+	}
+	if m.identityPhase == profileIdentityCompleted || m.identityPhase == profileIdentityLoading {
+		primary, primaryState = m.text("wizard.identity.trusted", nil), wizardProgressDisabled
+	}
+	leftFocus := m.identityFocus == profileIdentityFocusBack
+	rightFocus := primaryState != wizardProgressDisabled && (m.identityFocus == profileIdentityFocusInspect || m.identityFocus == profileIdentityFocusTrust)
+	actions := renderWizardActionsBlock(cw, t, m.text("action.back", nil), primary, leftFocus, rightFocus, m.noColor, wizardActionOptions{rightState: primaryState})
+	start := len(lines) + actions.start
 	lines = append(lines, strings.Split(actions.text, "\n")...)
-	// A split action block exposes deterministic ranges for both controls. They
-	// share one line at wide widths and receive their own lines when narrow.
-	ranges[profileIdentityFocusBack] = wizardLineRange{start: actionStart, end: actionStart}
-	ranges[profileIdentityFocusContinue] = wizardLineRange{start: actionStart + actions.end, end: actionStart + actions.end}
-	if m.identityFocus == profileIdentityFocusContinue && feedbackStart >= 0 {
-		ranges[profileIdentityFocusContinue] = wizardLineRange{start: feedbackStart, end: actionStart + actions.end}
+	ranges[profileIdentityFocusBack] = wizardLineRange{start: start, end: start}
+	if primaryState != wizardProgressDisabled {
+		ranges[m.identityFocus] = wizardLineRange{start: start + actions.end, end: start + actions.end}
 	}
 	for focus, r := range ranges {
 		ranges[focus] = wizardLineRange{start: r.start + panel.contentTopOffset, end: r.end + panel.contentTopOffset}

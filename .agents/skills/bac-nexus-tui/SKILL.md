@@ -23,6 +23,7 @@ Load for BAC Nexus TUI or wizard-step work, especially Step 4, Bubble Tea, Bubbl
 - Keep panel geometry, wrapping contracts, feedback gaps, control gaps, action gaps, navigation, approved copy, and shell behavior unless the approved request explicitly changes them.
 - Treat screenshot references as visual intent only. Reconcile them with fixed-grid terminal limits, responsive viewport behavior, accessibility through NO_COLOR, and existing runtime evidence.
 - Add tests beside affected behavior. Do not prove rendering solely through panel helpers, source strings, or internal viewport content when a runtime `View()` proof is possible.
+- Remote wizard actions require explicit consent and a bounded async command: show loading, allow cancellation, sanitize errors, support retry, reject stale results by request identity, and never fall back to trust, persistence, or authentication.
 
 ## Decision Gates
 

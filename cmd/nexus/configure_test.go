@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"bac-nexus/internal/configuration"
+	"bac-nexus/internal/hostidentity"
+	"bac-nexus/internal/remote"
 	"bac-nexus/internal/tui"
 )
 
@@ -16,8 +18,11 @@ func TestRunCommandConfigureIsSeparateFromServe(t *testing.T) {
 	oldVersion, oldRevision := releaseVersion, vcsRevision
 	defer func() { releaseVersion, vcsRevision = oldVersion, oldRevision }()
 	releaseVersion, vcsRevision = "v9.8.7", "abc123"
-	runConfigureTUI = func(_ context.Context, _ configuration.ProfilesStore, build tui.BuildInfo) error {
+	runConfigureTUI = func(_ context.Context, _ configuration.ProfilesStore, build tui.BuildInfo, inspector hostidentity.Inspector) error {
 		calls++
+		if _, ok := inspector.(remote.HostIdentityInspector); !ok {
+			t.Fatalf("configure inspector = %T, want remote.HostIdentityInspector", inspector)
+		}
 		if build != (tui.BuildInfo{Version: "v9.8.7", Revision: "abc123"}) {
 			t.Fatalf("configure build identity = %#v", build)
 		}

@@ -77,7 +77,7 @@ func (m *Model) refreshWizardViewport() {
 		panel = m.renderProfileConnectionPanel(width, height, t)
 		focusRange, hasFocusRange = m.profileConnectionFocusRange(width, height, t), true
 	case screenProfileIdentity:
-		footer = m.text("wizard.identity.footer", nil)
+		footer = m.identityFooter()
 		identityPanel := m.renderProfileIdentityPanelContent(width, height, t)
 		panel = identityPanel.text
 		focusRange, hasFocusRange = identityPanel.ranges[m.identityFocus]
