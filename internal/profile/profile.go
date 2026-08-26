@@ -24,13 +24,28 @@ const MaxListLimit = 128
 
 type CredentialMode string
 type HostKeyTrust string
+type TrustMode string
+
+const SchemaVersionV2 = 2
 
 const (
 	CredentialModeVault  CredentialMode = "vault"
 	CredentialModePrompt CredentialMode = "prompt"
 	HostKeyTrustTOFU     HostKeyTrust   = "tofu"
 	HostKeyTrustVerified HostKeyTrust   = "verified"
+	TrustModeCA          TrustMode      = "ca"
+	TrustModePin         TrustMode      = "pin"
+	TrustModeTOFU        TrustMode      = "tofu"
 )
+
+// TrustEvidence is transport-specific approved identity evidence. Pin is
+// either a TLS leaf digest or an OpenSSH fingerprint; the two formats are
+// deliberately validated by their owning transport mode.
+type TrustEvidence struct {
+	Mode       TrustMode `json:"mode"`
+	Pin        string    `json:"pin,omitempty"`
+	Provenance string    `json:"provenance,omitempty"`
+}
 
 var (
 	namePattern        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
@@ -39,7 +54,11 @@ var (
 	javaHomePattern    = regexp.MustCompile(`^/QOpenSys/QIBM/ProdData/JavaVM/[A-Za-z0-9._/-]+$`)
 )
 
+var profileV1Keys = []string{"name", "host", "port", "username", "hostKeyFingerprint", "hostKeyTrust", "hostKeyProvenance", "javaHome", "mapepireJar", "credentialMode"}
+var profileV2Keys = append(append([]string{}, profileV1Keys...), "schemaVersion", "policyRef", "fallbackAllowed", "tlsTrust", "sshTrust")
+
 type Profile struct {
+	SchemaVersion      int            `json:"schemaVersion,omitempty"`
 	Name               string         `json:"name"`
 	Host               string         `json:"host"`
 	Port               int            `json:"port"`
@@ -50,6 +69,57 @@ type Profile struct {
 	JavaHome           string         `json:"javaHome,omitempty"`
 	MapepireJAR        string         `json:"mapepireJar,omitempty"`
 	CredentialMode     CredentialMode `json:"credentialMode"`
+	EndpointPolicyRef  string         `json:"policyRef,omitempty"`
+	FallbackAllowed    bool           `json:"fallbackAllowed"`
+	TLSTrust           TrustEvidence  `json:"tlsTrust,omitempty"`
+	SSHTrust           TrustEvidence  `json:"sshTrust,omitempty"`
+}
+
+// MarshalJSON keeps legacy files byte-compatible while ensuring empty v2
+// trust objects are not serialized as misleading evidence.
+func (p Profile) MarshalJSON() ([]byte, error) {
+	type plain Profile
+	data, err := json.Marshal(plain(p))
+	if err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return nil, err
+	}
+	if p.SchemaVersion == 0 {
+		delete(fields, "schemaVersion")
+	}
+	if p.EndpointPolicyRef == "" {
+		delete(fields, "policyRef")
+	}
+	if !p.FallbackAllowed && p.SchemaVersion == 0 {
+		delete(fields, "fallbackAllowed")
+	}
+	if p.SchemaVersion == SchemaVersionV2 {
+		if p.HostKeyFingerprint == "" {
+			delete(fields, "hostKeyFingerprint")
+		}
+		if p.HostKeyTrust == "" {
+			delete(fields, "hostKeyTrust")
+		}
+		if p.HostKeyProvenance == "" {
+			delete(fields, "hostKeyProvenance")
+		}
+		if p.JavaHome == "" {
+			delete(fields, "javaHome")
+		}
+		if p.MapepireJAR == "" {
+			delete(fields, "mapepireJar")
+		}
+	}
+	if p.TLSTrust == (TrustEvidence{}) {
+		delete(fields, "tlsTrust")
+	}
+	if p.SSHTrust == (TrustEvidence{}) {
+		delete(fields, "sshTrust")
+	}
+	return json.Marshal(fields)
 }
 
 func (p Profile) Validate() error {
@@ -62,8 +132,12 @@ func (p Profile) Validate() error {
 	if err := ValidateUsername(p.Username); err != nil {
 		return err
 	}
-	if err := ValidateHostKey(p.HostKeyFingerprint, p.HostKeyTrust); err != nil {
-		return err
+	if p.SchemaVersion == 0 {
+		if err := ValidateHostKey(p.HostKeyFingerprint, p.HostKeyTrust); err != nil {
+			return err
+		}
+	} else if p.SchemaVersion != SchemaVersionV2 {
+		return errors.New("unsupported profile schema version")
 	}
 	if p.JavaHome != "" && (!javaHomePattern.MatchString(p.JavaHome) || strings.Contains(p.JavaHome, "..")) {
 		return errors.New("Java home must be an absolute IBM i JavaVM path")
@@ -77,7 +151,77 @@ func (p Profile) Validate() error {
 	if len(p.HostKeyProvenance) > 128 || strings.ContainsAny(p.HostKeyProvenance, "\x00\r\n") {
 		return errors.New("host-key provenance is invalid")
 	}
+	if p.SchemaVersion == SchemaVersionV2 {
+		if p.EndpointPolicyRef == "" || len(p.EndpointPolicyRef) > 128 || strings.ContainsAny(p.EndpointPolicyRef, "\x00\r\n") {
+			return errors.New("profile policy reference is invalid")
+		}
+		if err := validateTrustEvidence(p.TLSTrust, true); err != nil {
+			return err
+		}
+		if err := validateTrustEvidence(p.SSHTrust, false); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func validateTrustEvidence(e TrustEvidence, tls bool) error {
+	if e == (TrustEvidence{}) {
+		return nil
+	}
+	if e.Mode != TrustModeCA && e.Mode != TrustModePin && e.Mode != TrustModeTOFU {
+		return errors.New("trust mode is invalid")
+	}
+	if len(e.Provenance) > 128 || strings.ContainsAny(e.Provenance, "\x00\r\n") {
+		return errors.New("trust provenance is invalid")
+	}
+	if e.Mode == TrustModeCA {
+		if !tls {
+			return errors.New("SSH trust cannot use CA mode")
+		}
+		if e.Pin != "" {
+			return errors.New("CA trust cannot contain a pin")
+		}
+		return nil
+	}
+	if e.Pin == "" {
+		return errors.New("pinned trust evidence is missing")
+	}
+	if tls {
+		if !strings.HasPrefix(e.Pin, "sha256/") || len(e.Pin) != len("sha256/")+43 {
+			return errors.New("TLS trust pin is invalid")
+		}
+	} else if err := ValidateHostKey(e.Pin, HostKeyTrustVerified); err != nil {
+		return errors.New("SSH trust pin is invalid")
+	}
+	if e.Provenance == "" {
+		return errors.New("trust provenance is missing")
+	}
+	return nil
+}
+
+// MigrateV1 validates a legacy profile and produces a schema-v2 profile with
+// no automatically trusted transport identity or fallback permission.
+func MigrateV1(data []byte) (Profile, error) {
+	if err := strictjson.ValidateObjectKeys(data, "name", "host", "port", "username", "hostKeyFingerprint", "hostKeyTrust", "hostKeyProvenance", "javaHome", "mapepireJar", "credentialMode"); err != nil {
+		return Profile{}, fmt.Errorf("migrate profile: %w", err)
+	}
+	var p Profile
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&p); err != nil {
+		return Profile{}, fmt.Errorf("migrate profile: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return Profile{}, errors.New("migrate profile: trailing data")
+	}
+	if p.SchemaVersion != 0 || p.Validate() != nil {
+		return Profile{}, errors.New("migrate profile: invalid v1 profile")
+	}
+	p.SchemaVersion, p.EndpointPolicyRef = SchemaVersionV2, "legacy-migrated"
+	p.FallbackAllowed, p.TLSTrust, p.SSHTrust = false, TrustEvidence{}, TrustEvidence{}
+	return p, nil
 }
 
 // ValidateName applies the stable profile-name contract independently from
@@ -235,7 +379,17 @@ func (s Store) Load(name string) (Profile, error) {
 	if len(data) > maxProfileBytes {
 		return Profile{}, errors.New("profile exceeds byte limit")
 	}
-	if err := strictjson.ValidateObjectKeys(data, "name", "host", "port", "username", "hostKeyFingerprint", "hostKeyTrust", "hostKeyProvenance", "javaHome", "mapepireJar", "credentialMode"); err != nil {
+	keys := profileV1Keys
+	var header struct {
+		SchemaVersion int `json:"schemaVersion"`
+	}
+	if err := json.Unmarshal(data, &header); err != nil {
+		return Profile{}, fmt.Errorf("decode profile: %w", err)
+	}
+	if header.SchemaVersion != 0 {
+		keys = profileV2Keys
+	}
+	if err := strictjson.ValidateObjectKeys(data, keys...); err != nil {
 		return Profile{}, fmt.Errorf("decode profile: %w", err)
 	}
 	var p Profile

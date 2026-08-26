@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"bac-nexus/internal/strictjson"
 )
 
 const maxListLimit = MaxListLimit
@@ -100,6 +102,19 @@ func (s Store) List(limit int) ([]Profile, error) {
 			continue
 		}
 		var p Profile
+		keys := profileV1Keys
+		var header struct {
+			SchemaVersion int `json:"schemaVersion"`
+		}
+		if json.Unmarshal(data, &header) != nil {
+			continue
+		}
+		if header.SchemaVersion != 0 {
+			keys = profileV2Keys
+		}
+		if strictjson.ValidateObjectKeys(data, keys...) != nil {
+			continue
+		}
 		decoder := json.NewDecoder(strings.NewReader(string(data)))
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&p); err != nil || p.Name != base || p.Validate() != nil {

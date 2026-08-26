@@ -29,8 +29,8 @@ Chain strategy: feature-branch-chain
 
 ## Phase 1: Foundation and Protocol (PRs 1–2)
 
-- [ ] 1.1 RED: test strict schema-v2 read/write, v1 conservative migration, secret-free ephemeral observations, and independent TLS/SSH evidence in `internal/profile/*_test.go`.
-- [ ] 1.2 GREEN: implement profile policy/trust schema-v2 validation and migration in `internal/profile/`; add resolver limits as release constants.
+- [x] 1.1 RED: test strict schema-v2 read/write, v1 conservative migration, secret-free ephemeral observations, and independent TLS/SSH evidence in `internal/profile/*_test.go`.
+- [x] 1.2 GREEN: implement profile policy/trust schema-v2 validation and migration in `internal/profile/`; add resolver limits as release constants.
 - [ ] 1.3 RED: test typed seven-operation validation, bounded fields, random IDs, out-of-order correlation, duplicate/unknown IDs, cursors, limits, and cancellation closure in `internal/mapepire/*_test.go`.
 - [ ] 1.4 GREEN: replace serialized `internal/mapepire` framing/session with typed envelopes, one reader, controlled writer, bounded pending map, safe errors, and compatibility `Execute`.
 

@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -9,6 +10,138 @@ import (
 	"sync"
 	"testing"
 )
+
+func validSchemaV2Profile() Profile {
+	return Profile{
+		SchemaVersion:     SchemaVersionV2,
+		Name:              "daemon",
+		Host:              "ibmi.example.test",
+		Port:              8076,
+		Username:          "NEXUS$USER",
+		CredentialMode:    CredentialModePrompt,
+		EndpointPolicyRef: "managed-default",
+		FallbackAllowed:   true,
+		TLSTrust:          TrustEvidence{Mode: TrustModePin, Pin: "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", Provenance: "operator-approved"},
+		SSHTrust:          TrustEvidence{Mode: TrustModeTOFU, Pin: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", Provenance: "operator-confirmed"},
+	}
+}
+
+func TestSchemaV2RoundTripPersistsOnlyPolicyAndIndependentTrust(t *testing.T) {
+	root := t.TempDir()
+	p := validSchemaV2Profile()
+	if _, err := (Store{Root: root}).Save(p); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(root, p.Name+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"selectedTransport", "observedVersion", "readiness", "lastError", "password", "privateKey", "secret"} {
+		if strings.Contains(string(raw), forbidden) {
+			t.Fatalf("schema-v2 profile persisted ephemeral or secret field %q: %s", forbidden, raw)
+		}
+	}
+	var document map[string]any
+	if err := json.Unmarshal(raw, &document); err != nil {
+		t.Fatal(err)
+	}
+	if document["schemaVersion"] != float64(SchemaVersionV2) {
+		t.Fatalf("schemaVersion = %v, want %d", document["schemaVersion"], SchemaVersionV2)
+	}
+	got, err := (Store{Root: root}).Load(p.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != p {
+		t.Fatalf("Load() = %#v, want %#v", got, p)
+	}
+}
+
+func TestSchemaV2AllowsUnenrolledTrustEvidence(t *testing.T) {
+	p := validSchemaV2Profile()
+	p.FallbackAllowed = false
+	p.TLSTrust = TrustEvidence{}
+	p.SSHTrust = TrustEvidence{}
+
+	if err := p.Validate(); err != nil {
+		t.Fatalf("unenrolled schema-v2 profile rejected: %v", err)
+	}
+	if p.FallbackAllowed {
+		t.Fatal("empty trust evidence granted fallback")
+	}
+}
+
+func TestSchemaV2TrustModesAreTransportSpecific(t *testing.T) {
+	tlsCA := validSchemaV2Profile()
+	tlsCA.TLSTrust = TrustEvidence{Mode: TrustModeCA, Provenance: "managed-ca"}
+	if err := tlsCA.Validate(); err != nil {
+		t.Fatalf("TLS CA trust rejected: %v", err)
+	}
+
+	sshCA := validSchemaV2Profile()
+	sshCA.SSHTrust = TrustEvidence{Mode: TrustModeCA, Provenance: "managed-ca"}
+	if err := sshCA.Validate(); err == nil {
+		t.Fatal("SSH CA trust accepted")
+	}
+}
+
+func TestSchemaV2RejectsAmbiguousOrCrossTransportTrustEvidence(t *testing.T) {
+	for _, mutate := range []func(*Profile){
+		func(p *Profile) {
+			p.TLSTrust.Mode = TrustModeTOFU
+			p.TLSTrust.Pin = "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+		},
+		func(p *Profile) {
+			p.SSHTrust.Mode = TrustModePin
+			p.SSHTrust.Pin = "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+		},
+		func(p *Profile) {
+			p.TLSTrust = TrustEvidence{Mode: TrustModePin, Pin: "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+		},
+		func(p *Profile) {
+			p.SSHTrust = TrustEvidence{Mode: TrustModeTOFU, Pin: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+			p.EndpointPolicyRef = ""
+		},
+	} {
+		p := validSchemaV2Profile()
+		mutate(&p)
+		if err := p.Validate(); err == nil {
+			t.Fatalf("Validate() accepted ambiguous trust profile: %#v", p)
+		}
+	}
+}
+
+func TestMigrateV1IsConservativeAndDeterministic(t *testing.T) {
+	legacy := []byte(`{"name":"legacy","host":"ibmi.example.test","port":22,"username":"USER","hostKeyFingerprint":"SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","hostKeyTrust":"verified","mapepireJar":"C:/safe/mapepire.jar","credentialMode":"vault"}`)
+	first, err := MigrateV1(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := MigrateV1(legacy)
+	if err != nil || first != second {
+		t.Fatalf("migration is not deterministic: first=%#v second=%#v err=%v", first, second, err)
+	}
+	if first.SchemaVersion != SchemaVersionV2 || first.FallbackAllowed || first.TLSTrust != (TrustEvidence{}) || first.SSHTrust != (TrustEvidence{}) {
+		t.Fatalf("migration trusted or enabled unsupported evidence: %#v", first)
+	}
+	if err := first.Validate(); err != nil {
+		t.Fatalf("migrated schema-v2 profile does not validate: %v", err)
+	}
+	root := t.TempDir()
+	if _, err := (Store{Root: root}).Save(first); err != nil {
+		t.Fatalf("save migrated profile: %v", err)
+	}
+	loaded, err := (Store{Root: root}).Load(first.Name)
+	if err != nil {
+		t.Fatalf("load migrated profile: %v", err)
+	}
+	if loaded != first {
+		t.Fatalf("migrated round-trip = %#v, want %#v", loaded, first)
+	}
+	if _, err := MigrateV1([]byte(`{"name":"legacy","host":"ibmi.example.test","port":22,"username":"USER","hostKeyFingerprint":"SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","hostKeyTrust":"verified","credentialMode":"vault","trust":{"tls":"ssh"}}`)); err == nil {
+		t.Fatal("migration accepted ambiguous trust evidence")
+	}
+}
 
 func validProfile() Profile {
 	return Profile{Name: "dev", Host: "ibmi.example.test", Port: 22, Username: "NEXUS$USER", HostKeyFingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", HostKeyTrust: HostKeyTrustVerified, JavaHome: "/QOpenSys/QIBM/ProdData/JavaVM/jdk80/64bit", CredentialMode: CredentialModeVault}
