@@ -95,3 +95,37 @@
 
 - Tasks 1.1–1.4 are checked; tasks 2.1–2.4 and 3.1–3.5 remain unchecked.
 - Next recommended action: `apply` (continue with the next assigned feature-branch-chain slice); this slice is not a request to run verification/archive or to implement later tasks.
+
+## Slice 3: `slice-3-trusted-daemon-wss`
+
+- Delivery: `size:exception`, Slice 3 only, explicitly approved by the maintainer; maximum 405 additions plus deletions. Later slices retain feature-branch-chain and the normal 400-line guard.
+- Dependency admission: `github.com/coder/websocket v1.8.15`, direct production dependency, ISC license (module `LICENSE.txt`), zero module dependencies; `go list -m -json` reported module sum `h1:6B2JPeOGlpff2Uz6vOEH1Vzpi0iUz20A+lPVhPHtNUA=` and go.mod sum `h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=`. `go mod verify` passed. `govulncheck` was unavailable and was not installed.
+- RED: `go test -count=1 ./internal/mapepire/wss` failed exit 1 before implementation with missing `Dial`/`Options` and missing production package symbols; loopback tests were written first.
+- GREEN: focused WSS tests passed exit 0; coverage includes WSS-only scheme and `MP_UNSECURE` rejection, CA/hostname validation, verified pin/explicit TOFU evidence, mismatch/rotation failure, text-only JSON, binary/malformed frames, frame bounds, compression disabled, cancellation terminality, and idempotent close.
+- REFACTOR: consolidated TLS policy cloning for injected `http.Transport`, rejected caller `InsecureSkipVerify`, fixed coder limit mapping, and stopped mutating a caller HTTP client with a nil transport; focused tests remained green.
+
+### Slice 3 TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 2.1 | Loopback integration | `go test -count=1 ./internal/mapepire`: exit 0 | ✅ test-first compile failure, exit 1 | ✅ WSS package, exit 0 | ✅ text/binary/malformed, CA/pin/TOFU, bounds/cancel/identity cases | ✅ sanitized terminal errors and disabled compression |
+| 2.2 | Loopback integration | N/A (new package) | ✅ tests referenced absent adapter | ✅ focused package, exit 0 | ✅ injected client/TLS, one reader, bounded messages, idempotent close | ✅ transport exposes only `mapepire.MessageTransport` |
+
+### Slice 3 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/mapepire/wss` — exit 0; `ok bac-nexus/internal/mapepire/wss 3.096s`; 1 package passed. |
+| Runtime harness command/scenario and exact result | Local `httptest.NewTLSServer` WSS loopback only — exit 0 through the focused package; no external network or IBM i contact. |
+| Verification commands and exact result | `go test -count=1 ./...` exit 0 (23 test-bearing packages, 3 no-test packages); `go vet ./...` exit 0; `go mod verify` exit 0; touched Go `gofmt -d` no output; `git diff --check` exit 0. |
+| Rollback boundary | Revert `internal/mapepire/wss/wss.go`, `internal/mapepire/wss/wss_test.go`, the coder entries in `go.mod`/`go.sum`, and only the Slice 3 checkbox/progress sections; retain Slices 1–2 and pending later tasks. |
+
+- Exact intended Slice 3 numstat: `internal/mapepire/wss/wss.go` 161/0; `internal/mapepire/wss/wss_test.go` 160/0; `go.mod` 1/0; `go.sum` 2/0; `tasks.md` 2/2. Non-progress entries: 326 additions + 2 deletions. Apply-progress entry: 27 additions + 0 deletions. Complete Slice 3 candidate: 353 additions + 2 deletions = 355 changed lines; within the 400-line budget.
+- Tasks 1.1–1.4 and 2.1–2.2 are checked. Tasks 2.3–2.4 and 3.1–3.5 remain pending. Next recommended action: `apply`.
+
+## Slice 3 corrective pass: `slice-3-wss-trust-classification-correction`
+
+- Scope: corrective pass only; tasks 1.1–2.2 not completed by this pass, later tasks pending; authority `proceed`, correction budget 120, no exception.
+- TDD Cycle Evidence (`2.1/2.2`): RED ✅ exit 1 before code; GREEN ✅ focused exit 0; TRIANGULATE ✅ CA/pin/self-signed/malformed/transport/endpoint/timeout/framing/cancellation; REFACTOR ✅ cloned authoritative transport and sanitized classification. Verified proof points: canonical raw base64url `sha256/` leaf-pin encoding plus malformed/noncanonical rejection; endpoint URL userinfo rejection; distinct sanitized typed availability/refusal, timeout, TLS identity, invalid endpoint, and invalid configuration errors without raw host/URL/certificate/network text; transport matrix covers cloned caller `http.Client`, cloned nil/default `*http.Transport` with TLS policy installed, cloned supported custom `*http.Transport`, rejected unsupported `RoundTripper`, and rejected caller `InsecureSkipVerify`.
+- Work Unit Evidence: focused WSS exit 0 (1 package); loopback TLS/WSS runtime exit 0; rollback boundary `internal/mapepire/wss/` plus this evidence. Pin/TOFU manually enforces exact leaf, hostname and validity; CA keeps chain verification; callback is preserved.
+- Exact final numstat: `internal/mapepire/wss/wss.go` 201/0; `internal/mapepire/wss/wss_test.go` 160/0; `go.mod` 1/0; `go.sum` 2/0; `openspec/changes/mapepire-dual-transport-onboarding/tasks.md` 2/2; `openspec/changes/mapepire-dual-transport-onboarding/apply-progress.md` 34/0. Total: **400 additions + 2 deletions = 402 changed lines**, within the approved Slice-3-only maximum.
