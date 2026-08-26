@@ -158,3 +158,30 @@
 - Gatekeeper correction: artifact-only evidence clarification; no source/test/task changes, no commands rerun, and the measured Slice 4 total remains **324 additions + 9 deletions = 333 changed lines**.
 
 - Exact Slice 4 numstat (excluding unrelated `.atl`/`tmp`): `internal/mapepire/sshstdio/sshstdio.go` 133/0; `internal/mapepire/sshstdio/sshstdio_test.go` 136/0; `internal/connectors/ibmi/mapepirestdio/policy.go` 4/0; `policy_test.go` 8/2; `internal/mapepire/typed_session.go` 5/5; `internal/remote/ssh.go` 11/0; `tasks.md` 2/2; `apply-progress.md` 25/0. Total: **324 additions + 9 deletions = 333 changed lines**, under the normal 400-line guard. Tasks 1.1–1.4 and 2.1–2.4 are checked; 3.1–3.5 remain pending. Next recommended action: `apply`.
+
+## Slice 5: `slice-5-resolver-readiness`
+
+- Delivery: auto-chain, feature-branch-chain; normal hard limit of 400 changed lines. Scope is tasks 3.1 and 3.2 only; tasks 3.3–3.5 remain pending.
+- RED: resolver, version, no-downgrade, trust-gate, consent, terminal credential, sanitized transport-audit, and offline readiness tests were written first; focused compile/test exited `1` before implementation.
+- GREEN: added managed WSS-first resolution with bounded version classification, explicit fallback reason, independent SSH trust and consent gates, ephemeral readiness, and metadata-only transport audit validation/storage.
+- REFACTOR: kept configuration inward-pointing by using a narrow local audit seam; retained existing WSS/SSH adapters and fallback runtime untouched.
+
+### Slice 5 TDD Cycle Evidence
+
+| Task | Test layer | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|
+| 3.1 | Unit/in-process fakes | ✅ exit 1: missing resolver/audit/readiness APIs | ✅ focused exit 0 | ✅ supported, unsupported, availability, identity, trust, consent, sensitive audit | ✅ deterministic typed classifications and bounded audit fields |
+| 3.2 | Unit/in-process fakes | ✅ tests preceded production code | ✅ focused exit 0 | ✅ WSS-first, fallback, no downgrade, trust-before-start, offline readiness | ✅ narrow interfaces; no transport-internal edits |
+
+### Slice 5 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/configuration ./internal/audit ./internal/security` — exit 0; 3 packages passed (configuration, audit, security). |
+| Runtime harness command/scenario and exact result | N/A: deterministic in-process daemon/SSH counting fakes and local readiness; no live runtime, network, credentials, or IBM i boundary exists. |
+| Verification | `go test -count=1 ./...` — exit 0; 22 test-bearing packages passed and 3 reported `[no test files]`; `go vet ./...` — exit 0; recorded formatting command `gofmt -w internal/configuration/resolver.go internal/configuration/resolver_test.go internal/configuration/readiness.go internal/audit/audit.go internal/audit/transport_test.go` — exit 0, no output; `git diff --check` — exit 0. The prior receipt did not record a separate `gofmt -d` invocation, so none is claimed. |
+| Privacy/structural proof | Existing tests prove zero SSH fallback calls: `TestResolverWSSVersionAndFallbackTrustGate/supported` selects WSS; `TestResolverClassifiesDaemonAndNeverDowngradesTerminalFailures/identity` and `/credentials` leave trust calls at 0; the protocol/framing terminal path is represented by the default non-`ResolveError` classification and no-downgrade assertion; `TestResolverConsentCredentialTerminalityAndSanitizedAudit` proves consent failure leaves `startCalls` at 0; `TestResolverWSSVersionAndFallbackTrustGate/missing trust` blocks before SSH trust. No SSH fallback call occurs in these daemon-success or terminal cases. Resolver imports no SSH/JAR/Java/upload/cache packages; audit fields remain bounded classifications. |
+| Rollback boundary | Revert `internal/configuration/resolver.go`, `resolver_test.go`, readiness fields, `internal/audit/audit.go`, `transport_test.go`, and only Slice 5 task/progress sections; retain Slices 1–4 and unrelated `.atl`/`tmp`. |
+
+- Exact Slice 5 authored numstat: `internal/configuration/resolver.go` 187/0; `resolver_test.go` 112/0; `internal/configuration/readiness.go` 6/4; `internal/audit/audit.go` 37/1; `transport_test.go` 20/0; `tasks.md` 2/2; `apply-progress.md` 27/0. Total: **391 additions + 7 deletions = 398 changed lines**, under the normal 400-line guard. Unrelated `.atl` and `tmp` changes are excluded.
+- Tasks 1.1–2.4 and 3.1–3.2 are checked; tasks 3.3–3.5 remain pending. Next recommended action: `apply`.

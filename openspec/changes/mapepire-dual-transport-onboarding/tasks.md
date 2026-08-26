@@ -49,8 +49,8 @@ Chain strategy: feature-branch-chain
 
 ## Phase 3: Resolver, Wizard, and Verification (PRs 5–6)
 
-- [ ] 3.1 RED: test resolver classification/no-downgrade, WSS `/version`, fallback trust gate, credential terminality, sanitized audit, and local readiness in `internal/configuration/*_test.go` and `internal/audit/*_test.go`.
-- [ ] 3.2 GREEN: implement managed WSS-first resolver, trust enrollment, readiness/audit/security wiring; keep observations ephemeral and daemon independent of SSH/JAR/Java/upload.
+- [x] 3.1 RED: test resolver classification/no-downgrade, WSS `/version`, fallback trust gate, credential terminality, sanitized audit, and local readiness in `internal/configuration/*_test.go` and `internal/audit/*_test.go`.
+- [x] 3.2 GREEN: implement managed WSS-first resolver, trust enrollment, readiness/audit/security wiring; keep observations ephemeral and daemon independent of SSH/JAR/Java/upload.
 - [ ] 3.3 RED: test Step 3/4 no-credential/no-runtime behavior, exact authentication-pending copy, Step 8 connect/query proof, focus/feedback/reachability, and daemon zero-fallback calls in `internal/tui/*_test.go`.
 - [ ] 3.4 GREEN: compose Steps 3–4 without renumbering, preserving shared TUI primitives; update `docs/IBM_I_PROFILE_WIZARD.md` to the approved dual-transport behavior.
 - [ ] 3.5 Run `gofmt`, `go test -count=1 ./...`, `go vet ./...`, and `go build ./cmd/catalogspike`; confirm no IBM i contact, no edits under `mapepire-artifact-acquisition/`, `.atl/`, or `tmp/`. Threat-matrix rows are all explicitly N/A, so no threat RED tests apply.
