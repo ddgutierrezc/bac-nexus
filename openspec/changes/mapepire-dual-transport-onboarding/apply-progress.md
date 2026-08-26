@@ -63,11 +63,35 @@
 
 ## Remaining Tasks
 
-- [ ] 1.3–1.4 typed application protocol/session core.
+- [x] 1.3 RED: added typed seven-operation, bounds, ID, correlation, cursor, limit, and cancellation tests.
+- [x] 1.4 GREEN: added transport-neutral typed message session with one reader, controlled writes, bounded pending/cursor state, safe protocol errors, and legacy `Execute` compatibility.
 - [ ] 2.1–2.4 transports and fallback runtime.
 - [ ] 3.1–3.5 resolver, wizard, and final verification.
 
-## Deviations and Risks
+## Slice 2: `slice-2-typed-protocol-session`
 
-- None from the approved design for this slice.
-- Schema-v2 profiles require explicit policy and transport-specific trust evidence; legacy v1 profiles remain readable and are not silently upgraded by `Store.Load`.
+- Delivery decision: `size:exception`, explicitly approved by the maintainer for Slice 2 only; authorized maximum is 600 changed lines.
+- Chain preservation: later slices remain `feature-branch-chain`; this exception does not increase their review budget or alter their boundaries.
+- Exact current complete intended diff, additions plus deletions: **548 additions + 29 deletions = 577 changed lines**. This includes tracked and untracked Mapepire Go files plus `tasks.md` and this `apply-progress.md`; unrelated `.atl` and `tmp` changes are excluded and untouched. It is within the approved 600-line exception.
+- Numstat: `internal/mapepire/protocol.go` 77/2; `internal/mapepire/session.go` 15/21; `internal/mapepire/typed_session.go` 222/0; `internal/mapepire/typed_protocol_test.go` 198/0; `openspec/changes/mapepire-dual-transport-onboarding/tasks.md` 8/2; `openspec/changes/mapepire-dual-transport-onboarding/apply-progress.md` 28/4. Total: 548/29.
+- Work-unit boundary: typed protocol/session core only, from task 1.3 RED through task 1.4 GREEN; no WSS, SSH, resolver, TUI, dependency, configuration, profile, or later task implementation.
+
+| Task | RED → GREEN → REFACTOR |
+|---|---|
+| 1.3 | ✅ typed tests written before production changes and failed (exit `1`) → ✅ focused package passed (exit `0`) → ✅ triangulated valid/invalid operations, caller-ID replacement, strict trailing JSON rejection, session-deadline timeout/wakeup, out-of-order and unknown/duplicate correlation, cursor lifecycle, column/page/cursor/aggregate bounds, and cancellation closure |
+| 1.4 | ✅ tests preceded implementation → ✅ focused package passed (exit `0`) → ✅ triangulated one reader, controlled writes, bounded pending state, safe SQL errors, fail-closed cancellation/session wakeup, prepare/sqlmore/sqlclose lifecycle, and legacy `Execute` compatibility |
+| Runtime bounds RED/GREEN | ✅ each corrected bound was represented by a failing regression scenario before the correction → ✅ all corresponding scenarios pass: cryptographic client IDs, strict one-object JSON, remaining-session deadline, fail-closed cancellation, columns, page rows, cursor count, aggregate bytes, pending IDs, frame bytes, and field/parameter sizes |
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/mapepire` — process exit code `0`; observable result `ok bac-nexus/internal/mapepire 15.977s`; 1 package passed. |
+| Full test command and exact result | `go test -count=1 ./...` — process exit code `0`; 22 test-bearing packages passed and 3 packages reported `[no test files]` (25 observable package results). |
+| Static validation | `go vet ./...` — process exit code `0`. |
+| Formatting | `gofmt -d internal/mapepire/protocol.go internal/mapepire/session.go internal/mapepire/typed_session.go internal/mapepire/typed_protocol_test.go` — process exit code `0`; no output. |
+| Diff validation | `git diff --check` — process exit code `0`. |
+| Runtime harness command/scenario and exact result | N/A: the work unit has only deterministic in-memory/channel fakes; there is no runtime, network, or IBM i boundary. No network/IBM i access was performed. |
+| Rollback boundary | Revert exactly `internal/mapepire/protocol.go`, `internal/mapepire/session.go`, `internal/mapepire/typed_session.go`, `internal/mapepire/typed_protocol_test.go`, and the Slice 2 sections/checkbox updates in `openspec/changes/mapepire-dual-transport-onboarding/tasks.md` and `apply-progress.md`; retain Slice 1, later pending tasks, and unrelated `.atl`/`tmp` worktree changes. |
+
+### Slice 2 completion state
+
+- Tasks 1.1–1.4 are checked; tasks 2.1–2.4 and 3.1–3.5 remain unchecked.
+- Next recommended action: `apply` (continue with the next assigned feature-branch-chain slice); this slice is not a request to run verification/archive or to implement later tasks.

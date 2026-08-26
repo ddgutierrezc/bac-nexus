@@ -16,6 +16,12 @@ Chained PRs recommended: Yes
 Chain strategy: feature-branch-chain
 400-line budget risk: High
 
+### Slice 2 Delivery Decision
+
+- Maintainer-approved exception: `size:exception` applies only to Slice 2 (`slice-2-typed-protocol-session`).
+- Slice 2 maximum changed-line allowance: 600; current complete intended diff is recorded in `apply-progress.md`.
+- This exception does not change the later-slice delivery strategy: remaining work stays `feature-branch-chain`.
+
 ### Suggested Work Units
 
 | Unit | Goal | Likely PR / dependency / boundary | Focused test command | Runtime harness | Rollback boundary |
@@ -31,8 +37,8 @@ Chain strategy: feature-branch-chain
 
 - [x] 1.1 RED: test strict schema-v2 read/write, v1 conservative migration, secret-free ephemeral observations, and independent TLS/SSH evidence in `internal/profile/*_test.go`.
 - [x] 1.2 GREEN: implement profile policy/trust schema-v2 validation and migration in `internal/profile/`; add resolver limits as release constants.
-- [ ] 1.3 RED: test typed seven-operation validation, bounded fields, random IDs, out-of-order correlation, duplicate/unknown IDs, cursors, limits, and cancellation closure in `internal/mapepire/*_test.go`.
-- [ ] 1.4 GREEN: replace serialized `internal/mapepire` framing/session with typed envelopes, one reader, controlled writer, bounded pending map, safe errors, and compatibility `Execute`.
+- [x] 1.3 RED: test typed seven-operation validation, bounded fields, random IDs, out-of-order correlation, duplicate/unknown IDs, cursors, limits, and cancellation closure in `internal/mapepire/*_test.go`.
+- [x] 1.4 GREEN: replace serialized `internal/mapepire` framing/session with typed envelopes, one reader, controlled writer, bounded pending map, safe errors, and compatibility `Execute`.
 
 ## Phase 2: Transports and Fallback (PRs 3–4)
 
