@@ -4,11 +4,11 @@ This is the permanent source of truth for the **Crear perfil IBM i** wizard: wha
 
 ## Executive status
 
-**FACT:** the current wizard implements local Steps 1–2 and an explicit TOFU Step 3. Step 3 contacts the endpoint only after an explicit inspection action, does not authenticate or use credentials, retains confirmed evidence only in the in-memory draft, and intentionally does not enter Step 4.
+**FACT:** the wizard preserves the nine-step order. Step 3 is trust and policy enrollment only, with independent TLS and SSH trust state; it does not authenticate or use credentials. Step 4 reports bounded local/pre-auth Mapepire readiness and uses the exact state `[OK] Mapepire detected — authentication pending`. Step 8 alone owns credentials, transport selection/fallback, authenticated `connect`, and the optional read-only query proof.
 
 **DECISION:** current code, current tests, valid OpenSpec specifications, and current documentation outrank archived OpenSpec artifacts and this document. Historical material is useful context only.
 
-**PROPOSAL:** the requested nine-step sequence is retained exactly as a conceptual architecture. It is not evidence that Steps 4–9 exist in the wizard.
+**PROPOSAL:** the requested nine-step sequence is retained exactly as a conceptual architecture. Step 4 is now composed only as local/pre-auth readiness; Steps 5–9 remain future composition unless explicitly stated below.
 
 This document does not replace OpenSpec requirements or Architecture Decision Records (ADRs). It records their current relationship to the wizard and identifies where an ADR or approved specification is still needed.
 
@@ -42,7 +42,7 @@ flowchart LR
   H[Home] --> S1[1 Profile: local]
   S1 --> S2[2 Connection: local]
   S2 --> S3[3 Server Identity: explicit TOFU state machine]
-  S3 -. conceptual only .-> S4[4 Mapepire]
+  S3 --> S4[4 Mapepire: pre-auth readiness]
   S4 -. conceptual only .-> S5[5 Java]
   S5 -. conceptual only .-> S6[6 Credentials]
   S6 -. conceptual only .-> S7[7 Review]
@@ -55,7 +55,7 @@ flowchart LR
 
 ### Local work, remote work, and persistence
 
-**FACT:** entering Step 3 makes no network call. Its explicit inspection action invokes a bounded no-auth host-key inspection using only host and port; it never receives credentials, profile persistence, or a remote session dependency.
+**FACT:** Step 3 makes no authentication or runtime call. Its trust/policy observations are independent: TLS daemon trust is not SSH host trust. Step 4 may perform only a bounded, injected pre-auth daemon readiness probe; it never receives credentials, starts SSH fallback, launches Java, handles a JAR, uploads, or queries Db2. If the daemon is unavailable, the UI reports authentication pending for Step 8 rather than silently downgrading.
 
 **FACT:** the first wizard remote contact is the explicit Step 3 TOFU inspection action, not entry or Continue. It requires consent, a program-lifecycle deadline, cancellation, and sanitized feedback. **PROPOSAL:** a later Step 8 test requires its own approved remote-action contract.
 
@@ -67,13 +67,13 @@ flowchart LR
 | Retained data | **FACT:** accepted Step 1 and Step 2 drafts survive Back; Step 3 decision survives Back. A newly started wizard resets later drafts. |
 | Readiness states | **DECISION:** `READY`, `BLOCKED`, and `DISABLED` are distinct. Blocked controls remain focusable and explain correction; disabled controls are excluded from focus. |
 | Feedback and focus | **DECISION:** focus is not selection. The shared semantics use `▸`, `( )`, and `(*)`; feedback precedence is error, explicit feedback, then validation. |
-| Validation and responsive layout | **FACT:** current Steps 1–3 use deterministic validation, lossless terminal-cell wrapping, viewport reachability, resize behavior, and `NO_COLOR` rendering tests at 120x40, 80x24, and 40x16. |
+| Validation and responsive layout | **FACT:** current Steps 1–4 use deterministic validation, lossless terminal-cell wrapping, viewport reachability, resize behavior, and `NO_COLOR` rendering tests at 120x40, 80x24, and 40x16. |
 | Localization | **FACT:** Spanish is the production default and complete English catalogs exist. **FUTURE:** locale configuration is deferred. |
 | Shared TUI composition | **DECISION:** reuse the current shared panel, header, step indicator, actions, inputs, choices, feedback, and footer rather than introducing visual variants per step. |
 
 ## The conceptual nine-step sequence
 
-The following order is preserved without renumbering: **Step 1 Profile; Step 2 Connection; Step 3 Server Identity (optionally 3A independent verification and 3B observed/TOFU); Step 4 Mapepire; Step 5 Java; Step 6 Credentials; Step 7 Review; Step 8 Optional Test; Step 9 Completion.** Steps 4–9 are not canonical current wizard steps.
+The following order is preserved without renumbering: **Step 1 Profile; Step 2 Connection; Step 3 Server Identity (optionally 3A independent verification and 3B observed/TOFU); Step 4 Mapepire; Step 5 Java; Step 6 Credentials; Step 7 Review; Step 8 Optional Test; Step 9 Completion.** Step 4 is limited to pre-auth readiness; later steps retain ownership of authentication and proof.
 
 ### Step 1 — Profile
 
@@ -109,9 +109,9 @@ The following order is preserved without renumbering: **Step 1 Profile; Step 2 C
 | Requested information / actions | **DECISION:** visible V1 is explicit TOFU only. The manual independently verified path is hidden/deferred pending an approved corporate fingerprint source; manual/verified lower-layer capability remains available outside this wizard. |
 | Current UX/TUI | **FACT:** one `Paso 3 de 9 — Identidad` has authorization, loading/error, observed-identity review, and completed in-memory substates. It displays the draft host/port, then complete observed algorithm/fingerprint, and accepts through `[ CONFIAR EN ESTA CLAVE ]`. Review Back returns to authorization and clears unaccepted evidence; completed Back returns to Step 2 while retaining accepted evidence for the unchanged endpoint. |
 | Actual backend and tests | **FACT:** production `nexus configure` injects an adapter around `remote.InspectHostKey`; its TUI contract accepts only context, host, and port. Inspection is deadline-bound by the program lifecycle context, cancellable by Escape, retryable, and request-identified so stale responses cannot alter state. |
-| Continue does | **FACT:** only the focused trust action copies the exact current successful candidate to the draft with algorithm, full fingerprint, and `tofu` provenance. It remains on Step 3 through a completed seam and does not enter Step 4. |
+| Continue does | **FACT:** only the focused trust action copies the exact current successful candidate to the draft with algorithm, full fingerprint, and `tofu` provenance. Step 4 remains a separate pre-auth readiness boundary. |
 | Continue does not do | **FACT:** it does not authenticate, read credentials, start Mapepire, call a trust-enrollment service, save/read/update a profile, or issue another remote command. |
-| Decisions / proposal / missing work | **DECISION:** observed is not independently verified and changed pinned keys fail closed. **FUTURE:** profile persistence remains the Review/Save boundary; Steps 4–9 remain proposals. |
+| Decisions / proposal / missing work | **DECISION:** observed is not independently verified and changed pinned keys fail closed. **FUTURE:** profile persistence remains the Review/Save boundary; Steps 5–9 remain proposals. |
 | Status | **FACT:** Partial — explicit TOFU inspection and in-memory preparation exist; profile persistence and later steps do not. |
 
 #### Step 3A — independently verified fingerprint (conceptual)
@@ -132,16 +132,16 @@ The following order is preserved without renumbering: **Step 1 Profile; Step 2 C
 
 | Topic | Current evidence and required interpretation |
 | --- | --- |
-| Purpose / why | **PROPOSAL:** identify or explicitly supply the local Mapepire Server JAR needed for a later IBM i Mapepire session. |
-| Requested information / actions | **PROPOSAL:** discover locally, explain found/not-found/ambiguous/rejected/inspection-failed results, permit safe manual selection where approved, and distinguish automation from a user-approved action. |
-| Current UX/TUI | **FACT:** no Step 4 wizard screen exists. |
-| Actual backend and tests | **FACT:** local JAR discovery targets exactly Code for IBM i `3.0.12` and Mapepire Server `2.3.5`; it reports `found`, `not-found`, or `ambiguous`, plus rejected-candidate count and inspection-failed state. A unique checksum-verified candidate is accepted. The required SHA-256 is `41b1cfa67778ac204426f1dda0b51bd3f45fe3b89c91121d968660140acc0876`. Tests cover unique, absent, rejected, unrelated, symlink, and inspection-failure cases. |
-| Continue does | **PROPOSAL:** after a valid local choice, retain the local artifact reference and advance without contacting IBM i. |
-| Continue does not do | **FACT:** no current Step 4 exists. Local discovery is not IBM i contact. **PROPOSAL:** discovery must not upload or launch automatically. |
-| Decisions / proposal / missing work | **FACT:** remote artifact activation/rollback and launch require an authenticated SSH client and are not wizard-composed. **PROPOSAL:** require an explicit remote-consented action for upload/activation; handle multiple candidates as ambiguous, rejected candidates as unusable, and inspection failure as a blocked diagnostic—not as a silent fallback. |
-| Status | **FACT:** Backend only — discovery and safe artifact mechanics exist below the TUI. |
+| Purpose / why | **DECISION:** report local/pre-auth Mapepire readiness without claiming authentication or query readiness. |
+| Requested information / actions | A bounded daemon readiness observation may report detected/authentication-pending or unavailable/authentication-pending. Transport is not user-selected. |
+| Current UX/TUI | **FACT:** uses the shared wizard shell, panel, actions, feedback, viewport, responsive sizes, and `NO_COLOR`; it preserves `Step 4 of 9 — Mapepire`. |
+| Actual backend and tests | **FACT:** Step 4 uses the bounded pre-auth readiness seam; it does not perform local JAR discovery or acquisition. Lower-layer artifact and launch capabilities remain separate fallback dependencies and are not wizard behavior. |
+| Continue does | **DECISION:** retain only ephemeral readiness and defer authentication to Step 8. |
+| Continue does not do | It does not look up credentials, authenticate, select/fallback transports, invoke SSH/JAR/Java/upload/cache, or query IBM i. |
+| Decisions / proposal / missing work | WSS `:8076` is preferred by managed policy. SSH fallback is fixed `--single` and is eligible only after later consent, credentials, and independent SSH trust; no silent downgrade is permitted. |
+| Status | **FACT:** pre-auth readiness only; no live IBM i validation is claimed. |
 
-**Current OpenSpec conflict:** the valid `nexus-configuration` specification permits Java, Mapepire, and JAR checks only as **legacy diagnostics**. That conflicts with this requested conceptual Step 4. This document preserves Step 4 as a **PROPOSAL** and does not silently replace or renumber the valid specification. An approved spec change is required before making Mapepire a canonical wizard step.
+**Current OpenSpec contract:** Mapepire readiness is pre-auth only. Java, JAR, artifact, upload, and launch work remains an authenticated SSH fallback concern and is not implied by daemon readiness.
 
 ### Step 5 — Java
 
@@ -186,11 +186,11 @@ The following order is preserved without renumbering: **Step 1 Profile; Step 2 C
 
 | Topic | Current evidence and required interpretation |
 | --- | --- |
-| Purpose / why | **PROPOSAL:** give the operator an explicit opt-in, bounded remote test after review rather than an implicit connection during entry. |
+| Purpose / why | **DECISION:** give the operator an explicit opt-in, bounded proof after credentials and review rather than an implicit connection during entry. |
 | Requested information / actions | Consent, visible scope, timeout, cancellation, sanitized outcome, and a choice to skip. Candidate checks may include pinned-host verification, authentication, bounded Java check, Mapepire artifact/launch check, and a read-only service probe. |
 | Current UX/TUI | **FACT:** no Step 8 wizard screen exists. |
 | Actual backend and tests | **FACT:** `RunRemoteDiagnostic` supplies timeout/cancellation and sanitized classifications; remote SSH, Mapepire artifact, and launch primitives exist below the TUI. No live IBM i validation has occurred. |
-| Continue does | **PROPOSAL:** start only a consented remote action; success marks only the checks actually completed. Partial failure must say which bounded check failed or was skipped. |
+| Continue does | **DECISION:** after consent, own credentials, WSS-first selection, fixed `--single` SSH fallback when eligible, authenticated `connect`, and the optional bounded read-only Db2 query. Success marks only checks actually completed. |
 | Continue does not do | **DECISION:** Save and test are distinct. A failed, cancelled, or skipped test must not silently discard an already saved profile, nor convert a save into a tested profile. |
 | Decisions / proposal / missing work | **PROPOSAL:** define exact remote test scope, timeout budgets, audit class, and recovery behavior before composition. The valid spec’s “legacy diagnostics” limit applies until changed. |
 | Status | **FACT:** Backend only — diagnostic primitives exist, not the optional test journey. |
@@ -210,14 +210,14 @@ The following order is preserved without renumbering: **Step 1 Profile; Step 2 C
 
 ## Evaluation of the nine-step UX
 
-The nine-step sequence makes valuable boundaries visible: profile identity, endpoint syntax, server trust, local prerequisites, credentials, review, optional remote test, and completion. It must not be changed merely because current code stops at Step 3.
+The nine-step sequence makes valuable boundaries visible: profile identity, endpoint syntax, server trust, pre-auth readiness, credentials, review, optional remote test, and completion. It must not be renumbered merely because later steps remain future composition.
 
 | Recommendation | Classification |
 | --- | --- |
 | Keep Step 3 as the implemented explicit TOFU parent state machine; retain hidden manual independently verified enrollment as deferred until an approved corporate source exists. | **DECISION** |
 | Keep Mapepire and Java separate conceptually, but group them under an “Local runtime prerequisites” section in V1 if they remain local-only. | **PROPOSAL** |
 | Make Step 8 visibly optional and preserve the Step 7 save-versus-test distinction. | **PROPOSAL** |
-| Defer Steps 4–5 from V1 if approved product requirements retain the valid OpenSpec legacy-diagnostic classification. | **PROPOSAL** |
+| Keep Step 4 limited to pre-auth readiness; keep Java and runtime activation separate until separately approved. | **DECISION** |
 | Do not move authentication ahead of pinned server identity. | **DECISION** |
 
 ## Status matrix
@@ -229,7 +229,7 @@ The nine-step sequence makes valuable boundaries visible: profile identity, endp
 | 1 Profile | Complete | Partial | Partial | Complete | Partial |
 | 2 Connection | Complete | Partial | Partial | Complete | Partial |
 | 3 Server Identity | Partial | Partial | Backend only | Partial | Partial |
-| 4 Mapepire | Proposed | Not started | Backend only | Partial | Backend only |
+| 4 Mapepire | Complete | Partial | Complete | Partial | Partial |
 | 5 Java | Proposed | Not started | Backend only | Partial | Backend only |
 | 6 Credentials | Proposed | Not started | Backend only | Partial | Backend only |
 | 7 Review | Proposed | Not started | Partial | Partial | Proposed |
@@ -245,8 +245,8 @@ The nine-step sequence makes valuable boundaries visible: profile identity, endp
 | Strict profile validation, atomic profile persistence, CRUD, backup/recovery | 1, 7, 9 | Separate profile/configuration services; production wizard receives only profile storage. |
 | Host-key inspection, manual enrollment, TOFU enrollment, pin mismatch rejection | 3 | Separate SSH/trust services; inspection is no-auth and bounded. |
 | Native keyring presence/set/rotate/delete/migration | 6 | Separate credential/security services; outcomes are opaque. |
-| Local Code for IBM i JAR discovery and checksum verification | 4 | Local filesystem only; no IBM i contact. |
-| Authenticated remote JAR activation/rollback and Mapepire launch policy | 4, 5, 8 | Requires authenticated SSH; not wizard-composed. |
+| Local Code for IBM i JAR discovery and checksum verification | Legacy lower layer | Not part of Step 4; local/pre-auth readiness performs no JAR discovery or acquisition. |
+| Authenticated remote JAR activation/rollback and Mapepire launch policy | 5, 8 | Requires authenticated SSH fallback; never implied by Step 4 daemon readiness. |
 | Default Java launch-policy substitution and safe-path validation | 5 | Does not discover or verify remote Java. |
 | Local readiness and bounded remote diagnostic wrapper | 8, 9 | Local readiness exposes serve-composition gaps; diagnostic needs a runner. |
 | Copilot/OpenCode integration previews | 9 | Preview/copy only; never writes external client configuration. |
@@ -262,7 +262,7 @@ The nine-step sequence makes valuable boundaries visible: profile identity, endp
 | Manually enroll independently verified fingerprint | Yes | No | No | Yes, when profile update is invoked |
 | Test profile (conceptual Step 8) | No | Yes | Usually yes after pin verification | **PROPOSAL:** profile already saved; record only sanitized outcome if approved |
 | Java remote validation (conceptual) | No | Yes | Yes | No, unless explicit status persistence is approved |
-| Local Mapepire discovery | Yes | No | No | No |
+| Step 4 pre-auth Mapepire readiness | Yes | No | No | No |
 | Remote Mapepire artifact activation / launch | No | Yes | Yes | Remote JAR only; no wizard composition |
 | Credential keyring operation | Yes | No | No | Native keyring only |
 | Save profile | Yes | No | No | Local profile JSON, secret-free |
@@ -285,7 +285,7 @@ The nine-step sequence makes valuable boundaries visible: profile identity, endp
 
 ## Remaining Work
 
-1. Resolve the OpenSpec/product decision: remain with Mapepire/Java as legacy diagnostics or approve their canonical Step 4/5 role.
+1. Extend the approved pre-auth Step 4 composition only when additional local runtime behavior is explicitly specified; Java remains separate.
 2. Define V1 server-trust policy: independent fingerprint source, TOFU eligibility, known_hosts relationship, and whether both 3A/3B ship.
 3. Compose a wizard service boundary that injects trust, credential, readiness, diagnostic, preview, and profile-save services without placing secret or connector logic in Bubble Tea.
 4. **FUTURE:** define and approve a hidden manual independently verified enrollment path only when a corporate fingerprint source exists; do not change the implemented explicit TOFU flow without a new decision.
@@ -352,7 +352,7 @@ Do not create ADRs for this documentation-only change. Reuse current security an
 | [Current wizard model](../internal/tui/model.go) | Current local state, message seams, screens, and `Run` boundary. |
 | [Step 1 implementation and tests](../internal/tui/profile_step.go) / [tests](../internal/tui/profile_step_test.go) | Naming, local profile loading, transition seam, no-save proof, feedback, responsive behavior. |
 | [Step 2 implementation and tests](../internal/tui/profile_connection_step.go) / [tests](../internal/tui/profile_connection_step_test.go) | Host/user/port default and local-only transition. |
-| [Step 3 implementation and tests](../internal/tui/profile_identity_step.go) / [tests](../internal/tui/profile_identity_step_test.go) | Explicit TOFU state machine, no Step 4 transition, responsive proof. |
+| [Step 3 implementation and tests](../internal/tui/profile_identity_step.go) / [tests](../internal/tui/profile_identity_step_test.go) | Explicit TOFU state machine, trust boundary into Step 4, responsive proof. |
 | [Production configure composition](../cmd/nexus/main.go) / [test](../cmd/nexus/configure_test.go) | `runConfigure` injects profile storage and the concrete `remote.HostIdentityInspector` through the host+port-only identity boundary. It does not compose credential, trust persistence, readiness, diagnostics, previews, Mapepire, or later remote services. |
 | [Design system](../DESIGN.md) and [TUI implementation standard](../.agents/skills/bac-nexus-tui/SKILL.md) | Current terminal visual language plus shared focus, feedback, viewport, responsive, and `NO_COLOR` implementation rules. |
 | [Profile contracts](../internal/profile/profile.go) / [tests](../internal/profile/profile_test.go) / [recovery](../internal/profile/recovery.go) / [recovery tests](../internal/profile/recovery_test.go) | Secret-free profile shape, `tofu|verified`, legacy `vault|prompt`, validation, atomic persistence, backup, restore, and recovery. |
@@ -360,7 +360,7 @@ Do not create ADRs for this documentation-only change. Reuse current security an
 | [Configuration security](../internal/configuration/security.go) / [tests](../internal/configuration/security_test.go) / [configuration service](../internal/configuration/service.go) / [service tests](../internal/configuration/service_test.go) / [recovery tests](../internal/configuration/recovery_test.go) | Opaque credential outcomes, manual/TOFU trust enrollment, exact confirmations, profile restoration coordination, and configuration-service boundaries. |
 | [SSH trust](../internal/remote/ssh.go) / [tests](../internal/remote/ssh_test.go) | No-auth host-key inspection, deadline, secure algorithms, and mismatch behavior. |
 | [Security policy](../internal/security/policy.go) / [tests](../internal/security/policy_test.go) | Local-principal authorization, pinned-trust policy, and fail-closed selector behavior used below the wizard. |
-| [Mapepire policy](../internal/connectors/ibmi/mapepirestdio/policy.go) / [policy tests](../internal/connectors/ibmi/mapepirestdio/policy_test.go) / [discovery](../internal/connectors/ibmi/mapepirestdio/discovery.go) / [discovery tests](../internal/connectors/ibmi/mapepirestdio/discovery_test.go) / [artifact](../internal/connectors/ibmi/mapepirestdio/artifact.go) / [artifact tests](../internal/connectors/ibmi/mapepirestdio/artifact_test.go) | Exact version/checksum, local discovery outcomes, and remote authenticated artifact activation/rollback. |
+| [Mapepire policy](../internal/connectors/ibmi/mapepirestdio/policy.go) / [policy tests](../internal/connectors/ibmi/mapepirestdio/policy_test.go) / [discovery](../internal/connectors/ibmi/mapepirestdio/discovery.go) / [discovery tests](../internal/connectors/ibmi/mapepirestdio/discovery_test.go) / [artifact](../internal/connectors/ibmi/mapepirestdio/artifact.go) / [artifact tests](../internal/connectors/ibmi/mapepirestdio/artifact_test.go) | Lower-layer exact version/checksum and authenticated fallback artifact lifecycle; not Step 4 behavior. |
 | [Mapepire session](../internal/mapepire/session.go) / [session tests](../internal/mapepire/session_test.go) / [protocol](../internal/mapepire/protocol.go) / [protocol tests](../internal/mapepire/protocol_test.go) | Generic bounded `mapepire-server --single` session and protocol behavior, distinct from IBM i launch policy. |
 | [Readiness implementation](../internal/configuration/readiness.go) / [tests](../internal/configuration/readiness_test.go) | Offline status and bounded diagnostics; serve composition gap. |
 | [Integration preview core](../internal/integrationpreview/preview.go) / [tests](../internal/integrationpreview/preview_test.go) / [OpenCode adapter](../internal/integrationpreview/opencode/preview.go) / [Copilot adapter](../internal/integrationpreview/copilot/preview.go) | Schema-validated, copy-only client previews; no external client configuration mutation. |

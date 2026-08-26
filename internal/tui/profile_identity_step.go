@@ -105,6 +105,10 @@ func (m Model) updateProfileIdentityStep(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.screen = screenProfileConnection
 			return m, nil
 		case profileIdentityFocusInspect:
+			if m.identityPhase == profileIdentityCompleted {
+				m.screen = screenProfileMapepire
+				return m, nil
+			}
 			if m.identityPhase == profileIdentityAuthorize || m.identityPhase == profileIdentityError {
 				return m, m.startIdentityInspection()
 			}

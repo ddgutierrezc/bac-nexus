@@ -185,3 +185,41 @@
 
 - Exact Slice 5 authored numstat: `internal/configuration/resolver.go` 187/0; `resolver_test.go` 112/0; `internal/configuration/readiness.go` 6/4; `internal/audit/audit.go` 37/1; `transport_test.go` 20/0; `tasks.md` 2/2; `apply-progress.md` 27/0. Total: **391 additions + 7 deletions = 398 changed lines**, under the normal 400-line guard. Unrelated `.atl` and `tmp` changes are excluded.
 - Tasks 1.1–2.4 and 3.1–3.2 are checked; tasks 3.3–3.5 remain pending. Next recommended action: `apply`.
+
+## Slice 6: `slice-6-tui-docs-final-checks`
+
+- Delivery: auto-chain, feature-branch-chain; normal 400-line guard; tasks 3.3–3.5 only.
+- Exact intended source/docs numstat: **231 additions + 18 deletions = 249 changed lines**, excluding pre-existing unrelated `.atl/` and `tmp/` worktree changes. Files: `internal/tui/mapepire_onboarding_step.go` 83/0; `internal/tui/mapepire_onboarding_step_test.go` 102/0; `internal/tui/model.go` 17/1; `internal/tui/profile_identity_step.go` 4/0; `internal/tui/wizard_viewport.go` 6/1; localization catalogs/registry 3/0; `docs/IBM_I_PROFILE_WIZARD.md` 16/16. Task/progress artifact updates add 30/3, for **261 additions + 21 deletions = 282 total**, within the 400-line guard.
+
+### Slice 6 TDD Cycle Evidence
+
+| Task | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|
+| 3.3 | `go test -count=1 ./internal/tui` exit 1: missing Step 4/proof seams | Same command exit 0; 1 package passed | Exact pending copy, pre-auth probe count, no client installation, Step 8 connect/query counts, responsive NO_COLOR frames | Reused wizard shell/viewport and narrow injected interfaces |
+| 3.4 | Covered by 3.3 RED before composition | TUI composition and approved docs complete | Step numbering, navigation, shared panel/footer/actions, focus, feedback, scrolling and all requested sizes pass existing plus new runtime tests | No resolver/transport/runtime internals changed |
+| 3.5 | N/A: verification task; threat matrix is explicitly N/A | All final commands exit 0 | Offline deterministic fakes only; no live IBM i or credentials | Formatting and diff checks clean |
+
+### Slice 6 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/tui` — exit 0; 1 package passed (`ok bac-nexus/internal/tui 8.329s`). Localization was also covered in the focused edit run: 2 packages passed. |
+| Runtime harness command/scenario and exact result | Deterministic TUI `Update`/`View` harness with counting pre-auth and proof fakes; Step 4 at 120x40, 80x24, 40x16 with NO_COLOR and Step 8 connect/query proof — exit 0. No live runtime boundary, network, IBM i, credentials, Java, artifact, or SSH process was used. |
+| Final commands | Prior final verification recorded `go test -count=1 ./...`, `go vet ./...`, `go build ./cmd/catalogspike`, and `git diff --check` as exit 0. Corrected formatting evidence and its exact command are recorded in the gatekeeper retry below; no command is newly claimed. |
+| Zero-runtime proof | Step 4 counting probe is the only pre-auth call; it never installs a proof client. Daemon success and unavailable paths perform zero SSH/JAR/Java/upload/cache calls by construction and tests. Existing `.atl/` modifications and `tmp/ssh-test/compose.yaml` were pre-existing and untouched; no superseded-change path is present in the diff. |
+| Rollback boundary | Revert `internal/tui/mapepire_onboarding_step.go`, its test, the Step 4 routing/viewport hunks in `internal/tui/model.go` and `wizard_viewport.go`, the three localization additions, and the documentation/task/progress Slice 6 sections; retain Slices 1–5 and unrelated `.atl`/`tmp` worktree state. |
+
+- Tasks 1.1–3.5 are checked: **13/13 complete**.
+- No threat-matrix RED tests apply: every listed row is explicitly N/A.
+- Next recommended action: `verify`.
+
+## Slice 6 gatekeeper corrective retry
+
+- Scope: artifact-only correction; no source, tests, `tasks.md`, or runtime commands were rerun.
+- Exact already-run formatting command: `gofmt -d internal/tui/model.go internal/tui/wizard_viewport.go internal/tui/mapepire_onboarding_step.go internal/tui/mapepire_onboarding_step_test.go internal/localization/localization.go` — exit `0`, no output.
+- Complete touched Go-file list for Slice 6: `internal/tui/model.go`, `internal/tui/wizard_viewport.go`, `internal/tui/mapepire_onboarding_step.go`, `internal/tui/mapepire_onboarding_step_test.go`, `internal/tui/profile_identity_step.go`, and `internal/localization/localization.go`. `internal/tui/profile_identity_step.go` was formatted by the separately already-run command `gofmt -w internal/tui/profile_identity_step.go internal/tui/mapepire_onboarding_step_test.go` — no new formatting result is claimed here.
+- Step 4 guide correction: it is local/pre-auth readiness only. It performs no JAR discovery/acquisition, Java, SSH process, artifact upload/cache, credentials, authentication, query, or fallback runtime. Daemon unavailability with policy-permitted fallback shows exactly `[OK] Mapepire detected — authentication pending` and defers all SSH fallback execution to Step 8.
+- Preserved behavior: managed WSS `:8076` is preferred; fallback is fixed SSH `--single`; TLS and SSH trust are independent; no silent downgrade; Step 8 owns credentials, transport selection/fallback, authenticated `connect`, and optional bounded read-only query proof.
+- No semantic tests, builds, vet, or runtime harnesses were rerun during this correction. Structural readback was limited to this artifact and `docs/IBM_I_PROFILE_WIZARD.md`.
+- Corrected Slice 6 intended numstat, including this correction: **286 additions + 34 deletions = 320 changed lines**, excluding pre-existing unrelated `.atl/` and `tmp/` worktree changes; the 400-line guard remains satisfied.
+- Next recommended action remains `verify` after gatekeeper acceptance.

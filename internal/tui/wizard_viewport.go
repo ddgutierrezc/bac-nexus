@@ -57,7 +57,7 @@ func wizardOverflowIndicator(vp interface {
 }
 
 func (m *Model) refreshWizardViewport() {
-	if m.screen != screenProfileStep && m.screen != screenProfileConnection && m.screen != screenProfileIdentity {
+	if m.screen != screenProfileStep && m.screen != screenProfileConnection && m.screen != screenProfileIdentity && m.screen != screenProfileMapepire {
 		return
 	}
 	frameWidth, frameHeight := m.shellFrameDimensions()
@@ -81,6 +81,9 @@ func (m *Model) refreshWizardViewport() {
 		identityPanel := m.renderProfileIdentityPanelContent(width, height, t)
 		panel = identityPanel.text
 		focusRange, hasFocusRange = identityPanel.ranges[m.identityFocus]
+	case screenProfileMapepire:
+		footer = m.text("wizard.footer.mapepire", nil)
+		panel = m.renderProfileMapepirePanel(width, height, t)
 	}
 	if m.status != "" {
 		if feedback, ok := m.wizardContextFeedback(); ok {
@@ -167,6 +170,8 @@ func (m Model) wizardPanelContent() string {
 		return m.renderProfileConnectionPanel(width, height, t)
 	case screenProfileIdentity:
 		return m.renderProfileIdentityPanel(width, height, t)
+	case screenProfileMapepire:
+		return m.renderProfileMapepirePanel(width, height, t)
 	}
 	return ""
 }
