@@ -76,14 +76,14 @@ func (c *Client) read() {
 			c.fail(err)
 			return
 		}
+		if !r.Success {
+			c.fail(&SQLError{State: r.SQLState, Code: r.SQLCode})
+			return
+		}
 		c.mu.Lock()
 		delete(c.pending, r.ID)
 		c.mu.Unlock()
-		if !r.Success {
-			call.result <- callResult{err: &SQLError{State: r.SQLState, Code: r.SQLCode}}
-		} else {
-			call.result <- callResult{response: r}
-		}
+		call.result <- callResult{response: r}
 	}
 }
 func (c *Client) Call(ctx context.Context, r Request) (Response, error) {

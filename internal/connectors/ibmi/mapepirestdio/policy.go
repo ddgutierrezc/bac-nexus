@@ -34,6 +34,7 @@ var SingleModeJavaArguments = []string{
 type LaunchPolicy struct {
 	JavaHome  string
 	RemoteJAR string
+	Consented bool
 }
 
 func VerifyServerJAR(filePath string) error { return verifyServerJAR(filePath, ServerSHA256) }
@@ -47,6 +48,9 @@ func verifyServerJAR(filePath, expected string) error {
 }
 
 func BuildCommand(policy LaunchPolicy) (string, error) {
+	if !policy.Consented {
+		return "", errors.New("Mapepire SSH fallback requires explicit consent")
+	}
 	javaHome := policy.JavaHome
 	if javaHome == "" {
 		javaHome = DefaultJavaHome

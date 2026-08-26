@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
+	"bac-nexus/internal/mapepire"
+	"bac-nexus/internal/mapepire/sshstdio"
 	"bac-nexus/internal/profile"
 	"bac-nexus/internal/source"
 
@@ -451,6 +453,15 @@ func (c *Client) StartMapepire(ctx context.Context, policy mapepirestdio.LaunchP
 		_ = channel.Close()
 	}()
 	return channel, nil
+}
+
+// StartMapepireTransport exposes only the typed transport boundary to callers.
+func (c *Client) StartMapepireTransport(ctx context.Context, policy mapepirestdio.LaunchPolicy) (mapepire.MessageTransport, error) {
+	channel, err := c.StartMapepire(ctx, policy)
+	if err != nil {
+		return nil, err
+	}
+	return sshstdio.New(channel), nil
 }
 
 func (c *Client) CopyToUTF8(ctx context.Context, qsysPath, temporary string) error {

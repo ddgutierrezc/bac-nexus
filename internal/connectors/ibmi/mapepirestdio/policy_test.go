@@ -18,7 +18,7 @@ func TestVerifyServerJARRejectsDifferentArtifact(t *testing.T) {
 }
 
 func TestBuildCommandUsesOnlyPinnedShape(t *testing.T) {
-	command, err := BuildCommand(LaunchPolicy{RemoteJAR: "/home/NEXUS/" + RemoteJar})
+	command, err := BuildCommand(LaunchPolicy{RemoteJAR: "/home/NEXUS/" + RemoteJar, Consented: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,13 @@ func TestBuildCommandUsesOnlyPinnedShape(t *testing.T) {
 			t.Fatalf("command omitted %q: %s", required, command)
 		}
 	}
-	if _, err := BuildCommand(LaunchPolicy{JavaHome: "/tmp/java;id", RemoteJAR: "/home/NEXUS/" + RemoteJar}); err == nil {
+	if _, err := BuildCommand(LaunchPolicy{JavaHome: "/tmp/java;id", RemoteJAR: "/home/NEXUS/" + RemoteJar, Consented: true}); err == nil {
 		t.Fatal("expected unsafe Java path rejection")
+	}
+}
+
+func TestBuildCommandRequiresExplicitFallbackConsent(t *testing.T) {
+	if _, err := BuildCommand(LaunchPolicy{RemoteJAR: "/home/NEXUS/" + RemoteJar}); err == nil {
+		t.Fatal("unconsented SSH fallback was accepted")
 	}
 }

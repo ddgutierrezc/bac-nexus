@@ -44,8 +44,8 @@ Chain strategy: feature-branch-chain
 
 - [x] 2.1 RED: add dependency/provenance/license/checksum/vulnerability review evidence and loopback tests for WSS text frames, CA/hostname, pin/TOFU, rotation, bounds, compression-off, and terminal identity failure.
 - [x] 2.2 GREEN: add `github.com/coder/websocket` v1.8.15, module `h1:6B2JPeOGlpff2Uz6vOEH1Vzpi0iUz20A+lPVhPHtNUA=` and go.mod `h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=`; implement `internal/mapepire/wss/` with TLS policy, bounded reads, deadlines, compression off, and cancellation-terminal sessions.
-- [ ] 2.3 RED: test SSH LF framing, matching-ID plus `success=true` detection, EOF/exit, host-key mismatch, cancellation, and rejection of arbitrary command input.
-- [ ] 2.4 GREEN: implement `internal/mapepire/sshstdio/` and wire `internal/remote/` plus `internal/connectors/ibmi/mapepirestdio/` so artifact/cache/upload/Java/`--single` exist only behind consented SSH fallback.
+- [x] 2.3 RED: test SSH LF framing, matching-ID plus `success=true` detection, EOF/exit, host-key mismatch, cancellation, and rejection of arbitrary command input.
+- [x] 2.4 GREEN: implement `internal/mapepire/sshstdio/` and wire `internal/remote/` plus `internal/connectors/ibmi/mapepirestdio/` so artifact/cache/upload/Java/`--single` exist only behind consented SSH fallback.
 
 ## Phase 3: Resolver, Wizard, and Verification (PRs 5–6)
 

@@ -129,3 +129,32 @@
 - TDD Cycle Evidence (`2.1/2.2`): RED ✅ exit 1 before code; GREEN ✅ focused exit 0; TRIANGULATE ✅ CA/pin/self-signed/malformed/transport/endpoint/timeout/framing/cancellation; REFACTOR ✅ cloned authoritative transport and sanitized classification. Verified proof points: canonical raw base64url `sha256/` leaf-pin encoding plus malformed/noncanonical rejection; endpoint URL userinfo rejection; distinct sanitized typed availability/refusal, timeout, TLS identity, invalid endpoint, and invalid configuration errors without raw host/URL/certificate/network text; transport matrix covers cloned caller `http.Client`, cloned nil/default `*http.Transport` with TLS policy installed, cloned supported custom `*http.Transport`, rejected unsupported `RoundTripper`, and rejected caller `InsecureSkipVerify`.
 - Work Unit Evidence: focused WSS exit 0 (1 package); loopback TLS/WSS runtime exit 0; rollback boundary `internal/mapepire/wss/` plus this evidence. Pin/TOFU manually enforces exact leaf, hostname and validity; CA keeps chain verification; callback is preserved.
 - Exact final numstat: `internal/mapepire/wss/wss.go` 201/0; `internal/mapepire/wss/wss_test.go` 160/0; `go.mod` 1/0; `go.sum` 2/0; `openspec/changes/mapepire-dual-transport-onboarding/tasks.md` 2/2; `openspec/changes/mapepire-dual-transport-onboarding/apply-progress.md` 34/0. Total: **400 additions + 2 deletions = 402 changed lines**, within the approved Slice-3-only maximum.
+
+## Slice 4: `slice-4-ssh-single-fallback`
+
+- Delivery: auto-chain, feature-branch-chain; normal hard limit of 400 changed lines. Scope is tasks 2.3 and 2.4 only; later resolver, audit, readiness, TUI, and documentation tasks remain pending.
+- RED: `go test -count=1 ./internal/mapepire/sshstdio` — exit 1 before implementation because the adapter and framing errors were absent.
+- GREEN: added bounded LF JSON-object framing, context-terminal channel closure, typed-client transport wiring, terminal unsuccessful-response handling, and consent-gated fixed SSH `--single` startup.
+- REFACTOR: retained one typed-client reader and controlled adapter writes; reused existing SSH host identity, artifact verification, upload/rollback, Java validation, and fixed command construction.
+
+### Slice 4 TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 2.3 | Unit/in-process fake channel | Existing mapepire and remote tests passed | ✅ exit 1 | ✅ focused exit 0 | ✅ object, malformed/non-object/oversized/unterminated, newline, correlation, EOF/cancel | ✅ bounded reader/write mutex |
+| 2.4 | Unit/fake process and policy | Existing connector/remote tests passed | ✅ symbols absent | ✅ focused exit 0 | ✅ typed wiring, terminal failure, consent and unsafe command rejection | ✅ narrow consumer-owned seams |
+
+### Slice 4 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused tests | `go test -count=1 ./internal/mapepire/sshstdio ./internal/mapepire ./internal/connectors/ibmi/mapepirestdio ./internal/remote` — exit 0; 4 packages passed. |
+| Runtime harness | Same exact runnable command as focused tests: `go test -count=1 ./internal/mapepire/sshstdio ./internal/mapepire ./internal/connectors/ibmi/mapepirestdio ./internal/remote` — exit 0. It exercises only in-process fake SSH channels and pipe-backed process output; no IBM i, network, Java process, artifact download, or credentials. |
+| Verification | `go test -count=1 ./...` exit 0; 22 test-bearing packages and 3 no-test packages; `go vet ./...` exit 0. Exact formatting check: `gofmt -d internal/mapepire/sshstdio/sshstdio.go internal/mapepire/sshstdio/sshstdio_test.go internal/mapepire/typed_session.go internal/remote/ssh.go internal/connectors/ibmi/mapepirestdio/policy.go internal/connectors/ibmi/mapepirestdio/policy_test.go` — exit 0, no output. `git diff --check` exit 0. |
+| Rollback boundary | Revert `internal/mapepire/sshstdio/`, terminal handling in `internal/mapepire/typed_session.go`, `internal/remote/ssh.go`, consent changes in `internal/connectors/ibmi/mapepirestdio/policy.go` and `policy_test.go`, and only Slice 4 task/progress sections. |
+
+- Host-key mismatch terminality: the existing `internal/remote/hostidentity_test.go` mismatch proof and the recorded Slice 3 WSS identity-mismatch/rotation proof establish fail-closed identity behavior. A changed SSH host key is terminal (`host_key_changed`) and cannot be classified as availability or become fallback.
+- Daemon non-invocation: the recorded structural proof for `internal/mapepire/wss/` shows the WSS adapter imports/calls none of SSH, JAR, Java, upload, or cache capabilities; daemon WSS resolution therefore cannot invoke the Slice 4 fallback runtime.
+- Gatekeeper correction: artifact-only evidence clarification; no source/test/task changes, no commands rerun, and the measured Slice 4 total remains **324 additions + 9 deletions = 333 changed lines**.
+
+- Exact Slice 4 numstat (excluding unrelated `.atl`/`tmp`): `internal/mapepire/sshstdio/sshstdio.go` 133/0; `internal/mapepire/sshstdio/sshstdio_test.go` 136/0; `internal/connectors/ibmi/mapepirestdio/policy.go` 4/0; `policy_test.go` 8/2; `internal/mapepire/typed_session.go` 5/5; `internal/remote/ssh.go` 11/0; `tasks.md` 2/2; `apply-progress.md` 25/0. Total: **324 additions + 9 deletions = 333 changed lines**, under the normal 400-line guard. Tasks 1.1–1.4 and 2.1–2.4 are checked; 3.1–3.5 remain pending. Next recommended action: `apply`.
