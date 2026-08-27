@@ -1,54 +1,48 @@
-# mapepire-application-protocol Specification
+# Delta for mapepire-application-protocol
 
-## Purpose
+## MODIFIED Requirements
 
-Provide a small, typed, transport-neutral Mapepire client.
+### Requirement: Pinned Typed Protocol Subset and Fixed Proof
 
-## Requirements
+The client SHALL expose only the reviewed typed operations `getversion`, `connect`, `prepare_sql_execute`, `sqlmore`, `sqlclose`, `ping`, and `exit`. Step 8 proof SHALL use a release-owned fixed `VALUES 1` operation through those operations, with fixed projection/parameters and bounds; it MUST NOT accept SQL text, return rows or row content, or expose a generic SQL surface.
+(Previously: approved bounded SQL capabilities were permitted without defining the fixed proof.)
 
-### Requirement: Pinned Typed Protocol Subset
+#### Scenario: Connect precedes proof
+- GIVEN a trusted transport and valid opaque credentials
+- WHEN fixed proof runs
+- THEN `connect` succeeds before `prepare_sql_execute`, and no proof runs after connect failure
 
-The client MUST be custom Go code with no runtime `mapepire-go` dependency. It MUST be pinned to the reviewed protocol revision and compatible with Mapepire Server 2.3.5, never `latest`. It SHALL expose only `getversion`, `connect`, `prepare_sql_execute`, `sqlmore`, `sqlclose`, `ping`, and `exit`, with typed inputs, safe error categories, validation, and no arbitrary operation or generic SQL surface beyond approved bounded capabilities.
+#### Scenario: Fixed proof is redacted
+- GIVEN fixed proof succeeds with bounded metadata
+- WHEN the product result is returned
+- THEN it contains classification and bounded proof metadata only, never SQL, parameters, columns, rows, or bytes
 
-#### Scenario: Valid requests are bounded
-- GIVEN a supported operation and valid bounded fields
-- WHEN the client sends it
-- THEN it emits a typed request with a unique ID
+#### Scenario: Invalid proof bounds fail closed
+- GIVEN a response or request exceeds cursor, page, row, column, byte, frame, or deadline limits
+- WHEN it is validated
+- THEN the session terminates with a limit classification and exposes no partial result
 
-#### Scenario: Unsupported or malformed operation is rejected
-- GIVEN an unknown operation, invalid field, or unbounded request
-- WHEN validation runs
-- THEN it returns a safe deterministic error without transport I/O
+#### Scenario: Proof closes resources
+- GIVEN a cursor or session was acquired
+- WHEN proof succeeds, fails, or is cancelled
+- THEN `sqlclose` is attempted as applicable, then `exit` and transport/session cleanup are completed
 
 ### Requirement: Correlated Bounded Session
 
-Responses MUST correlate by echoed ID independently of response order; wrong, duplicate, or unknown IDs MUST fail the session safely. V1 MUST use one session with no pooling. Nexus-owned release-versioned limits MUST bound frames/messages, rows, bytes, columns, cursors, pending requests, deadlines, and session lifetime, and MUST NOT be profile-editable.
+Responses SHALL correlate by echoed ID; wrong, duplicate, or unknown IDs SHALL terminate the session. Release-owned bounds SHALL cover cursors, pages, rows, columns, bytes, pending IDs, frames, deadlines, and session lifetime, and SHALL not be profile-editable.
+(Previously: the requirement covered bounded paging but not the fixed proof lifecycle.)
 
-#### Scenario: Responses arrive out of order
-- GIVEN two valid pending requests
-- WHEN responses arrive in reverse order
-- THEN each caller receives its matching typed result
-
-#### Scenario: Correlation violation fails closed
-- GIVEN a wrong, duplicate, or unknown response ID
-- WHEN it is received
-- THEN the session rejects it and exposes no partial result
-
-#### Scenario: Paging remains bounded
-- GIVEN `sqlmore` requests cursors, rows, columns, or bytes beyond policy
+#### Scenario: Paging is bounded
+- GIVEN fixed proof requests a cursor/page beyond any release limit
 - WHEN validation runs
-- THEN it rejects the request or response with a safe limit error
-
-#### Scenario: Fixture framing is conformant
-- GIVEN an official protocol fixture for the pinned revision
-- WHEN WSS text or SSH LF framing is decoded
-- THEN validation accepts only the documented JSON shape and bounds
+- THEN it returns a deterministic limit failure without unbounded I/O
 
 ### Requirement: Cancellation Semantics
 
-The client MUST NOT claim per-query cancellation. Context cancellation MUST stop local waiting and close the whole session/transport, reporting that remote statement cancellation is not guaranteed.
+Cancellation SHALL stop local waiting and close every acquired session/transport resource; it SHALL NOT claim remote statement cancellation.
+(Previously: cancellation was specified only for the generic client request.)
 
-#### Scenario: Query cancellation closes the session
-- GIVEN a request is pending
-- WHEN its context is cancelled
-- THEN the session closes and reports no remote-cancel guarantee
+#### Scenario: Terminal cancellation
+- GIVEN proof is waiting on connect, query, close, or exit
+- WHEN context cancellation occurs
+- THEN the whole session closes and the result is cancelled without a readiness claim

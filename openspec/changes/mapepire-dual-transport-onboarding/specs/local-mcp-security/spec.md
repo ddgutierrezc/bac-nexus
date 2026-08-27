@@ -2,48 +2,62 @@
 
 ## MODIFIED Requirements
 
-### Requirement: Pinned Host Trust Policy
+### Requirement: Native Secret Isolation and Step 8 Credential Boundary
 
-The system MUST support manual verified enrollment and explicit pinned TOFU enrollment for both daemon TLS identity and SSH host identity, with non-secret provenance and independent trust domains. Remote inspection MUST be explicitly requested or policy-authorized, bounded, cancellable, labeled, and exactly confirmed before enrollment. Changed identity, hostname/pin/expiry failure, protocol tampering, and unsafe downgrade MUST fail closed and MUST NOT trigger fallback.
-(Previously: the requirement governed only host-key trust and preserved a future `require-verified` SSH mode.)
+Credentials SHALL support policy-governed `Ask each time` and native-keyring `Store securely`. Retrieval SHALL occur only in Step 8, remain within orchestration lifetime, and be zeroized where practical. Prompt/keyring denial, unavailable, malformed, locked, or policy-denied outcomes SHALL fail closed; no plaintext, vault, or mode downgrade is permitted. Secrets MUST NOT enter TUI state/messages, logs, audit, argv, environment, profiles, or results.
+(Previously: native keyring was the only permitted authentication path and Step 8 timing was not normative.)
 
-#### Scenario: Daemon pin or TOFU enrollment
-- GIVEN an approved certificate identity and exact operator confirmation
-- WHEN pin or explicit TOFU enrollment completes
-- THEN only approved trust evidence is persisted
+#### Scenario: Prompt and keyring success
+- GIVEN the selected policy mode is `Ask each time` or `Store securely`
+- WHEN Step 8 retrieves credentials successfully
+- THEN the opaque credential is used only for authentication and is released after orchestration
 
-#### Scenario: Explicit SSH TOFU enrollment pins identity
-- GIVEN SSH TOFU is authorized and the inspected key is exactly confirmed
-- WHEN enrollment completes
-- THEN the key and unverified provenance are pinned independently
+#### Scenario: Prompt denial is terminal
+- GIVEN `Ask each time` is selected and the operator denies or abandons the prompt
+- WHEN Step 8 requests credentials
+- THEN it returns `credentials_unavailable` without a mode downgrade or remote call
 
-#### Scenario: TLS mismatch blocks fallback
-- GIVEN a daemon presents a mismatched identity or downgrade
-- WHEN resolution runs
-- THEN it returns terminal failure and does not inspect or use SSH
+#### Scenario: Keyring unavailable is terminal
+- GIVEN `Store securely` is selected and the native keyring is unavailable, locked, or denied
+- WHEN Step 8 requests credentials
+- THEN it returns `credentials_unavailable` without plaintext fallback, mode switch, SSH fallback, or remote call
 
-#### Scenario: SSH mismatch blocks fallback
-- GIVEN SSH presents a key different from its approved evidence
-- WHEN fallback is attempted
-- THEN it returns `host_key_changed` and no remote operation proceeds
+#### Scenario: Credential failure never downgrades
+- GIVEN either mode returns malformed, empty, or retrieval failure
+- WHEN Step 8 requests credentials
+- THEN it fails closed without plaintext, vault, alternate mode, SSH fallback, or remote call
 
-#### Scenario: Pinned identity remains verified
-- GIVEN an enrolled TLS or SSH identity is presented unchanged
-- WHEN a connection is attempted
-- THEN trust succeeds without treating the other transport as trusted
+### Requirement: Independent Trust and Sanitized Audit
+
+TLS and SSH TOFU SHALL be user-controlled V1 enrollments with explicit host/port/fingerprint confirmation and independent storage. Mismatch or rotation SHALL block terminally. Audit SHALL use an allowlist of bounded policy identity, transport attempt, trust outcome, fallback reason, proof revision/version, result classification, duration, and lifecycle outcome; it MUST exclude credentials, endpoints, hosts, paths, users, SQL, rows, raw errors, and secrets.
+(Previously: host trust and audit were bounded but did not define dual-transport independence or proof metadata.)
+
+#### Scenario: Trust enrollment and mismatch
+- GIVEN first-use TLS or SSH identity, or a changed identity
+- WHEN exact confirmation is supplied or the mismatch is presented
+- THEN only that transport is enrolled, or the operation blocks without silent acceptance
+
+#### Scenario: Audit redaction
+- GIVEN any success, denial, fallback, cancellation, cleanup, or failure outcome
+- WHEN it is audited or shown
+- THEN only allowlisted bounded metadata is retained and no sensitive field appears
+
+### Requirement: Controlled Remote Mutation Surface
+
+Remote artifact upload and fixed process launch SHALL occur only inside the eligible, consented, policy-authorized SSH runtime; arbitrary shell, SFTP, SQL, command, mutation, and generic execution surfaces MUST NOT exist.
+
+#### Scenario: Step 3/4 security boundary
+- GIVEN the wizard performs pre-auth Steps 3 or 4
+- WHEN they complete
+- THEN zero credentials, runtime, artifact, Java, upload, SQL, or remote mutation calls occur
 
 ## ADDED Requirements
 
-### Requirement: Bounded Dual-Transport Audit Surface
+### Requirement: Historical Marker Privacy
 
-The system MUST audit transport attempt, policy identity, trust result, fallback reason, protocol revision/version, and sanitized result classification. It MUST exclude credentials, certificates, host/path/URL, raw errors, SQL, and result content, and MUST preserve the existing prohibition on arbitrary SSH, SFTP, shell, SQL, and mutation surfaces.
+Any persisted proof marker SHALL contain only bounded timestamp, outcome classification, and proof revision, SHALL never gate or skip proof, and SHALL be invalidated by endpoint, policy, or trust changes.
 
-#### Scenario: Audit is sanitized
-- GIVEN daemon selection or SSH fallback succeeds or fails
-- WHEN the outcome is audited
-- THEN only approved bounded classifications and identities are retained
-
-#### Scenario: No live IBM i is required
-- GIVEN automated protocol, resolver, framing, artifact, and wizard tests
-- WHEN acceptance runs
-- THEN fakes or loopback are used and status remains `not_validated_on_ibmi`
+#### Scenario: Marker is not sensitive
+- GIVEN a successful or failed proof marker
+- WHEN it is persisted and later read
+- THEN prohibited transport/version/endpoint/user/path/error/SQL/result/secret data is absent

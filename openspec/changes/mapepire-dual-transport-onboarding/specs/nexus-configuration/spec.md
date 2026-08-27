@@ -2,33 +2,36 @@
 
 ## MODIFIED Requirements
 
-### Requirement: Honest Readiness and Diagnostics
+### Requirement: Honest Readiness and Step 8 Orchestration
 
-Local readiness MUST never contact IBM i and MUST report only recomputed transport observations: trusted identity, endpoint reachability, detected protocol, authentication pending, authenticated session, or validated query. Remote diagnostics MUST be explicitly initiated, warned, timed, cancellable, sanitized, and auditable; they MUST retain `ready_for_controlled_ibmi_validation` and `not_validated_on_ibmi`. Java, Mapepire, JAR, SSH, and upload checks MUST NOT be implied by daemon readiness and MAY occur only in the separately consented SSH fallback runtime.
-(Previously: Java, Mapepire, and JAR checks MAY appear only as legacy diagnostics.)
+Local readiness SHALL never contact IBM i and SHALL distinguish pre-auth observations from authenticated session and validated fixed proof. Pre-auth `/version` observation SHALL be separate from post-credential orchestration. The endpoint SHALL default to managed port `8076`; only approved deployment policy MAY override it, and free-form user endpoints MUST be rejected. A saved-profile-only Step 8 service SHALL return typed success/failure classifications and SHALL retain `ready_for_controlled_ibmi_validation` plus `not_validated_on_ibmi`.
+(Previously: readiness described local diagnostics and a resolver gap but not the production Step 8 result contract.)
 
-#### Scenario: Local readiness
-- GIVEN no remote action is selected
-- WHEN readiness is refreshed
-- THEN it performs local checks only and reports recomputed non-authenticated state
+#### Scenario: Endpoint policy
+- GIVEN no endpoint override, an approved override, or a free-form override
+- WHEN configuration resolves the daemon endpoint
+- THEN it uses `8076`, accepts only the approved override, and rejects the free-form value
 
-#### Scenario: Cancel remote diagnostic
-- GIVEN a warned diagnostic is running
-- WHEN the operator cancels or timeout expires
-- THEN it stops, records a sanitized outcome, and makes no validation claim
+#### Scenario: Pre-auth is not proof
+- GIVEN `/version` succeeds before credentials
+- WHEN readiness is rendered
+- THEN it reports authentication pending, not authenticated or query-ready
 
-#### Scenario: Configured is not Checked
-- GIVEN Java or an artifact is configured but no authenticated validation ran
-- WHEN readiness is shown
-- THEN it does not claim Checked Java, authenticated Mapepire, or query readiness
+#### Scenario: Typed terminal matrix
+- GIVEN WSS success, eligible availability, unsupported version, identity/protocol failure, credential/authorization failure, cancellation, or limit failure
+- WHEN Step 8 returns
+- THEN it returns the corresponding bounded typed classification and never silently downgrades
 
-## ADDED Requirements
+#### Scenario: Marker invalidation
+- GIVEN a historical timestamp/outcome/proof-revision marker
+- WHEN endpoint, policy, or trust changes
+- THEN the marker is stale/invalid and a fresh proof remains mandatory
 
-### Requirement: Ephemeral Transport Observations
+### Requirement: Offline Validation Status
 
-Persisted profiles MUST remain secret-free and MUST NOT store selected transport, observed version, readiness, or raw errors; those values MUST be recomputed.
+Automated verification SHALL use deterministic fakes or loopback only and SHALL report `not_validated_on_ibmi`; it MUST NOT imply live IBM i access.
 
-#### Scenario: Restart recomputes readiness
-- GIVEN a profile stores policy and approved trust evidence only
-- WHEN Nexus restarts
-- THEN transport and readiness are unknown until bounded inspection recomputes them
+#### Scenario: Offline acceptance
+- GIVEN all local contract tests pass without IBM i
+- WHEN verification reports status
+- THEN it records `not_validated_on_ibmi` and no live-validation claim

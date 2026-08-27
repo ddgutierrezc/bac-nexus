@@ -1,54 +1,87 @@
-# mapepire-transport-onboarding Specification
+# Delta for mapepire-transport-onboarding
 
-## Purpose
+## MODIFIED Requirements
 
-Resolve trusted Mapepire transport and provide truthful nine-step onboarding.
+### Requirement: Production Step 8 Proof and Transport Ownership
 
-## Requirements
+Steps 3 and 4 SHALL remain credential-free, runtime-free pre-auth observations; Step 7 SHALL persist the profile; only Step 8 SHALL retrieve credentials, select/authenticate transport, perform fallback, and run proof. Step 8 SHALL accept only a saved profile, use policy-owned endpoint/trust, WSS first, and return bounded typed evidence. Fallback eligibility SHALL use distinct typed classifications: `daemon_refused`, `daemon_unavailable`, `daemon_availability_timeout`, `daemon_policy_disabled`, or `unsupported_version`. `operation_timeout` after transport/session start, `cancelled`, `proof_timeout`, `cleanup_timeout`, `limit_exceeded`, `identity_failure`, `trust_mismatch`, `protocol_failure`, `framing_failure`, `malformed_response`, `downgrade_blocked`, `credentials_unavailable`, and `authorization_denied` SHALL be terminal and MUST NOT fallback. Bubble Tea SHALL issue an explicit cancellable command/effect with request identity; the service, not the TUI, owns credentials, sessions, cleanup, and audit. Historical markers SHALL never establish readiness or skip proof.
+(Previously: Step 8 behavior was described through injected helper seams and optional proof.)
 
-### Requirement: Managed Resolver and Trust Policy
+#### Scenario: Saved profile gate
+- GIVEN a saved profile and an unsaved draft
+- WHEN Step 8 is requested for either
+- THEN only the saved profile proceeds; the draft is rejected without credentials or runtime calls
 
-The resolver MUST prefer a managed WSS daemon at policy endpoint default port `8076`; users MUST NOT select transport or URL. It MUST allow automatic SSH fallback only for bounded timeout/refusal/unavailability, daemon-disabled policy, or verified unsupported version. TLS identity mismatch, downgrade/tampering, credential or authorization failure MUST be terminal. Fallback additionally requires independent SSH trust. One credential reference MUST serve both transports.
+#### Scenario: Step 3 owns SSH identity observation
+- GIVEN Step 3 is active
+- WHEN SSH identity inspection or enrollment runs
+- THEN it handles only explicit SSH host identity evidence and makes no credential, authentication, or runtime call
 
-#### Scenario: Daemon unavailable falls back safely
-- GIVEN trusted SSH policy and daemon refusal within timeout
-- WHEN resolution runs after fallback authorization
-- THEN SSH is selected and the reason is classified as availability
+#### Scenario: Step 4 owns WSS pre-auth observation
+- GIVEN Step 4 is active
+- WHEN managed daemon observation runs
+- THEN it performs only policy-owned WSS `/version` observation and makes no credential, authentication, query, SSH fallback, or runtime call
 
-#### Scenario: Credential failure never falls back
-- GIVEN daemon `connect` fails for credentials or authorization after Step 6
-- WHEN resolution classifies the failure
-- THEN it stops without SSH fallback
+#### Scenario: Step 7 and Step 8 ownership
+- GIVEN a profile is ready to advance
+- WHEN Step 7 saves and Step 8 is requested
+- THEN Step 7 persists the profile and only Step 8 retrieves credentials, authenticates, selects/falls back, and proves
 
-#### Scenario: Fallback lacks trust
-- GIVEN daemon availability is fallback-eligible but no SSH trust policy exists
-- WHEN resolution considers SSH
-- THEN it blocks fallback without contacting SSH
+#### Scenario: WSS-first proof
+- GIVEN policy permits WSS and pre-auth observation is trusted
+- WHEN Step 8 runs
+- THEN it authenticates WSS, executes fixed proof, and reports no SSH/artifact/Java/upload call
 
-### Requirement: Step 3/4 Truthful Readiness
+#### Scenario: Fallback is bounded
+- GIVEN daemon establishment refusal/unavailability, availability timeout, policy-disabled daemon, or verified unsupported version is returned
+- WHEN policy, independent SSH trust, credentials, and explicit consent all pass
+- THEN managed SSH fallback may run; operation timeouts, cancellation, proof/cleanup timeouts, limits, identity/trust, protocol/framing/malformed/downgrade, credential, and authorization failures never fall back
 
-Steps 3 and 4 MUST be redesigned together without changing nine-step order. Step 3 MUST inspect daemon TLS first and SSH host key only when eligible and permitted; it MUST use no credentials, authentication, Db2, JAR, Java, upload, or launch. Step 4 MAY perform only pre-auth transport/protocol detection and MUST say exactly `[OK] Mapepire detected — authentication pending` or a localized equivalent when applicable. Credentials remain Step 6; authenticated `connect` and optional bounded query proof begin at Step 8. Readiness MUST distinguish trusted identity, reachability, detected protocol, authentication pending, authenticated session, and validated query.
+#### Scenario: UI request lifecycle
+- GIVEN a Step 8 request is loading
+- WHEN it is cancelled, retried, navigated back, or an older result arrives
+- THEN cleanup occurs, retry uses a new request ID, and stale results are rejected without changing current state
 
-#### Scenario: Step 3 and Step 4 do not overclaim
-- GIVEN a trusted daemon or eligible fallback
-- WHEN Steps 3–4 complete
-- THEN no credential/auth/SSH runtime action occurs and no authenticated or query-ready claim appears
+#### Scenario: Cancelled Step 8 is terminal and retryable
+- GIVEN Step 8 cancellation has completed, every acquired resource is closed, and a prior result is pending
+- WHEN the Bubble Tea UI renders the cancelled request
+- THEN it shows explicit sanitized `cancelled` terminal feedback with an actionable retry/back path, renders neither stale success nor failure, rejects stale results by request ID, and persists no readiness
 
-#### Scenario: Step 8 proves the session
-- GIVEN credentials are available at Step 6
-- WHEN Step 8 performs `connect` and an optional bounded read-only query
-- THEN only then may authenticated session or validated query be reported
+#### Scenario: UI feedback remains actionable
+- GIVEN Step 8 is loading, fails, or succeeds
+- WHEN the Bubble Tea view updates at supported narrow and wide sizes
+- THEN it shows actionable loading/cancel, sanitized failure/retry, or terminal success feedback while preserving focus, reachability, request-ID rejection, and responsive layout
 
-#### Scenario: Step 3 uses no credentials
-- GIVEN Step 3 inspects daemon TLS and an eligible SSH identity
-- WHEN inspection completes
-- THEN it performs no credential lookup, authentication, Db2, JAR, Java, upload, or launch
+### Requirement: Truthful Readiness and Historical Marker
 
-### Requirement: Secret-Free Persistence and Audit
+Readiness SHALL distinguish observation, authentication, and fixed proof. A persisted marker MAY contain only bounded timestamp, outcome classification, and proof revision; it SHALL exclude endpoint, transport, version, user, path, raw error, SQL, rows, and secrets, and SHALL become stale/invalid after endpoint, policy, or trust changes.
+(Previously: selected transport, readiness, version, and errors were only described as ephemeral.)
 
-Profiles MUST persist only endpoint policy reference, fallback permission, trust modes, and approved fingerprints/pins. Selected transport, readiness, version, and errors MUST be ephemeral and recomputed. Audit MUST record policy identity, attempts/classifications, trust outcome, fallback reason, protocol revision/version, and sanitized result; it MUST exclude secrets, certificates, hosts, paths, URLs, raw errors, SQL, and result content.
+#### Scenario: Marker cannot bypass proof
+- GIVEN a prior successful marker or a stale marker
+- WHEN Step 8 is requested
+- THEN a fresh authenticated proof is required and the marker is not readiness evidence
 
-#### Scenario: Legacy profile migrates conservatively
-- GIVEN legacy SSH fingerprint, `MapepireJAR`, and credential-mode fields
-- WHEN the profile is loaded or migrated
-- THEN compatibility is retained only with revalidation; old observations are never trusted automatically
+#### Scenario: Pre-auth copy is exact
+- GIVEN trusted pre-auth protocol detection without credentials
+- WHEN Step 4 renders its result
+- THEN it reports authentication pending and not an authenticated or query-ready state
+
+### Requirement: Production Configure Composition
+
+The real `cmd/nexus` `configure` composition path MUST construct and invoke the Step 8 application service. Injected/helper-only seams, unit fakes, and `cmd/catalogspike` composition MUST NOT count as production proof. Acceptance MUST include deterministic composition-level evidence exercising the real configure wiring with counting fakes or loopback services.
+
+#### Scenario: Real configure invokes Step 8
+- GIVEN `cmd/nexus configure` is composed through its production entrypoint
+- WHEN the operator invokes Step 8 for a saved profile
+- THEN the composed application service is invoked, not a test-only helper
+
+#### Scenario: Composition evidence is deterministic
+- GIVEN offline counting fakes or loopback services are available
+- WHEN composition-level acceptance runs
+- THEN it proves service construction/invocation and daemon zero-SSH behavior without IBM i or live credentials
+
+#### Scenario: Helpers do not satisfy production proof
+- GIVEN a unit fake, injected helper seam, or `cmd/catalogspike` path can run proof
+- WHEN production composition is evaluated
+- THEN that evidence is rejected unless the real `cmd/nexus configure` path invokes the application service
