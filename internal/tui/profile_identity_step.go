@@ -198,6 +198,10 @@ func (m Model) renderProfileIdentityPanelContent(w, h int, t homeTheme) wizardPa
 	ranges := make(map[profileIdentityFocus]wizardLineRange)
 	lines = appendWizardGap(lines, rhythm.titleDivider)
 	lines = append(lines, renderWizardDivider(cw, t))
+	// Step 3 displays both trust domains; inspection remains an explicit effect.
+	for _, trust := range []string{"Daemon TLS trust: policy-controlled CA/pin/TOFU", "SSH host trust: independent policy eligibility"} {
+		lines = append(lines, t.metadata.Render(trust))
+	}
 	if m.identityPhase == profileIdentityReview || m.identityPhase == profileIdentityCompleted {
 		lines = append(lines, t.wizardContentHeading.Render(m.text("wizard.identity.observed_title", nil)))
 		lines = appendWizardGap(lines, rhythm.sectionDescription)

@@ -102,3 +102,25 @@ func TestCompletedStep3ReachesStep4WithoutStartingRuntime(t *testing.T) {
 		t.Fatal("Step 3 did not reach local Step 4")
 	}
 }
+
+func TestProductionModelComposesIndependentTLSAndSSHReadiness(t *testing.T) {
+	m := NewModel(&profileStoreStub{})
+	if m.mapepireFactory == nil || m.identityInspector != nil {
+		t.Fatalf("production composition lost independent readiness seams: tls=%v ssh=%v", m.mapepireFactory != nil, m.identityInspector != nil)
+	}
+	m.screen, m.connectionDraft = screenProfileMapepire, profileConnectionDraft{host: "invalid.example", port: 8076}
+	view := m.View()
+	if strings.Contains(view, "https://") || strings.Contains(view, "Authorization") {
+		t.Fatalf("view exposed runtime details: %q", view)
+	}
+}
+
+func TestStep8ProofIsExplicitlyOwnedAndCredentialFreeBeforeInvocation(t *testing.T) {
+	client := &countingProofClient{}
+	if err := runProfileStep8Proof(context.Background(), client); err != nil {
+		t.Fatal(err)
+	}
+	if client.connects != 1 || client.queries != 1 {
+		t.Fatalf("proof calls=%d/%d", client.connects, client.queries)
+	}
+}

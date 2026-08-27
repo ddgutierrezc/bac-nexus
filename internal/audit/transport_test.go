@@ -18,3 +18,16 @@ func TestTransportAuditAcceptsMetadataAndRejectsSensitivePayload(t *testing.T) {
 		t.Fatal("sensitive reason accepted")
 	}
 }
+
+func TestTransportAuditCarriesBoundedPolicyAndTrustMetadata(t *testing.T) {
+	e := TransportEvent{Transport: "wss", Reason: "availability", Outcome: "selected", Protocol: "2.3.5", PolicyID: "verified-readonly", TrustOutcome: "verified", Version: "2.3.5"}
+	if err := ValidateTransportEvent(e); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []TransportEvent{{PolicyID: "host.example"}, {TrustOutcome: "certificate-bytes"}, {Version: strings.Repeat("x", 65)}} {
+		bad.Transport, bad.Outcome = "wss", "failed"
+		if ValidateTransportEvent(bad) == nil {
+			t.Fatalf("accepted unsafe audit metadata: %+v", bad)
+		}
+	}
+}

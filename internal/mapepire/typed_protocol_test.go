@@ -4,12 +4,27 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestPinnedProtocolFixtureRevisionIsValid(t *testing.T) {
+	data, err := os.ReadFile("testdata/protocol-2ef44166fcb515744fb922b49ed3673b2dac6b26.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var request Request
+	if err := json.Unmarshal(data, &request); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateRequest(request); err != nil {
+		t.Fatalf("fixture rejected: %v", err)
+	}
+}
 
 func TestTypedRequestsValidateOperationsAndBounds(t *testing.T) {
 	a, b := requestID(t), requestID(t)

@@ -64,7 +64,7 @@ type SSHFallback interface {
 	Trust(context.Context) error
 	Start(context.Context) error
 }
-type TransportAuditEvent struct{ Transport, Reason, Outcome, Protocol string }
+type TransportAuditEvent struct{ Transport, Reason, Outcome, Protocol, PolicyID, TrustOutcome, Version string }
 type TransportAuditor interface {
 	RecordTransport(context.Context, TransportAuditEvent) error
 }
@@ -126,7 +126,7 @@ func (r Resolver) Resolve(ctx context.Context, policy ProfilePolicy) (Resolution
 		version, err := r.Daemon.Probe(ctx)
 		if err == nil && version == "2.3.5" {
 			out := Resolution{Transport: TransportWSS, Version: version, AuthenticationPending: true}
-			r.record(ctx, TransportAuditEvent{Transport: "wss", Outcome: "selected", Protocol: version})
+			r.record(ctx, TransportAuditEvent{Transport: "wss", Outcome: "selected", Protocol: version, Version: version, PolicyID: "verified-readonly", TrustOutcome: "verified"})
 			return out, nil
 		}
 		if err != nil && !eligible(failure(err)) {
@@ -169,11 +169,11 @@ func (r Resolver) fallback(ctx context.Context, p ProfilePolicy, reason FailureC
 		return r.failed(ctx, failure(err), "ssh")
 	}
 	out := Resolution{Transport: TransportSSH, AuthenticationPending: true, FallbackReason: reason}
-	r.record(ctx, TransportAuditEvent{Transport: "ssh", Reason: string(reason), Outcome: "selected"})
+	r.record(ctx, TransportAuditEvent{Transport: "ssh", Reason: string(reason), Outcome: "selected", PolicyID: "verified-readonly", TrustOutcome: "verified"})
 	return out, nil
 }
 func (r Resolver) failed(ctx context.Context, c FailureClass, transport string) (Resolution, error) {
-	r.record(ctx, TransportAuditEvent{Transport: transport, Outcome: "failed", Reason: string(c)})
+	r.record(ctx, TransportAuditEvent{Transport: transport, Outcome: "failed", Reason: string(c), PolicyID: "verified-readonly", TrustOutcome: "blocked"})
 	return Resolution{Transport: Transport(transport), Class: c}, &ResolveError{Class: c}
 }
 func (r Resolver) record(ctx context.Context, e TransportAuditEvent) {

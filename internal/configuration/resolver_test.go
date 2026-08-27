@@ -4,6 +4,8 @@ import (
 	"bac-nexus/internal/profile"
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -108,5 +110,35 @@ func TestTrustEnrollmentIsExplicitAndTransportSpecific(t *testing.T) {
 	}
 	if _, err := EnrollTrust(TransportSSH, profile.TrustModeCA, "", "operator", "enroll "); err == nil {
 		t.Fatal("SSH accepted TLS CA trust")
+	}
+}
+
+func TestManagedDaemonProbeUsesBoundedHTTPSVersionEndpoint(t *testing.T) {
+	probe, err := NewManagedDaemonProbe("127.0.0.1", 8076, nil)
+	if err != nil || probe == nil {
+		t.Fatalf("probe=%v err=%v", probe, err)
+	}
+	if probe.Endpoint() != "wss://127.0.0.1:8076" {
+		t.Fatalf("endpoint=%q", probe.Endpoint())
+	}
+}
+
+func TestManagedDaemonProbeReadsVersionWithoutCredentials(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/version" || r.Header.Get("Authorization") != "" {
+			t.Fatalf("unsafe probe request: %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"version":"2.3.5"}`))
+	}))
+	defer server.Close()
+	probe, err := NewManagedDaemonProbe("127.0.0.1", 8076, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe.endpoint = strings.Replace(server.URL, "https://", "wss://", 1)
+	probe.client = server.Client()
+	version, err := probe.Probe(context.Background())
+	if err != nil || version != daemonVersion {
+		t.Fatalf("version=%q err=%v", version, err)
 	}
 }

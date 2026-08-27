@@ -154,6 +154,7 @@ type Model struct {
 	identityParent     context.Context
 	identityTimeout    time.Duration
 	mapepireProbe      preAuthProbe
+	mapepireFactory    func(string, int) preAuthProbe
 	mapepireResolution configuration.Resolution
 	step8Client        profileProofClient
 	wizardViewport     viewport.Model
@@ -215,6 +216,10 @@ func NewModelWithBuildInfoAndLocalizer(store configuration.ProfilesStore, buildI
 		panic("nil localizer")
 	}
 	m := Model{store: store, screen: screenHome, homeSelected: actionCreate, noColor: noColorEnabled(), buildInfo: buildInfo, wizardViewport: viewport.New(1, 1), legacyViewport: viewport.New(1, 1), localizer: localizer}
+	m.mapepireFactory = func(host string, port int) preAuthProbe {
+		probe, _ := configuration.NewManagedDaemonProbe(host, port, nil)
+		return managedDaemonPreAuth{probe}
+	}
 	m.form = m.newFields(profile.Profile{})
 	m.profileName = newProfileNameInput()
 	return m

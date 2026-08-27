@@ -15,6 +15,21 @@ type preAuthProbe interface {
 	Probe(context.Context) (configuration.Resolution, error)
 }
 
+type managedDaemonPreAuth struct {
+	probe *configuration.ManagedDaemonProbe
+}
+
+func (p managedDaemonPreAuth) Probe(ctx context.Context) (configuration.Resolution, error) {
+	version, err := p.probe.Probe(ctx)
+	if err != nil {
+		return configuration.Resolution{Class: configuration.FailureAvailability}, err
+	}
+	if version != "2.3.5" {
+		return configuration.Resolution{Class: configuration.FailureUnsupported, Version: version}, nil
+	}
+	return configuration.Resolution{Transport: configuration.TransportWSS, Version: version, AuthenticationPending: true}, nil
+}
+
 type profileProofClient interface {
 	Connect(context.Context) error
 	Query(context.Context) (int, error)
@@ -31,6 +46,9 @@ func (m Model) updateProfileMapepireStep(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen = screenProfileConnection
 		return m, nil
 	case "enter":
+		if m.mapepireProbe == nil && m.mapepireFactory != nil {
+			m.mapepireProbe = m.mapepireFactory(m.connectionDraft.host, m.connectionDraft.port)
+		}
 		if m.mapepireProbe == nil || m.mapepireResolution.AuthenticationPending {
 			return m, nil
 		}

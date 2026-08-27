@@ -92,7 +92,7 @@ type Event struct {
 }
 
 // TransportEvent is a bounded, metadata-only dual-transport outcome.
-type TransportEvent struct{ Transport, Reason, Outcome, Protocol string }
+type TransportEvent struct{ Transport, Reason, Outcome, Protocol, PolicyID, TrustOutcome, Version string }
 
 func ValidateTransportEvent(e TransportEvent) error {
 	if e.Transport != "wss" && e.Transport != "ssh" {
@@ -105,6 +105,15 @@ func ValidateTransportEvent(e TransportEvent) error {
 		return ErrReasonRejected
 	}
 	if len(e.Protocol) > 32 {
+		return ErrReasonOversized
+	}
+	if e.PolicyID != "" && e.PolicyID != "verified-readonly" {
+		return ErrPolicyRejected
+	}
+	if e.TrustOutcome != "" && e.TrustOutcome != "verified" && e.TrustOutcome != "untrusted" && e.TrustOutcome != "blocked" {
+		return ErrReasonRejected
+	}
+	if len(e.Version) > 64 {
 		return ErrReasonOversized
 	}
 	return nil
