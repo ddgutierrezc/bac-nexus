@@ -2,77 +2,75 @@
 
 ## Technical Approach
 
-Replace the current LF-only, serialized `internal/mapepire` session with a typed application client over distinct WSS and SSH-single adapters. A policy-owned resolver prefers trusted daemon WSS (`:8076`); SSH runtime is invoked only after eligible resolution, credentials, and consent. Catalog callers retain their `Execute` adapter and never select a transport.
+Add saved-profile-only `internal/configuration.Step8ProofService`. TUI imports only `Step8Runner`; `cmd/nexus` composes adapters. Existing packages retain protocol, TLS, SSH/SFTP, and runtime ownership.
 
 ## Architecture Decisions
 
-| Area | Decision | Trade-off / rationale |
-|---|---|---|
-| Ownership | `internal/mapepire` owns typed envelopes, IDs, correlation, cursors, limits, and session lifecycle; `internal/mapepire/wss` and `internal/mapepire/sshstdio` own their wire contracts; `internal/configuration` owns resolver/orchestration; `profile` owns persisted policy/trust. | Upper catalog/application layers depend only on the client, never transport. |
-| Wire boundary | WSS adapter accepts/sends exactly one JSON **text** message; SSH adapter accepts/sends exactly one JSON LF record. Each owns context/deadlines, size checks, peer evidence, EOF/exit/close mapping. | A generic `io.ReadWriteCloser` leaks LF semantics into WSS; rejected. |
-| WSS library | Admit `github.com/coder/websocket` only after dependency/security approval, pinned to its approved version. Configure TLS through an injected `http.Client`/`tls.Config`; use context-aware Dial/Reader/Writer, `MessageText`, `SetReadLimit`, compression disabled, and loopback `httptest` TLS tests. | Small maintained zero-dependency library with first-class context; Gorilla lacks equivalent context-first I/O. No dependency is added by this design. |
-| TLS evidence | CA+hostname is default. Pin/TOFU stores `sha256/<base64url(SHA-256(leaf DER))>` plus mode/provenance; never a certificate/host/URL. Any mismatch, expiry, hostname failure, or leaf rotation requires approved re-enrollment (no overlap). | Leaf pin makes rotation explicit and auditable; plaintext and `MP_UNSECURE` are prohibited. |
-| Protocol/session | Replace `Request`/`Response` with operation-specific request/response structs for `getversion`, `connect`, `prepare_sql_execute`, `sqlmore`, `sqlclose`, `ping`, `exit`. A cryptographically random unique ID is registered before write; one reader loop dispatches a bounded pending map. Wrong, duplicate, malformed, or unknown IDs fail and close the whole session. | Out-of-order safe without pooling. Cursor IDs remain client-owned, close only after completion, and `sqlmore` totals are bounded. |
-| Failure routing | Eligible: daemon disabled by policy, bounded refusal/timeout/unavailability, or TLS-trusted `/version` proving unsupported 2.3.5. Terminal: TLS/SSH identity failure, tampering/protocol violation, unsafe downgrade, credential/authorization, malformed/unknown version, limits, cancellation. | Prevents silent downgrade; selected transport/reason/version/readiness are ephemeral. |
-| Alternatives | Reject `mapepire-go` runtime, SDK/pool, unified framing, silent fallback, persisted selection, and Step-4 authenticated readiness. | Each either lacks required boundaries or creates stale/unsafe claims. |
-
-## Data Flow
-
-```text
-Step 3: policy -> TLS inspection -> [eligible] SSH host-key inspection
-Step 4: resolver -> WSS trust -> bounded /version -> detected/auth pending
-Step 6/8: same credential reference -> WSS Basic+connect OR SSH auth->runtime->connect
-client -> typed envelope -> WSS text | SSH LF -> reader loop -> correlated caller
-```
-
-`connect` (job required) is the first honest session proof; optional bounded read-only query is the only validated-query proof. Session context cancellation closes its adapter and wakes all pending calls; it never claims remote statement cancellation. SSH `getversion` requires matching ID and `success=true`; EOF/process exit is a classified process failure. Daemon path never touches JAR, Java, SSH, upload, or cache.
-
-## Interfaces / Contracts
+| Decision | Choice and rationale |
+|---|---|
+| Direction | `tui -> configuration contract <- cmd/nexus`; no TUI implementation imports; composition is not helper evidence. |
+| Auth/trust | `/version` is pre-auth; credentials enter `connect`. WSS first. Per-transport confirmed TOFU binds host/port/fingerprint; mismatch blocks. CA/pin is the V1-risk replacement seam. |
 
 ```go
-type PeerEvidence struct { Mode TrustMode; Fingerprint string; PolicyRef string }
-type Transport interface { Send(context.Context, []byte) error; Receive(context.Context) ([]byte, error); Close() error }
-type Resolver interface { ResolvePreAuth(context.Context, ProfilePolicy) (Observation, error) }
+type Step8Runner interface{ Run(context.Context, Step8Request) Step8Result }
 ```
 
-`Transport` is internal to `mapepire`; adapters are constructed with their concrete WSS or SSH dependencies, not exposed upward. Versioned Nexus policy initially retains the existing 1 MiB frame and 1,000-row cap; adds 1 MiB aggregate response, 200 rows/page, 256 columns, 8 cursors, 64 pending IDs, 5s handshake/probe, 15s request, and 60s session. These align with current `MaxFrameBytes`/`MaxQueryRows`, source's 200-line/128 KiB bounds, and 2.3.5 evidence; they are release constants, never profile inputs.
+Configuration-owned contracts: `CredentialProvider.Get(ctx,key,mode)`, `PreAuthResolver.Observe(ctx,profile)`, `WSSFactory.Open`, `SSHFactory.Open(ctx,profile,secret,consent)`, `ProofSession.Connect/FixedProof/Close`, `TrustStore.Enroll`, `MarkerWriter.Write`, `Auditor.Record`, `Clock.Now`, and `RequestIDs.New`.
 
-## File Changes
+`Decision` is exactly `wss_selected|ssh_eligible|terminal`; `Observation{Decision,Reason,Version}` is pre-auth only. Eligible `Reason` is exactly `daemon_connection_refused|daemon_unavailable|daemon_availability_timeout|daemon_policy_disabled|daemon_version_verified_unsupported`, each mapping to `ssh_eligible`. Pre-auth terminal reason is exactly `identity_hostname_pin_tofu_trust_mismatch_or_rotation|protocol_or_framing_failure|malformed_response|unsafe_downgrade|cancelled|operation_timeout|limit_exceeded`.
 
-| File | Action | Description |
-|---|---|---|
-| `internal/mapepire/{protocol,session,limits,errors}_*.go` | Modify/Create | Typed client, correlation, compatibility `Execute` adapter, fixtures. |
-| `internal/mapepire/{wss,sshstdio}/` | Create | Concrete adapters and trust/process mapping. |
-| `internal/configuration/`, `internal/profile/` | Modify | Resolver, readiness, schema-v2 reader/writer and migration. |
-| `internal/remote/`, `internal/connectors/ibmi/mapepirestdio/` | Modify | Reuse no-auth inspector; fallback-only verified handle, upload rollback, Java validation, fixed `--single`. |
-| `internal/tui/`, `internal/audit/`, `internal/security/` | Modify | Service-result state/copy and sanitized allowlisted audit; no layout work. |
+Later proof/runtime maps into public end-to-end result/audit `ResultClass`: `identity_failure|trust_mismatch|protocol_failure|framing_failure|malformed_response|downgrade_blocked|credentials_unavailable|authentication_failed|authorization_denied|cancelled|operation_timeout|proof_timeout|cleanup_timeout|cleanup_failure|limit_exceeded|consent_declined_or_absent|artifact_failure|java_failure|upload_failure|launch_failure|session_failure|proof_failure`; all are terminal. `trust_mismatch`, `credentials_unavailable`, and `downgrade_blocked` are distinct exact public constants, never aliases. Broader internal causes/wrapped detail are sanitized and deterministically map to one public class only. Eligible reasons cannot accompany `terminal`; terminal reasons never map to SSH; WSS success maps only to `wss_selected`. No string matching/wrapped-error guessing: unknown decision/reason fails closed. Request has profile/request/consent only; result has request/class/revision/outcome/cleanup only. Table-driven design verification MUST enumerate every decision/reason/result class, assert its sole mapping, and assert unknown values fail closed.
 
-Schema v2 adds managed endpoint policy/fallback reference and independent TLS/SSH evidence. It reads v1 strictly using its existing allowlist, writes v2 with `schemaVersion`, and rejects unknown versions/keys. Legacy `HostKeyFingerprint`, `MapepireJAR`, and `vault|prompt` remain readable but require revalidation; no secret, cache path, selected transport, readiness, version, or error is persisted.
+## Data Flow and State
 
-## Testing Strategy
+* Step 3: `configure -> Model -> InspectHostKey -> SSH enrollment -> draft`; no auth/runtime. Step 4: `Model -> policy :8076 -> TLS /version -> authentication_pending`; no SSH. Step 7: `ProfilesStore.Save` writes secret-free profile and `ibmi/<profile>` key.
+* Step 8: `action -> tea.Cmd -> Runner -> Observe`. `wss_selected -> credential -> WSSFactory -> connect -> prepare_sql_execute(VALUES 1) -> sqlclose -> exit -> close -> audit/marker`; no SQL/rows. `ssh_eligible -> policy -> SSH trust -> consent -> credential -> Dial -> verified artifact/Java/upload/fixed --single -> same proof`. Decline: zero credential/SSH/runtime. Terminals never downgrade; WSS makes SSH/artifact zero.
 
-| Layer | RED coverage | Approach |
-|---|---|---|
-| Unit | typed validation, IDs, reverse responses, duplicates, unknown IDs, cursors/sqlmore, cancellation/exit | table fakes; pin official protocol fixtures at `2ef44166fcb515744fb922b49ed3673b2dac6b26`. |
-| Integration | TLS CA/pin/rotation, text-only WSS; LF/process EOF; resolver no-downgrade; migration/audit redaction | loopback TLS/WSS and fake process only. |
-| Boundary | Step 3/4 truthful copy; Step 8 credential lifecycle; daemon zero fallback calls | counting fakes and TUI `View()` tests; normal suite makes zero IBM i contact. |
+Availability and operation/proof/cleanup contexts differ; cancellation closes session/transport/process/SFTP/SSH, never claims remote cancellation. TUI holds request ID/cancel/phase/sanitized feedback; `Update` rejects stale IDs; `View` has no I/O.
 
-## Threat Matrix
+`cmd/nexus.runConfigure` builds stores, policy, auditor, resolver/factories, and service; passes runner to `runConfigureTUI`; production model stores only runner; action command invokes it and result returns to `Update`. Deterministic `runConfigure` test uses local stores, loopback WSS, counting SSH, and proves invocation/zero daemon SSH. Helper-only, fake-only constructors, and `cmd/catalogspike` are invalid.
 
-| Boundary | Applicability | Safe behavior / RED test |
-|---|---|---|
-| Documentation-like paths | N/A — no executable classification | N/A |
-| Git repository selection | N/A — no VCS operation | N/A |
-| Commit state | N/A — no commit operation | N/A |
-| Push state | N/A — no push operation | N/A |
-| PR commands | N/A — no PR automation | N/A |
+The proof is exactly one `connect`, one `prepare_sql_execute(VALUES 1)`, no `sqlmore`, then `sqlclose` and `exit`; it accepts at most one row, one page, 256 columns, 1 MiB frame/aggregate, eight cursors, 64 pending IDs, with 5s availability, 15s operation, and 60s session limits.
 
-Fixed SSH process construction remains allowlisted; LF fake tests cover process integration, EOF, cancellation, and no arbitrary command input.
+## Persistence and Audit
 
-## Migration / Rollout
+Profile v3 validates `prompt|keyring`; v1/v2 `vault` is `migration_required`. Key is validated name -> `ibmi/<name>`, never secret. Prompt/keyring unavailable, denial, not-found, invalid mode, migration/rotation failure => `credentials_unavailable`; only explicit `KeyringStore.Migrate`. Acquire branch-last, zero after close; no downgrade/plaintext/exposure.
 
-Deliver schema/compatibility first, then protocol/adapters, resolver/trust, fallback runtime, and wizard composition as reviewable feature-branch-chain slices. Disable resolver to roll back; v1 reads remain safe and fallback artifacts are inert. This supersedes (without deleting or editing) `mapepire-artifact-acquisition`: retain only its 2.3.5 verified handle/cache, approved source, optional Code for IBM i, upload verification/rollback, Java, and consent mechanics; artifact-first Step 4 and provider assumptions are superseded.
+Marker is exactly `{schemaVersion:1,atUnixMs,outcome,proofRevision}`. Save/update clears it on endpoint-policy, policy revision, or trust change; old schemas have none. It never gates readiness. Audit allows policy ID, transport attempt, trust, fallback reason, revision/version, result, duration, lifecycle; excludes endpoint/host/user/path/raw error/SQL/results/secrets.
+
+## Security and Threat Matrix
+
+| Risk | Safe failure / RED proof |
+|---|---|
+| Credential, endpoint, TOFU | fail closed; default 8076/policy override only; exact enrollment and mismatch block |
+| Downgrade, artifact | only eligible matrix + consent; changed/unpinned artifact blocks before upload |
+| Cleanup/cancel/stale UI | LIFO close; cancel terminal; stale request ignored |
+| Marker/audit | prohibited fields rejected; marker clears and never gates |
+
+| Threat-matrix boundary | Applicability |
+|---|---|
+| Documentation paths; Git/commit/push/PR | N/A — no classification or VCS/PR automation |
+| Shell/process integration | Applicable: fixed allowlisted `--single` only; RED rejects user command/path, partial cleanup, cancellation |
+
+Live IBM i is deferred/manual-approved; all automated evidence remains `not_validated_on_ibmi`.
+
+## Six Feature-Branch-Chain Slices
+
+| Slice (base -> target) | Scope, RED/harness, rollback | Estimate |
+|---|---|---:|
+| 1 `fix/mapepire-dual-transport-verification -> feature/step8-foundation` | v3 mode/key migration, marker, types/fixed proof RED; fake provider/session/auditor; rollback foundation; `go test -count=1 ./internal/profile ./internal/credential ./internal/configuration` | 380 |
+| 2 `feature/step8-foundation -> feature/step8-wss` | WSS/proof RED; TLS/WSS loopback proves close/zero SSH; `go test -count=1 ./internal/configuration ./internal/mapepire ./internal/mapepire/wss` | 350 |
+| 3 `feature/step8-wss -> feature/step8-ssh` | policy/trust/consent-before-credential RED; fake SSH/process/upload LIFO; `go test -count=1 ./internal/configuration ./internal/remote ./internal/mapepire/sshstdio ./internal/connectors/ibmi/mapepirestdio` | 390 |
+| 4 `feature/step8-ssh -> feature/step8-compose` | composition RED; compile assertion and actual configure counting/loopback proof; rollback root; `go test -count=1 ./cmd/nexus ./internal/configuration` | 330 |
+| 5 `feature/step8-compose -> feature/step8-tui` | lifecycle RED; Update/View 120x40/80x24/40x16/NO_COLOR; `go test -count=1 ./internal/tui` | 380 |
+| 6 `feature/step8-tui -> feature/step8-audit` | audit/docs RED; composition matrix; rollback additions; `go test -count=1 ./internal/audit ./internal/configuration ./internal/tui` | 240 |
+
+Each slice runs its affected package `go test -count=1`; slice 6 also runs full suite/vet/build. A separate planning commit contains only proposal/spec/design/tasks amendments before slice 1.
+
+## Current Remediation and Rollout
+
+Preserve uncommitted `daemon.go`, `wss/http.go`, resolver/audit/fixture changes for slices 2/6 and TUI Step 3/4 changes for slice 5; rebase only after RED tests. `.atl`, `tmp`, proposal/specs/apply-progress stay outside. `verify-report.md` is byte-unchanged historical failure evidence during planning, implementation, and remediation: never reset/alter native evidence. Only the proper later verify phase creates fresh acceptance evidence.
 
 ## Open Questions
 
-None — dependency admission is an explicit implementation gate, not a design ambiguity.
+None: `VALUES 1`, saved-profile gate, credential modes, endpoint, TOFU, marker, and managed runtime are confirmed.

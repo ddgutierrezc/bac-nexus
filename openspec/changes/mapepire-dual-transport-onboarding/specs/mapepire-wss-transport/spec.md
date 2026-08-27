@@ -1,40 +1,44 @@
-# mapepire-wss-transport Specification
+# Delta for mapepire-wss-transport
 
-## Purpose
+## MODIFIED Requirements
 
-Connect to a managed Mapepire daemon through a trusted WSS boundary.
+### Requirement: Trusted Authenticated WSS Session
 
-## Requirements
+The adapter SHALL perform bounded unauthenticated `/version` observation before authentication, then expose a credential-aware typed session factory. TLS trust SHALL reuse the approved endpoint policy and V1 user-controlled TOFU evidence; mismatch, expiry, hostname failure, or rotation SHALL be terminal. Authentication SHALL occur only in Step 8, with bounded cancellation and cleanup, and SHALL have no SSH dependency.
+(Previously: WSS framing and `/version` observation were specified without an authenticated production session factory.)
 
-### Requirement: Trusted Bounded WSS
+#### Scenario: Pre-auth observation succeeds
+- GIVEN an approved endpoint and trusted TLS identity
+- WHEN `/version` returns supported compatibility
+- THEN the result is protocol detected/authentication pending and no credential is requested
 
-The adapter MUST use WSS with bounded handshake, message, deadline, and response limits, hostname verification, and no plaintext or `MP_UNSECURE` production path. One application request/response MUST occupy one JSON text WebSocket message. CA plus hostname validation is preferred; policy-controlled verified pinning or explicit TOFU MAY be used. Pin mismatch and certificate rotation MUST require approved re-enrollment. WebSocket success MUST NOT prove credentials, authorization, Db2, or query readiness.
+#### Scenario: Auth failure is terminal
+- GIVEN pre-auth `/version` succeeds but typed `connect` fails for credentials or authorization
+- WHEN Step 8 classifies the failure
+- THEN it returns terminal failure and does not invoke SSH
 
-#### Scenario: CA-trusted daemon is framed correctly
-- GIVEN a policy-approved CA and hostname
-- WHEN a bounded WSS exchange runs
-- THEN each JSON text message is validated and delivered to the protocol client
+#### Scenario: WSS success has zero SSH calls
+- GIVEN WSS authentication and fixed proof succeed
+- WHEN the session closes
+- THEN no SSH, artifact, Java, upload, or fallback call occurs
 
-#### Scenario: Identity failure blocks
-- GIVEN hostname, pin, expiry, certificate, or trust validation fails
-- WHEN WSS connects
-- THEN it returns a sanitized terminal error and does not permit fallback
+#### Scenario: TLS trust is explicit
+- GIVEN first-use TLS identity or a changed/rotated identity
+- WHEN the operator confirms enrollment or a mismatch is presented
+- THEN exact host/port/fingerprint confirmation enrolls independently, or the mismatch blocks without silent acceptance
 
-### Requirement: Supported Daemon Probe
+#### Scenario: Cancellation cleans up
+- GIVEN a WSS dial, connect, proof, or close is pending
+- WHEN context is cancelled
+- THEN the client closes the WebSocket/session and returns a terminal cancelled classification
 
-After approved TLS trust, the resolver MAY perform one automatic bounded unauthenticated `/version` probe. It MUST prove only endpoint identity/version and accept only supported Mapepire Server 2.3.5 compatibility; it MUST not use credentials or claim an authenticated session.
+## ADDED Requirements
 
-#### Scenario: Supported version is selected
-- GIVEN CA trust and a supported 2.3.5 `/version`
-- WHEN the probe succeeds
-- THEN WSS is selected with protocol detected and authentication pending
+### Requirement: Text Framing and Bounds
 
-#### Scenario: Unsupported version permits policy fallback
-- GIVEN TLS trust is valid and `/version` proves an unsupported server version
-- WHEN policy permits fallback
-- THEN resolution may continue to independently trusted SSH with that reason
+Each application request/response SHALL be one bounded JSON text WebSocket message with compression disabled; plaintext and `MP_UNSECURE` production paths MUST NOT exist.
 
-#### Scenario: WSS cannot prove authorization
-- GIVEN WebSocket and `/version` succeed
-- WHEN no authenticated `connect` has run
-- THEN the result is not an authenticated session or validated query
+#### Scenario: Binary or oversized input is rejected
+- GIVEN a binary frame or message beyond release bounds
+- WHEN the adapter receives it
+- THEN it terminates with protocol/limit failure and exposes no content
