@@ -1,127 +1,160 @@
-## Exploration: mapepire-dual-transport-onboarding
+## Exploration: production Step 8 orchestration for mapepire-dual-transport-onboarding
 
 ### Current State
 
-BAC Nexus currently implements only wizard Steps 1–3. Step 1 and Step 2 collect local profile and endpoint drafts; Step 3 performs an explicit, bounded, no-auth SSH host-key inspection and retains only an unverified TOFU candidate in memory. There is no Step 4 screen, no transport resolver, and no authenticated Mapepire onboarding path. The conceptual ordering remains Steps 1–9, with credentials at Step 6.
+This exploration is read-only architecture work. It does not change the authoritative proposal, seven delta specs, design, tasks, apply progress, or failed verification report. The current branch is `fix/mapepire-dual-transport-verification`; its uncommitted remediation is preserved exactly.
 
-The current Mapepire boundary is single-mode and newline-oriented:
+The original six slices are checked, but that evidence proves lower-layer seams and injected TUI tests, not the complete production Step 8 route. The partial remediation adds a production managed-daemon `/version` probe, default Step 4 probe factory, independent trust visibility, pinned protocol-fixture validation, and bounded policy/trust/version audit metadata. Those corrections do not compose credentials, authenticated WSS, fallback runtime, or Step 8 into the production wizard. The failed `verify-report.md` remains immutable and correctly records the earlier gaps; it is not acceptance evidence for the proposed work.
 
-- `internal/mapepire/protocol.go` encodes JSON requests with a trailing LF and `DecodeFrame` reads LF-delimited responses.
-- `internal/mapepire/session.go` serializes one exchange at a time, expects responses immediately after each request, and closes a fresh session after one prepared query. It currently sends `connect`, `prepare_sql_execute`, `sqlclose`, and `exit`; it does not implement `getversion`, `ping`, or `sqlmore`.
-- `internal/remote/ssh.go` authenticates with password, starts a fixed `java -jar <remote> --single` command, and exposes the resulting stdin/stdout channel. This is the reusable SSH-single execution seam, but it is authenticated and therefore cannot prove Mapepire availability before Step 6 credentials.
-- `internal/connectors/ibmi/mapepirestdio` owns the pinned 2.3.5 artifact policy, Code for IBM i 3.0.12/VS Code discovery, local verification, remote upload/rollback, and Java/`--single` launch policy. These are SSH-single lifecycle concerns, not daemon onboarding concerns.
-- `internal/profile.Profile` persists an absolute `MapepireJAR` path and `vault|prompt` credential mode. Native keyring storage exists below the configuration layer, but the wizard does not yet compose credential collection or persistence.
-- `internal/configuration/readiness.go` only provides local composition-gap reporting and a separately invoked sanitized diagnostic. It preserves `ready_for_controlled_ibmi_validation` and `not_validated_on_ibmi`; it does not establish authenticated Mapepire readiness.
+#### Exact current production path
 
-Official evidence was re-checked against the supplied sources. Protocol commit `2ef44166fcb515744fb922b49ed3673b2dac6b26` has no stable release tag and defines string `id`/`type` requests, echoed IDs, `success`, and asynchronous responses that may arrive out of order. The server documentation confirms LF-delimited JSON for SSH single mode and describes the same application dispatch for daemon WebSocket mode. The server guide documents daemon TLS and default port `8076`; `/version` is an unauthenticated HTTPS-level endpoint in the proposed probing model, while database authorization is proven by `connect`. The JS repository documents WebSocket as the default persistent-daemon mode and SSH single as a separate transport, but its released `v0.6.1` maturity must not be assumed to include the current unreleased transport quality. `mapepire-go` remains a secondary comparison and does not supply the required SSH, pinning, or context boundary.
+`cmd/nexus/main` → `runCommand` → `runConfigure` → `runConfigureTUI` (`tui.RunWithHostIdentityInspector`) → `tea.NewProgram` → `newModelWithIdentityInspector` → Bubble Tea `Model.Update`/`View`. `runConfigure` injects only `profile.Store` and `remote.HostIdentityInspector{}`. It does not inject a credential store, trust persistence service, resolver, WSS client factory, SSH fallback factory, proof service, auditor, or Step 8 command.
 
-The approved direction therefore changes the unit of onboarding from “obtain a local JAR” to “resolve a trusted, usable transport automatically”:
+Step 3 can run the existing no-auth, cancellable SSH host-key inspection. Its consumer-owned inspector accepts only `(context, host, port)`, and the completed candidate is retained in draft state. On acceptance, navigation reaches `screenProfileMapepire` (Step 4). The current Step 4 has a `mapepireFactory` and `preAuthProbe` seam; the partial remediation supplies a default `ManagedDaemonProbe` factory, which performs bounded unauthenticated HTTPS `/version` against managed `wss://host:port` (default policy target is `8076`). The probe is pre-auth only and returns authentication-pending state. Step 4 has no credentials, session, fallback, query, or runtime lifecycle.
 
-1. Preferred: managed Mapepire daemon over WSS at port `8076`.
-2. Fallback: SSH single (`java -jar ... --single`) only when the daemon is unavailable or unusable for an availability/policy/verified-unsupported-version reason, and only when an independent SSH trust policy permits it.
-3. No user choice among daemon, SSH, JAR, or Java. Nexus owns resolution.
-4. A small custom Go client owns only the required protocol subset and sits above transport adapters; there is no runtime dependency on `mapepire-go`.
+There is no production Step 8 screen or command. `step8Client`/`profileProofClient` and `runProfileStep8Proof` are helper/test-only. The helper only calls `Connect` then `Query`; it does not retrieve credentials, select WSS/SSH, perform consent, create a session, classify failures, audit, cancel, close, or update UI state. Therefore the exact missing production chain is:
+
+```text
+Step 8 user action
+  -> credential policy/prompt or native keyring Get
+  -> resolver using persisted policy/trust and ephemeral Step 4 observation
+  -> trusted WSS dial + authenticated Mapepire connect
+  -> fixed bounded read-only proof query
+  -> typed result/error + metadata-only audit + UI result
+  -> close cursor, exit, transport/session, SSH process/client
+```
+
+No link in that chain is currently composed by `cmd/nexus` or the wizard.
+
+#### Existing lower-layer capabilities
+
+- `internal/credential`: `CredentialStore` is exact and profile-scoped (`Get`, `Set`, `Delete`); native keyring is fail-closed and returns opaque presence/errors. Secrets are not accepted by `tui.Model` and must be held only in a short-lived orchestration scope.
+- `internal/profile`: atomic secret-free JSON storage and schema-v2 trust/policy fields exist. Selected transport, version, readiness, errors, credentials, cache paths, and query results must remain ephemeral.
+- `internal/configuration`: `Resolver.Resolve` prefers `DaemonProbe`, classifies availability/policy/unsupported as eligible, blocks identity/protocol/credential/authorization failures, requires SSH trust and consent before `SSHFallback.Start`, and records transport metadata. Its current `SSHFallback` seam is too early/coarse for the full authenticated proof lifecycle.
+- `internal/configuration/daemon.go`: `ManagedDaemonProbe` performs bounded `/version` with TLS identity/pin handling, but its current construction uses a `wss` endpoint string for the HTTP URL and is not an authenticated WSS application client.
+- `internal/mapepire`: typed envelopes/session, bounded IDs/cursors/frames, one reader, cancellation-terminal closure, and `MessageTransport` exist. The legacy `Session.Execute` remains used by catalog callers; no production Step 8 client factory or fixed proof operation exists.
+- `internal/mapepire/wss`: trusted WSS text framing, bounded reads, compression disabled, and terminal identity/cancellation behavior exist. It is an adapter, not a credentialed session/proof service.
+- `internal/mapepire/sshstdio`: authenticated process-channel LF framing exists. `internal/remote.Client.StartMapepireTransport` calls fixed `BuildCommand`; `remote.Dial` authenticates with a password and owns SSH/SFTP cleanup.
+- `internal/connectors/ibmi/mapepirestdio`: pinned artifact verification, discovery, upload/rollback, Java validation, and fixed `--single` command construction exist. They must be invoked only after fallback classification, trust, credentials, authorization, and explicit consent.
+- `internal/configuration/readiness.go`: `RunRemoteDiagnostic` supplies a generic timeout/cancellation wrapper and sanitized classifications, but does not provide the typed dual-transport Step 8 orchestration contract.
+- `internal/audit`: transport events are bounded metadata-only records. The remediation adds policy identity, trust outcome, and version bounds; Step 8 still needs proof attempt/result classifications without secrets, endpoint, SQL, raw errors, or result content.
+- `cmd/catalogspike`: credentialed live composition is separate from wizard composition and is not evidence that `nexus configure` owns this route.
 
 ### Affected Areas
 
-- `internal/mapepire/protocol.go`, `session.go`, and tests — split application protocol from framing/transport, support WSS message framing and SSH LF framing, correlate out-of-order responses, add bounded `getversion`, `connect`, `prepare_sql_execute`, `sqlmore`, `sqlclose`, `ping`, and `exit`, and document session-close cancellation semantics.
-- `internal/remote/ssh.go`, `hostidentity.go`, and `internal/hostidentity/` — retain authenticated SSH single execution, but add a transport-neutral SSH trust/pinning/TOFU identity contract distinct from the current host-key-only UI adapter.
-- New Mapepire transport/client packages (exact package names for proposal/design) — provide WSS with TLS trust/pinning/TOFU and SSH-single channel adapters without leaking transport details upward.
-- `internal/profile/profile.go` and configuration composition — represent transport-neutral policy and transport-specific trust identity without persisting secrets or a derived cache path; reconcile existing `MapepireJAR` compatibility only where the SSH fallback requires it.
-- `internal/tui/model.go`, `profile_identity_step.go`, and the future Step 4 renderer — redesign Steps 3 and 4 together, reuse the existing panel/focus/feedback/viewport rules, and keep presentation free of protocol, credential, and connector logic.
-- `internal/configuration/readiness.go` and configuration services — distinguish endpoint/TLS/protocol observations from authenticated `connect` success and from later controlled IBM i validation.
-- `internal/connectors/ibmi/mapepirestdio/` — retain current artifact verification, remote activation, Java path validation, and `--single` launch as fallback dependencies; do not make daemon onboarding depend on them.
-- `internal/security/`, `internal/audit/`, and valid `local-mcp-security` requirements — add allowlisted transport capabilities, trust outcomes, fallback classifications, bounded audit metadata, and fail-closed downgrade rules without exposing hosts, paths, credentials, certificates, SQL, or raw errors.
-- `openspec/specs/nexus-configuration/spec.md` — exact conflict: its Honest Readiness and Diagnostics requirement currently allows Java/Mapepire/JAR checks only as legacy diagnostics. A future delta must modify that requirement while preserving credential isolation, explicit diagnostics, and no-live-validation claims.
-- `openspec/specs/local-mcp-security/spec.md` — exact relationship: its current surface forbids arbitrary SSH/SQL/shell/remote operations and requires pinned trust, native credential isolation, sanitized audit, and no live-validation claims. The new capability must extend these constraints, not weaken them.
-- `docs/IBM_I_PROFILE_WIZARD.md` — change the Step 3/4 proposal only after specification approval; preserve the FACT that current Steps 4–9 are not implemented and preserve the nine-step numbering.
-- `openspec/changes/mapepire-artifact-acquisition/` and archived changes — historical planning and completed-slice evidence only. The old unimplemented change has 0 applied lines and must remain untouched while its exact reusable and superseded portions are mapped.
+- `cmd/nexus/main.go` and `internal/tui/model.go` — production composition root must inject a Step 8 service without putting connector/security logic in Bubble Tea.
+- `internal/tui/profile_identity_step.go`, `mapepire_onboarding_step.go`, wizard navigation/render/viewport files and tests — Step 3/4 boundaries must remain pre-auth; a new explicit Step 8 effect needs request identity, cancellation, stale-result rejection, feedback, and cleanup.
+- `internal/configuration/` — owns orchestration-facing resolver policy, bounded endpoint/version observations, failure classification, and a consumer-owned authenticated proof boundary.
+- `internal/profile/` and `internal/credential/` — provide validated profile metadata and the single credential retrieval boundary; no secret enters model/messages/views.
+- `internal/mapepire/`, `wss/`, `sshstdio/` — reuse typed protocol and transport adapters; do not duplicate framing, trust, correlation, or session lifecycle.
+- `internal/remote/` and `internal/connectors/ibmi/mapepirestdio/` — provide authenticated SSH, fixed artifact/Java/upload/`--single` lifecycle behind a fallback-only interface.
+- `internal/audit/` — extend only with allowlisted proof attempt/outcome metadata and bounded failure classes.
+- `docs/IBM_I_PROFILE_WIZARD.md` — update FACT/PROPOSAL status only as each production slice becomes specified and implemented; do not claim the full nine-step journey prematurely.
+- Existing OpenSpec proposal/spec/design/tasks/apply-progress/verify-report — require later amendments after this exploration; none are changed here. No new capability spec is needed if Step 8 remains part of `mapepire-transport-onboarding`; a new spec is warranted only if the proof becomes a reusable product capability outside onboarding.
 
 ### Approaches
 
-1. **Supersede with a dual-transport onboarding change** — replace the old artifact-first plan with transport-neutral protocol/client contracts, WSS preference, security-safe SSH-single fallback, and coordinated Step 3/4 onboarding.
-   - Pros: matches the approved architecture; prevents a local artifact from being mistaken for daemon availability; keeps upper layers transport-neutral; makes downgrade and identity rules explicit.
-   - Cons: requires a new protocol/session design, two trust models, asynchronous correlation, and a careful compatibility boundary for old SSH artifact behavior.
-   - Effort: High
+1. **Application-owned Step 8 proof orchestrator (recommended)** — add a small configuration/application service that receives profile metadata, a credential provider, resolver/transport factories, fixed proof operation, consent, and auditor; TUI owns only commands/messages/rendering.
+   - Pros: complete production path; consumer-owned narrow interfaces; transport and secrets stay below TUI; easy offline fakes and rollback; preserves WSS-first/no-downgrade policy.
+   - Cons: requires explicit composition and a new result contract; must coordinate two session lifecycles.
+   - Effort: High, but sliceable.
 
-2. **Amend `mapepire-artifact-acquisition` in place** — append daemon transport and Step 3/4 changes to the existing artifact lifecycle plan.
-   - Pros: preserves prior planning references and some cache/provider work.
-   - Cons: leaves artifact acquisition as the conceptual center, mixes local and remote readiness, obscures the fact that daemon mode skips JAR/Java/SSH, and makes the old task split materially misleading.
-   - Effort: High
+2. **Put the route in `internal/tui` around the current helper** — construct credentials, WSS/SSH, query, and cleanup from the Step 8 update handler.
+   - Pros: fewer initial files.
+   - Cons: violates TUI ownership, exposes secret/lifecycle risk, duplicates resolver/session logic, and is difficult to test or audit.
+   - Effort: Medium initially, High risk and maintenance cost.
 
-3. **Keep the old artifact change and add transport work beside it** — treat daemon onboarding as a later independent change.
-   - Pros: minimal change to existing documents.
-   - Cons: permits conflicting Step 4 contracts, duplicates readiness semantics, and risks applying the old artifact-first plan before the new transport decision is encoded.
-   - Effort: High
+3. **Keep the injected `profileProofClient` seam and call it production** — supply a client from the composition root while leaving orchestration elsewhere implicit.
+   - Pros: smallest diff.
+   - Cons: does not define credential boundary, WSS-first selection, fallback consent, failure matrix, audit, cleanup, or fixed query; exactly the gap that caused verification to fail.
+   - Effort: Low, insufficient.
 
 ### Recommendation
 
-Use **Approach 1: supersede**, without editing, deleting, or archiving `mapepire-artifact-acquisition` yet. The new change should be the authoritative planning surface; the old change should be retained as an audit trail of the interrupted artifact-first direction. Its reusable implementation ideas are limited to the SSH-single fallback boundary: pinned artifact verification, private cache/handle concepts if later approved, remote upload rollback, fixed Java validation, and `StartMapepire` process lifecycle. Its provider order, Step 4 local-ready meaning, mandatory JAR lifecycle, GitHub/provider assumptions, and six-slice task plan are superseded.
+Use Approach 1. Introduce a configuration/application-owned `Step8ProofService` (name can be finalized during design) with consumer-owned interfaces. The service should receive a validated profile snapshot and explicit consent, retrieve one opaque credential at the last responsible moment, resolve WSS first, authenticate through the existing typed client over `wss.Transport`, and run one fixed bounded read-only proof. Only eligible daemon failures may invoke an SSH fallback factory. The service owns `defer`-style cleanup for cursor/session/transport, zeroes credential buffers, emits one sanitized audit outcome, and returns a typed result suitable for TUI feedback.
 
-The minimum coherent capability boundary should be:
+The WSS boundary is: TLS trust and endpoint policy are configured once by the WSS adapter; `/version` remains an unauthenticated observation; the proof service supplies credentials only to the typed `connect` request through a credential-aware client operation. It must not reimplement TLS pinning, WebSocket framing, request correlation, or session closure. The SSH boundary is: fallback classification and consent precede `remote.Dial`; the authenticated client then reuses verified artifact/Java/upload/rollback and `StartMapepireTransport`, with no arbitrary command or generic SQL input.
 
-- **Mapepire application protocol/client:** typed subset only; request IDs are unique; response correlation is independent of send order; bounded frame/message/result sizes; no pooling initially.
-- **Transport adapters:** WSS text-message framing and TLS identity policy; SSH-single LF framing over an authenticated process channel. Neither adapter owns business operations.
-- **Transport resolver:** daemon first, then fallback only for availability, policy, or verified unsupported-version classifications. Identity mismatch, trust failure, protocol tampering, credential failure, and unsafe downgrade are terminal and MUST NOT trigger fallback.
-- **Onboarding identity:** Step 3 must capture either trusted daemon TLS certificate identity or trusted SSH host-key identity under approved manual verification, TOFU, or pinning policy. The operator must never select the mechanism; the policy chooses the permitted path.
-- **Step 4 readiness:** show a truthful pre-auth state and trigger only bounded, transport-appropriate probes. It may report a trusted endpoint and observed protocol version, but “Mapepire session ready” requires authenticated `connect` and belongs after credentials or to the later optional test boundary.
-- **SSH fallback acquisition:** keep full artifact acquisition/upload/Java work out of this change unless proposal approval explicitly makes it a separately bounded dependency. The new change should define the fallback contract and blocked outcome, not silently pull the old artifact plan into daemon onboarding.
-
-### Truthful Step 3/4 and Credential Ordering
-
-| Point in flow | Daemon WSS | SSH single fallback |
-|---|---|---|
-| Before credentials | After TLS trust, Nexus may prove endpoint identity and possibly `/version`/`getversion`; this proves endpoint/protocol presence only, not IBM i credentials, authorization, or Db2 job. | Nexus may inspect/pin the SSH host key without authentication. It cannot prove Mapepire protocol availability before SSH authentication, approved artifact availability, Java launch, and process start. |
-| Step 3 result | “Daemon endpoint identity observed/trusted” or equivalent; never “connected.” | “SSH server identity observed/trusted” or equivalent; never “Mapepire available.” |
-| Step 4 result | “Daemon endpoint reachable,” “protocol version observed,” “authentication required,” or “pending authenticated check.” | “Fallback permitted but not verified,” “requires authenticated SSH and approved runtime,” or “blocked”; never “ready.” |
-| After credentials | `connect` can prove authenticated Mapepire/Db2 session and job; this is the first honest session-ready result. | SSH authentication, approved artifact/runtime, launch, and `connect` can prove a session; each sub-result must remain explicit. |
-
-The current conceptual order collects credentials at Step 6, so Step 4 cannot honestly claim authenticated Mapepire readiness. No order change is recommended during exploration: redesign Steps 3 and 4 together, retain credential collection at Step 6, and reserve authenticated proof for Step 8’s explicit optional test or a later post-credential operation. If product requires Step 4 to establish a live session, the nine-step ordering must be explicitly changed rather than hidden behind UI wording.
-
-`/version` may be used without credentials only after TLS identity is accepted under policy, with bounded timeout, response size, supported-version checks, and no claim beyond endpoint/version observation. An unauthenticated HTTP response must not bypass certificate trust or authorize fallback. A TLS identity mismatch or downgrade attempt is a security failure, not daemon unavailability.
-
-Session cancellation must close the local transport/session when necessary. Because the subset exposes no per-query cancellation operation, the product must state that cancellation stops local waiting and may close the entire session; it must not claim remote statement cancellation. `sqlmore` must remain bounded by row, byte, deadline, and session limits.
+The fixed proof should be a release-owned operation, not user-provided SQL: `connect` followed by one allowlisted, bounded `prepare_sql_execute` against the approved Db2 metadata/health relation, with a fixed projection, parameter policy, row/page/byte/column limits, `sqlclose`, and `exit`. The result should contain only success, transport, protocol version, authenticated/session/query booleans, bounded row count or proof code, classification, and cleanup status. It must never contain SQL text, row content, credentials, endpoint, path, or raw remote errors.
 
 ### Risks
 
-- Current LF-only framing and serialized exchange logic are unsafe for WSS text messages and out-of-order asynchronous responses; adapting only the socket would create correlation and truncation defects.
-- The daemon server’s current WebSocket upgrade check reportedly validates only Basic-header shape; TLS identity and authenticated `connect` must remain Nexus-side gates, not assumptions about the upgrade handler.
-- A trusted TLS endpoint can still reject credentials or Db2 authorization; endpoint/version proof must never be represented as operational Mapepire readiness.
-- SSH single cannot perform protocol work before SSH authentication and Java/JAR launch, so a pre-credential Step 4 fallback label must remain explicitly unverified.
-- Automatic fallback can become a silent security downgrade. Trust-domain mismatch, certificate/host-key mismatch, protocol tampering, credential failure, and unsupported-but-unverified versions must be classified separately from availability.
-- Supported Mapepire server versions and protocol revision pinning are not yet approved. The protocol repository has no stable release tag at the researched commit, so “latest” behavior is unsafe.
-- Existing `MapepireJAR` persistence and old `vault|prompt` semantics are compatibility hazards; daemon mode must not require either, while SSH fallback may require an approved artifact lifecycle.
-- WSS dependency and certificate handling add a Go dependency/security review boundary; custom code must remain small and avoid adopting the incomplete `mapepire-go` SDK.
-- Step 4 could overclaim “available” before `connect`; copy and readiness vocabulary need product approval and runtime tests at the wizard `View()` boundary.
-- No real IBM i contact or live credential proof is permitted in this exploration; all automated evidence must use fakes/loopback and retain `not_validated_on_ibmi`.
+- The existing `Resolver` performs pre-auth selection and, for SSH, starts runtime before the authenticated proof service owns the complete lifecycle. The design must split pre-auth observation from post-credential session selection or define a richer application boundary without allowing premature SSH start.
+- `ManagedDaemonProbe` currently constructs `wss://...` then derives `https://.../version`; exact endpoint policy, CA/hostname trust, pin/TOFU enrollment, and default port semantics need one authoritative composition path.
+- A daemon `/version` or WebSocket handshake is not authentication. Only successful `connect` establishes authenticated session state.
+- Credential errors and authorization errors are terminal and must never trigger SSH fallback. TLS/SSH identity, protocol tampering, malformed version, unsafe downgrade, bounds, and cancellation are terminal/no-downgrade as well.
+- SSH fallback has more cleanup surfaces: SSH client, SFTP client, process channel, temporary artifact, cursor, session, and secret memory. Partial failure must close every acquired resource and report a sanitized classification.
+- Bubble Tea currently uses `context.Background()` in the Step 4 command and has no Step 8 request identity/cancel field. The new effect must use the program lifecycle context, explicit child cancellation, and stale-result protection.
+- Existing passing helper tests do not prove production composition. Acceptance must exercise the actual `runConfigure`/model constructor path with counting fakes and a loopback WSS harness.
+- No live IBM i, credentials, Java, artifact transfer, or remote SSH process is permitted in normal verification; status remains `not_validated_on_ibmi`.
 
-### Product Decisions Required Before Proposal
+### Proposed production contract and failure matrix
 
-1. Which Mapepire server versions and protocol revision are supported, and what exact compatibility policy replaces the unavailable stable protocol tag?
-2. Is daemon port `8076` fixed in V1, or may deployment policy supply an approved endpoint/port without making it a user transport choice?
-3. Which daemon TLS trust modes are approved: enterprise CA validation, independently verified certificate pinning, explicit TOFU, or a defined combination? What is the certificate identity representation and rotation procedure?
-4. Which SSH trust modes are approved for fallback: independent fingerprint, pinned known-host material, TOFU, or a defined combination? Is SSH fallback prohibited when only unverified trust exists?
-5. Is unauthenticated `/version` permitted in the target environments, and does policy require an explicit operator action in Step 4 before probing it?
-6. What exact vocabulary is approved for pre-auth states: “endpoint reachable,” “server identity trusted,” “protocol detected,” “authentication pending,” and “session ready” need product-level definitions.
-7. Does Step 4 remain before Step 6 credentials, with authenticated proof deferred to Step 8, or is a change to the conceptual nine-step ordering approved?
-8. What counts as daemon unusable and fallback-eligible, and which failures are terminal security failures that MUST block all fallback?
-9. Is SSH fallback artifact acquisition part of this change, or a separate dependent capability with its own approval, cache, licensing, upload, Java, and rollback contract?
-10. What are the local bounds for frame size, response size, rows, `sqlmore` paging, concurrent requests, session lifetime, and cancellation deadlines?
-11. Is the initial client strictly single-session/no-pooling, and which protocol subset is approved beyond `getversion`, `connect`, `prepare_sql_execute`, `sqlmore`, `sqlclose`, `ping`, and `exit`?
-12. Which transport and fallback facts may be persisted in profile state, and which must remain ephemeral observations? No secrets, certificate material beyond approved fingerprints, cache paths, or raw endpoint diagnostics should enter unsafe stores.
+#### Interfaces and ownership
+
+`internal/configuration` (or a narrowly named application package) owns `Step8ProofService`, `Step8Request`, `Step8Result`, `ProofFailure`, and orchestration. Consumer-owned interfaces should be no broader than:
+
+```go
+type CredentialProvider interface { Get(context.Context, string) ([]byte, error) }
+type TransportResolver interface { ResolveAuthenticated(context.Context, AuthRequest) (ResolvedSession, error) }
+type ProofSession interface { Connect(context.Context, Credential) error; RunFixedProof(context.Context) (ProofEvidence, error); Close(context.Context) error }
+type Auditor interface { Record(context.Context, ProofAuditEvent) error }
+```
+
+Concrete WSS/SSH factories and credential stores are composed in `cmd/nexus`; TUI sees only `Run(context.Context, Step8Request) tea.Cmd` or an equivalent service call. `internal/mapepire` remains responsible for typed operations, correlation, limits, and session lifecycle; adapters remain responsible for wire framing/trust/process mechanics. No TUI package may import credential, SSH, artifact, Java, or SQL implementation packages.
+
+#### No-downgrade matrix
+
+| Classification | WSS result | SSH fallback | Audit/UI |
+|---|---|---|---|
+| supported `/version`, trusted WSS, connect success | continue WSS | no | selected + proof result |
+| daemon refusal/timeout/unavailable | eligible only if policy permits | require independent SSH trust, credentials, consent | fallback reason |
+| verified unsupported version | eligible only if policy permits | same gates | unsupported reason |
+| daemon disabled by policy | no WSS attempt | same gates | policy reason |
+| TLS hostname/pin/expiry/rotation/TOFU failure | terminal | never | blocked identity |
+| WSS protocol/malformed/unsafe downgrade | terminal | never | blocked protocol |
+| WSS connect credential/authorization failure | terminal | never | blocked credentials/authorization |
+| SSH trust mismatch or missing trust | terminal | no runtime | blocked trust |
+| SSH credential/authorization failure | terminal | no further attempt | blocked credentials/authorization |
+| artifact/Java/upload/launch failure | terminal for this proof | no alternate silent transport | runtime failure |
+| consent absent, cancellation, timeout, limit | terminal for this attempt | no implicit retry/downgrade | cancelled/timeout/blocked |
+
+### Reviewable implementation slices
+
+Each slice is independently coherent, rollback-safe, and must stay under the normal 400 additions plus deletions. Counts are planning estimates, not permission to hide integration work.
+
+1. **Contract and fixed proof domain** (about 180–260 lines). Dependency: current typed protocol/session. Files: new/modified `internal/configuration/step8*`, tests. Add typed request/result/errors, fixed query identifier and bounds, credential-provider and audit interfaces, and pure failure mapping. Focused test: `go test -count=1 ./internal/configuration`. Runtime harness: in-process fake session/credential/auditor. Rollback: remove only new Step 8 domain files. Acceptance: no SQL input, no secret/result-content fields, all classifications table-tested.
+2. **Authenticated WSS session factory** (about 260–360 lines). Dependency: slice 1 and existing `wss`/typed client. Files: `internal/mapepire` client integration, `internal/mapepire/wss` factory/credential connect tests, configuration adapter. Focused test: `go test -count=1 ./internal/mapepire ./internal/mapepire/wss ./internal/configuration`. Runtime harness: loopback `httptest` TLS/WSS server exercising `/version`, text frames, connect, fixed proof, close. Rollback: WSS authenticated factory and tests only. Acceptance: TLS logic is reused, one credential boundary, connect-before-query, all cleanup paths.
+3. **SSH authenticated fallback runtime adapter** (about 300–390 lines). Dependency: slice 1; reuse existing `remote` and `mapepirestdio`. Files: fallback adapter/orchestration tests in `internal/configuration`, narrowly adjusted `internal/remote` seams only if required. Focused test: `go test -count=1 ./internal/configuration ./internal/mapepire/sshstdio ./internal/remote ./internal/connectors/ibmi/mapepirestdio`. Runtime harness: fake SSH/channel/process and artifact/Java/upload counting fakes; no IBM i. Rollback: new fallback adapter and minimal seams. Acceptance: classification → trust → credential → consent → fixed artifact/runtime → connect; no arbitrary command; complete cleanup.
+4. **Production composition root and Step 8 command lifecycle** (about 280–390 lines; do not combine with the TUI slice). Dependency: slices 1–3. Files: `cmd/nexus/main.go`, a composition adapter, production constructor tests. Focused test: `go test -count=1 ./cmd/nexus ./internal/configuration`. Runtime harness: actual configure composition with fake local stores and loopback WSS; prove daemon path makes zero SSH/artifact calls and fallback path uses the same credential reference. Rollback: composition adapter and constructor wiring. Acceptance: production path exists from `runConfigure` to service; no injected-only proof.
+5. **Bubble Tea Step 8 effect/UI lifecycle** (about 300–390 lines). Dependency: slice 4. Files: `internal/tui/model.go`, Step 8 files/tests, wizard viewport/localization as needed. Focused test: `go test -count=1 ./internal/tui`. Runtime harness: actual `Update`/`View` at 120x40, 80x24, 40x16 and `NO_COLOR`, loading/cancel/stale success/failure/retry/back. Rollback: Step 8 UI and command wiring only. Acceptance: explicit consent, focusable blocked action, child cancellation, request ID stale protection, terminal feedback, no secret in model/messages/view, responsive navigation.
+6. **Audit/documentation and integrated verification evidence** (about 180–280 lines). Dependency: slices 1–5. Files: `internal/audit`, relevant tests, `docs/IBM_I_PROFILE_WIZARD.md`, later authoritative OpenSpec amendments. Focused test: `go test -count=1 ./internal/audit ./internal/configuration ./internal/tui`. Runtime harness: composition-level counting-fake matrix. Rollback: audit additions/docs only. Acceptance: allowlisted metadata, cleanup/cancellation evidence, docs classify current versus proposed behavior, full suite/vet/build/diff checks pass. Keep authoritative artifact changes separate from implementation if their own review exceeds 400 lines.
+
+### Precisely required planning amendments
+
+After maintainer review of this exploration, amend rather than silently reinterpret:
+
+- **Proposal:** replace “Step 8 proves `connect`/optional bounded query” with the explicit production service boundary, credential retrieval timing, WSS-first authenticated flow, SSH fallback gates, fixed proof, cleanup, audit, and UI ownership. Clarify that current partial remediation is not production composition.
+- **Design:** replace the current pre-auth-only `Resolver`/`SSHFallback` description with separate pre-auth observation and post-credential proof orchestration; define consumer-owned interfaces, typed result/error types, composition root, fixed proof operation, lifecycle, and exact dependency direction. Correct the claim that wizard composition is covered by the existing six slices.
+- **Tasks:** retain completed 1.x/2.x work and split 3.x into the six slices above. Uncheck or supersede any task whose wording claims Step 8 production composition is complete. Add per-slice dependency, focused command, runtime harness, rollback boundary, and measured <=400 forecast. Do not put all integration in one “TUI” task.
+- **Specs:** expand `mapepire-transport-onboarding` with a requirement for production Step 8 authenticated proof orchestration and scenarios for credential boundary, WSS-first, no-downgrade, fallback consent/runtime, fixed query, cancellation/cleanup, stale UI result, and sanitized audit. Expand `mapepire-application-protocol` only if the fixed proof requires a missing typed operation; do not add generic SQL. Expand `nexus-configuration` for explicit Step 8 result/readiness semantics. Expand `local-mcp-security` for proof audit and secret lifetime if not already covered. Existing WSS, SSH, and fallback-runtime specs need scenario cross-links, not a new capability.
+- **New capability spec:** not required; Step 8 is an orchestration requirement of `mapepire-transport-onboarding`. Create a new capability only if the service will be reused by MCP/serve or other workflows independently of onboarding.
+- **Wizard guide:** update only after each slice is implemented and verified. Preserve the distinction: current Step 4 is pre-auth, current Steps 5–9 are not fully composed, and live IBM i remains unvalidated.
+
+### Treatment of current remediation and failed verification
+
+Preserve all uncommitted remediation files and `.atl/`/`tmp/` state exactly; do not edit or include them in planning boundaries. Do not relaunch the remaining native Step 8 attempt before authoritative planning is amended. Do not settle/acquire/reset attempts, archive, or alter the failed report. The failed report is a historical blocker record: its production-composition finding remains valid as the reason for this re-plan, while its earlier missing-probe/audit/fixture findings are addressed by the uncommitted remediation and must be re-evaluated only by a fresh independent verification after the new slices are complete.
+
+### Unresolved Decisions
+
+- Whether the fixed proof relation/projection is approved for all target IBM i environments, and what non-sensitive proof evidence may be shown to the operator.
+- Whether Step 8 runs against an already saved profile only, or may use a temporary secret-free candidate before Step 7 persistence; the guide currently proposes saved-profile/explicit temporary behavior but does not decide it.
+- Whether `Ask each time` and `Store securely` are both V1 options now, including the exact keyring prompt UX and legacy `vault|prompt` migration semantics.
+- Whether the managed daemon endpoint is always policy-owned `8076` or an approved deployment policy may supply another endpoint without making it a user transport choice.
+- Which TLS and SSH trust modes are permitted in target environments (CA/pin/TOFU and independent SSH verification), including rotation/re-enrollment policy.
+- Whether SSH artifact acquisition/upload/Java validation is approved as part of this change’s Step 8 proof or must remain a separately approved dependent capability.
+- Whether Step 8 failure/success status is ephemeral only, or whether any sanitized “tested” marker may be persisted; the safe default is ephemeral.
 
 ### Ready for Proposal
 
-**No — pending product/security answers above.** The architecture is sufficiently clear to supersede the old planning change, but proposal should wait for supported-version policy, daemon/SSH trust modes, fallback classifications, readiness vocabulary, Step 4 versus Step 6 proof boundary, and ownership of SSH fallback artifact acquisition. Once answered, the proposal should authorize the smallest transport-neutral contract slice first and explicitly state that the old artifact change is superseded, not applied as-is.
-
-### Evidence Index
-
-- `internal/mapepire/protocol.go`, `internal/mapepire/session.go`, and package tests — current single-mode framing, lifecycle, bounds, and correlation limitations.
-- `internal/connectors/ibmi/mapepirestdio/policy.go`, `discovery.go`, and `artifact.go` — pinned 2.3.5 policy, local discovery, Java/`--single`, upload, verification, rollback, and reusable SSH fallback mechanics.
-- `internal/remote/ssh.go`, `internal/remote/hostidentity.go`, `internal/hostidentity/inspection.go` — authenticated SSH, no-auth host-key inspection, and current transport-specific UI seam.
-- `internal/tui/profile_connection_step.go`, `profile_identity_step.go`, and `model.go` — implemented Steps 2–3 and transport-free draft messages; no Step 4 transition.
-- `internal/profile/profile.go`, `internal/configuration/readiness.go`, and `internal/configuration/service.go` — persisted profile fields, native credential boundary, and honest readiness/diagnostic contracts.
-- `openspec/specs/nexus-configuration/spec.md` and `openspec/specs/local-mcp-security/spec.md` — valid current requirements and exact legacy-diagnostic/security conflicts.
-- `openspec/changes/mapepire-artifact-acquisition/{proposal.md,exploration.md,design.md,tasks.md}` — unimplemented artifact-first plan; no edits made and no lines applied.
-- `docs/IBM_I_PROFILE_WIZARD.md` — current FACT/PROPOSAL distinction and conceptual credential ordering.
-- Official references: [mapepire-protocol commit](https://github.com/Mapepire-IBMi/mapepire-protocol/tree/2ef44166fcb515744fb922b49ed3673b2dac6b26), [mapepire-server](https://github.com/Mapepire-IBMi/mapepire-server), [mapepire-js](https://github.com/Mapepire-IBMi/mapepire-js), [mapepire-go](https://github.com/Mapepire-IBMi/mapepire-go), [server guide](https://mapepire-ibmi.github.io/guides/sysadmin/), and [Node.js usage](https://mapepire-ibmi.github.io/guides/usage/nodejs/).
+No for immediate proposal amendment until the maintainer resolves the seven decisions above. Yes for design preparation: the production gap is evidenced, the recommended boundary is clear, and the work can be sliced without downgrading Step 8 to a helper seam. The next action should be an interactive proposal/design amendment review, followed by task replanning; no native attempt should be launched before that.
