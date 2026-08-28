@@ -168,6 +168,14 @@ type PostObservationGate struct {
 }
 
 func (g PostObservationGate) Apply(ctx context.Context, request Step8Request, observation Observation) Step8Result {
+	return g.ApplyWithCredential(ctx, request, observation, func([]byte) Step8Result {
+		return Step8Result{RequestID: request.RequestID, Decision: DecisionSSHEligible, Class: ResultProofSuccess}
+	})
+}
+
+// ApplyWithCredential retains the sole opaque credential reference inside the
+// configuration/runtime boundary until its caller has settled the SSH proof.
+func (g PostObservationGate) ApplyWithCredential(ctx context.Context, request Step8Request, observation Observation, run func([]byte) Step8Result) Step8Result {
 	result := Step8Result{RequestID: request.RequestID}
 	if request.RequestID == "" || ValidateStep8Profile(request.Profile) != nil {
 		return terminalGateResult(result, ResultDowngradeBlocked)
@@ -188,7 +196,7 @@ func (g PostObservationGate) Apply(ctx context.Context, request Step8Request, ob
 	default:
 		return terminalGateResult(result, ResultDowngradeBlocked)
 	}
-	if g.Policy == nil || g.Trust == nil || g.Credentials == nil {
+	if g.Policy == nil || g.Trust == nil || g.Credentials == nil || run == nil {
 		return terminalGateResult(result, ResultDowngradeBlocked)
 	}
 	if err := g.Policy.AllowSSH(ctx, request.Profile); err != nil {
@@ -206,7 +214,7 @@ func (g PostObservationGate) Apply(ctx context.Context, request Step8Request, ob
 	if err != nil || len(credential) == 0 {
 		return terminalGateResult(result, gateContextResult(ctx, ResultCredentialsUnavailable))
 	}
-	return Step8Result{RequestID: request.RequestID, Decision: DecisionSSHEligible, Class: ResultProofSuccess}
+	return run(credential)
 }
 
 func zeroCredential(credential []byte) {

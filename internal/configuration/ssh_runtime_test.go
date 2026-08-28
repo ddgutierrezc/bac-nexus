@@ -107,6 +107,34 @@ func TestSSHRuntimeFactoryDefaultHasBoundedOperationTimeout(t *testing.T) {
 	}
 }
 
+func TestSSHRuntimeFactoryRetainsGateCredentialUntilProofSettlement(t *testing.T) {
+	secret := []byte("opaque")
+	client := &runtimeClientFake{}
+	factory := SSHRuntimeFactory{
+		VerifyArtifact: func(string) error { return nil },
+		Dial:           func(context.Context, profile.Profile, []byte) (SSHRuntimeClient, error) { return client, nil },
+		JavaReady:      func(context.Context, profile.Profile) error { return nil },
+		Upload: func(context.Context, mapepirestdio.RemoteFiles, string) (string, error) {
+			return "/tmp/pinned.jar", nil
+		},
+	}
+	runtime, result := factory.Open(context.Background(), admittedSSH(), savedStep8Profile(t), secret)
+	if result.Class != ResultProofSuccess || runtime == nil {
+		t.Fatalf("open result=%+v runtime=%v", result, runtime)
+	}
+	for _, b := range secret {
+		if b == 0 {
+			t.Fatal("runtime zeroed the gate credential before fixed proof")
+		}
+	}
+	_, _ = runtime.Prove(context.Background(), savedStep8Profile(t), secret)
+	for _, b := range secret {
+		if b != 0 {
+			t.Fatal("proof did not zero the credential after settlement")
+		}
+	}
+}
+
 func TestSSHRuntimeFactoryKeepsPrimaryFailureAndAssignsUniqueTraceIDs(t *testing.T) {
 	clients := []*runtimeClientFake{{}, {}, {}, {}}
 	index := 0

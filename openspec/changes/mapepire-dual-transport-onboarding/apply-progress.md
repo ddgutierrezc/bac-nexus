@@ -437,3 +437,29 @@
 - Zero-fallback proof: the service has no SSH/artifact/Java/upload/process/fallback dependency or interface; the WSS-success trace contains only WSS operations. Terminal/unknown observations return before credential retrieval; eligible observations return the typed `ssh_eligible` continuation without execution.
 - Exact authored numstat: **364 additions + 2 deletions = 366 changed lines**, excluding unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. Task aggregate: **31 total = 23 completed + 8 pending**.
 - No native authority was acquired, settled, reset, or changed; no commit, stage, push, or PR occurred. Next recommended action: apply 7B only on `feature/step8-orchestrator-ssh`.
+
+## Phase 7B: `step8-orchestrator-ssh`
+
+- Scope: task 7.2 only; strict TDD; auto-chain, feature-branch-chain. Extends the existing application-owned WSS-first service through the existing 6A admission gate and 6B–6D runtime/proof/cleanup boundary. No `cmd/nexus` wiring, TUI, audit schema/docs, live IBM i, generic remote surface, native authority, `.atl`, `tmp`, or credential-store change.
+- RED: `go test -count=1 ./internal/configuration -run '^(TestStep8ServiceFallsBackForExactlyFiveEligibleReasonsWithGateCredential|TestStep8ServiceNeverFallsBackForWSSOrTerminalObservations)$'` — exit `1` before production changes because `Step8Service` lacked `Gate` and `SSH` fields. `go test -count=1 ./internal/configuration -run '^TestSSHRuntimeFactoryRetainsGateCredentialUntilProofSettlement$'` then exited `1` because runtime acquisition zeroized the credential before fixed proof.
+- GREEN: the same named command — exit `0`; the five eligible observations enter the SSH path and configured WSS/terminal/unknown observations make zero gate/runtime calls.
+- REFACTOR: `PostObservationGate.ApplyWithCredential` retains the one opaque credential reference inside configuration through SSH runtime settlement. The service owns no command/path/SQL/download input and invokes only the pre-existing fixed runtime proof.
+
+### Phase 7B TDD Cycle Evidence
+
+| Task | Test layer | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|
+| 7.2 | Deterministic application-service SSH/process/artifact/Java/upload boundary fakes | ✅ exit `1`: missing `Step8Service.Gate` and `.SSH`; runtime initially zeroized before proof | ✅ named commands exit `0` | ✅ all five exact eligible reasons; WSS/identity/protocol/malformed/downgrade/cancel/operation/limit/credential/authentication/authorization/framing/cleanup/proof timeout and unknown terminal observations make zero fallback calls; primary proof failure survives cleanup failure | ✅ one gate callback keeps a single credential reference through `Open` and fixed proof; existing 6B–6D runtime stays closed-surface |
+
+### Phase 7B Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/configuration ./internal/remote ./internal/connectors/ibmi/mapepirestdio` — exit `0`; 3 packages passed: configuration, remote, and mapepirestdio. |
+| Runtime harness command/scenario and exact result | `go test -count=1 ./internal/configuration -run '^(TestStep8ServiceFallsBackForExactlyFiveEligibleReasonsWithGateCredential|TestStep8ServiceNeverFallsBackForWSSOrTerminalObservations|TestStep8ServiceFallbackKeepsPrimaryFailureAndSuppressesMarker)$'` — exit `0`; deterministic counting gate/SSH runtime/client fakes prove the exact five-class fallback set, policy → SSH trust → consent → one credential → runtime → fixed proof order, pointer-identical credential use for dial/proof, LIFO settlement before zeroization, marker only after proof plus cleanup, and zero fallback calls otherwise. No IBM i, corporate network, actual SSH/Java process, credential store, or download was used. |
+| Rollback boundary | Revert only `internal/configuration/step8.go`, `internal/configuration/step8_service.go`, `internal/configuration/step8_service_test.go`, and this 7.2 task/progress evidence; retain 6A–6D, 7.1, pending 7.3–9, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Validation: `go test -count=1 ./...` exit `0` (22 test-bearing packages passed; 4 reported `[no test files]`); `go vet ./...` exit `0`; final `gofmt -w` then `gofmt -d internal/configuration/step8.go internal/configuration/step8_service.go internal/configuration/step8_service_test.go` exit `0` with no output; `git diff --check` exit `0`.
+- Structural/call-order proof: `DecisionForReason` has exactly five SSH-eligible constants; unknown/mismatched observations fail closed. The service reaches SSH only from `DecisionSSHEligible`, then delegates policy/trust/consent/credential to 6A, `SSHRuntimeFactory.Open` to 6B, and fixed `SSHRuntime.Prove` to 6C/6D. The service accepts no shell, command, path, SQL, download, retry, alternate transport, source, row, raw error, or secret result. Success writes the marker only after valid metadata and cleanup; failures audit only allowlisted class/revision/cleanup metadata and do not establish a marker. Cleanup failure preserves the primary result class with `Cleanup:false`.
+- Exact Phase 7B authored numstat: **301 additions + 6 deletions = 307 changed lines**. The complete current intended diff is **302 additions + 7 deletions = 309 changed lines** because it also retains the pre-authorized tasks-only correction; both exclude unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. Task aggregate: **31 total = 24 completed + 7 pending**.
+- No native authority was acquired, settled, reset, or changed; no commit, stage, push, or PR occurred. Next recommended action: apply 7C only on `feature/step8-compose`.

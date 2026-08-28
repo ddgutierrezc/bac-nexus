@@ -90,7 +90,6 @@ func NewSSHRuntimeFactory() SSHRuntimeFactory {
 // Open consumes an already-admitted SSH fallback and retains only its verified runtime handle.
 func (f SSHRuntimeFactory) Open(ctx context.Context, admission Step8Result, p profile.Profile, secret []byte) (runtime *SSHRuntime, result Step8Result) {
 	result = Step8Result{RequestID: admission.RequestID}
-	defer zeroCredential(secret)
 	if admission.Decision != DecisionSSHEligible || admission.Class != ResultProofSuccess || admission.RequestID == "" || f.VerifyArtifact == nil {
 		return nil, terminalGateResult(result, ResultDowngradeBlocked)
 	}
