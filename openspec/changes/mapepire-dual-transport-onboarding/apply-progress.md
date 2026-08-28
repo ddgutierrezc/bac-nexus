@@ -353,3 +353,33 @@
 - Exact Slice 6B authored numstat: `internal/configuration/ssh_runtime.go` 126/0; `internal/configuration/ssh_runtime_test.go` 101/0; `internal/connectors/ibmi/mapepirestdio/policy.go` 13/3; `internal/remote/ssh.go` 3/0; `tasks.md` 3/3; `apply-progress.md` 29/0. Total: **275 additions + 6 deletions = 281 changed lines**, under the 400-line hard budget. It excludes unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` changes.
 - Completion state: tasks 6.3–6.4 are checked; cumulative task total is **31 total = 18 completed + 13 pending**. No native runtime authority was acquired, settled, reset, or changed; no commit, stage, push, PR, `.atl`, or `tmp` edit occurred.
 - Next recommended action: apply Slice 6C proof only on `feature/step8-ssh-proof`; keep this runtime factory free of launch, process channel, typed SSH session, `VALUES 1`, SQL, proof cleanup, or retry behavior.
+
+## Slice 6C: `step8-ssh-proof`
+
+- Scope: production tasks 6.5–6.6 only; strict TDD; auto-chain, feature-branch-chain. It consumes the admitted 6A result and acquired 6B runtime without repeating gates or changing acquisition/rollback behavior.
+- RED: `go test -count=1 ./internal/configuration -run 'TestSSHRuntimeProve'` — exit `1` before production implementation: `SSHRuntime.Prove` was undefined.
+- GREEN: the same named command — exit `0`; the admitted runtime can invoke only the private verified upload handle through `remote.FixedMapepireProof`, which calls the existing fixed `StartMapepireTransport` → `StartMapepire` → `BuildCommand` path.
+- REFACTOR: retained a configuration-facing remote proof result and typed remote failure stage rather than importing Mapepire into configuration or exposing a channel, command, path, SQL, shell, SFTP, download, or retry API.
+
+### Slice 6C TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 6.5 | Unit / deterministic typed-session fake | `go test -count=1 ./internal/configuration ./internal/mapepire ./internal/mapepire/sshstdio` — exit `0`; 3 packages passed before edits | ✅ named test compile failure, exit `1` | ✅ named test exit `0` | ✅ connect precedes fixed `VALUES 1`; credentials occur only on connect; metadata contains only row count/revision; artifact, launch, session, proof, cancellation, limit, protocol, and unknown classifications are asserted | ✅ kept fixed request and error contracts narrow |
+| 6.6 | Unit / deterministic typed-session fake | Same safety net | ✅ absent `SSHRuntime.Prove` API before implementation | ✅ focused 3-package command exit `0` | ✅ remote fixed proof routes through fixed single-mode launcher and typed session; no caller command/path/SQL input | ✅ private verified remote-artifact handle and typed remote stage |
+
+### Slice 6C Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/configuration ./internal/mapepire ./internal/mapepire/sshstdio` — exit `0`; `ok bac-nexus/internal/configuration 2.618s`, `ok bac-nexus/internal/mapepire 15.981s`, `ok bac-nexus/internal/mapepire/sshstdio 0.859s`; 3 packages passed. |
+| Runtime harness command/scenario and exact result | The focused command exercises `TestSSHRuntimeProveUsesOnlyFixedSingleSessionAndMetadata` with a deterministic typed-session fake: connect → `VALUES 1` → `sqlclose` → `exit`; exit `0`. No IBM i, corporate network, actual SSH/Java process, credential store, or download was used. |
+| Full/static/format/diff validation | `go test -count=1 ./...` — exit `0`: 22 test-bearing packages passed and 4 reported `[no test files]`; `go vet ./...` — exit `0`; final `gofmt -w` then `gofmt -d internal/configuration/ssh_runtime.go internal/configuration/ssh_runtime_test.go internal/configuration/ssh_proof_test.go internal/remote/ssh.go` — exit `0`, no output; `git diff --check` — exit `0`. |
+| Fixed-proof and terminal proof | The test asserts launch policy is constructed from the runtime's private verified remote handle with consent; requests are exactly connect, `prepare_sql_execute` with `VALUES 1`/one row, `sqlclose`, and exit. It rejects credential fields after connect and returns only `{Rows, ProofRevision}`. Existing 6B unsafe-artifact test covers `artifact_failure`; 6C covers exact launch/session/proof and typed cancellation/limit/protocol/unknown terminal mapping. |
+| Structural proof | `SSHRuntime` keeps the uploaded path private; `Prove` has no command, path, endpoint, SQL, shell, SFTP, download, or retry parameter. `remote.FixedMapepireProof` reaches only `StartMapepireTransport` → `StartMapepire` → existing `BuildCommand`, whose sole command is the closed allowlisted `--single` form. No alternate transport is invoked. |
+| Cleanup/process evidence | The typed client's fixed proof continues to close cursor then exit and closes its transport. This slice introduces no new process cleanup choreography or credential-zero-after-settlement integration; those exhaustive traces remain 6D. |
+| Rollback boundary | Revert `internal/configuration/ssh_runtime.go`, `ssh_runtime_test.go`, `ssh_proof_test.go`, the `internal/remote/ssh.go` fixed-proof adapter, and only the 6C task/progress edits; retain 6A gates, 6B acquisition/rollback, later 6D–9 work, and unrelated `.atl`, `tmp`, and credential-store state. |
+
+- Exact Slice 6C authored numstat: `internal/configuration/ssh_runtime.go` 55/3; `ssh_runtime_test.go` 4/0; `ssh_proof_test.go` 168/0; `internal/remote/ssh.go` 72/0; `tasks.md` 3/3; `apply-progress.md` 30/0. Total: **332 additions + 6 deletions = 338 changed lines**, under the 400-line hard budget. Unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` changes are excluded and untouched.
+- Completion state: tasks 6.5–6.6 are checked; cumulative task total is **31 total = 20 completed + 11 pending**. No native runtime authority was acquired, settled, reset, or changed; no commit, stage, push, PR, `.atl`, or `tmp` edit occurred.
+- Next recommended action: apply Slice 6D cleanup only on `feature/step8-ssh-cleanup`; do not add composition, TUI, audit/docs, or final verification.

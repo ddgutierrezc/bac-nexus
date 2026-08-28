@@ -16,11 +16,13 @@ const SSHRuntimeOperationTimeout = 15 * time.Second
 type SSHRuntimeClient interface {
 	Close() error
 	RemoteFiles() mapepirestdio.RemoteFiles
+	FixedMapepireProof(context.Context, mapepirestdio.LaunchPolicy, string, []byte) (remote.FixedProofMetadata, error)
 }
 
 type SSHRuntime struct {
 	client    SSHRuntimeClient
-	RemoteJAR string
+	remoteJAR string
+	requestID string
 }
 
 func (r *SSHRuntime) Close() error {
@@ -58,7 +60,7 @@ func NewSSHRuntimeFactory() SSHRuntimeFactory {
 	}
 }
 
-// Open consumes an already-admitted SSH fallback and exposes no launch/proof API.
+// Open consumes an already-admitted SSH fallback and retains only its verified runtime handle.
 func (f SSHRuntimeFactory) Open(ctx context.Context, admission Step8Result, p profile.Profile, secret []byte) (runtime *SSHRuntime, result Step8Result) {
 	result = Step8Result{RequestID: admission.RequestID}
 	defer zeroCredential(secret)
@@ -105,7 +107,57 @@ func (f SSHRuntimeFactory) Open(ctx context.Context, admission Step8Result, p pr
 		return nil, terminalGateResult(result, runtimeErrorClass(ctx, err, ResultUploadFailure))
 	}
 	cleanup = false
-	return &SSHRuntime{client: client, RemoteJAR: remoteJAR}, Step8Result{RequestID: admission.RequestID, Decision: DecisionSSHEligible, Class: ResultProofSuccess}
+	return &SSHRuntime{client: client, remoteJAR: remoteJAR, requestID: admission.RequestID}, Step8Result{RequestID: admission.RequestID, Decision: DecisionSSHEligible, Class: ResultProofSuccess}
+}
+
+// Prove starts only the release-owned single-mode process and fixed proof.
+func (r *SSHRuntime) Prove(ctx context.Context, p profile.Profile, secret []byte) (ProofMetadata, Step8Result) {
+	if r == nil {
+		return ProofMetadata{}, terminalGateResult(Step8Result{}, ResultSessionFailure)
+	}
+	result := Step8Result{RequestID: r.requestID}
+	if r.client == nil || r.remoteJAR == "" {
+		return ProofMetadata{}, terminalGateResult(result, ResultSessionFailure)
+	}
+	proof, err := r.client.FixedMapepireProof(ctx, mapepirestdio.LaunchPolicy{JavaHome: p.JavaHome, RemoteJAR: r.remoteJAR, Consented: true}, p.Username, secret)
+	if err != nil {
+		return ProofMetadata{}, terminalGateResult(result, proofErrorClass(ctx, err))
+	}
+	metadata := ProofMetadata{Rows: proof.Rows, ProofRevision: proof.Revision}
+	if err := ValidateProofMetadata(metadata); err != nil {
+		return ProofMetadata{}, terminalGateResult(result, ResultProofFailure)
+	}
+	result.Decision = DecisionSSHEligible
+	result.Class = ResultProofSuccess
+	result.ProofRevision = metadata.ProofRevision
+	return metadata, result
+}
+
+func proofErrorClass(ctx context.Context, err error) ResultClass {
+	if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+		return ResultCancelled
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return ResultProofTimeout
+	}
+	switch remote.ClassifyFixedProofError(err) {
+	case remote.FixedProofLimitFailure:
+		return ResultLimitExceeded
+	case remote.FixedProofFramingFailure:
+		return ResultFramingFailure
+	case remote.FixedProofProtocolFailure:
+		return ResultProtocolFailure
+	}
+	switch remote.FixedProofStageFor(err) {
+	case remote.FixedProofLaunchStage:
+		return ResultLaunchFailure
+	case remote.FixedProofSessionStage:
+		return ResultSessionFailure
+	case remote.FixedProofRunStage:
+		return ResultProofFailure
+	default:
+		return ResultProofFailure
+	}
 }
 
 func runtimeContextClass(ctx context.Context) ResultClass {

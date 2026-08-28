@@ -8,12 +8,16 @@ import (
 
 	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
 	"bac-nexus/internal/profile"
+	"bac-nexus/internal/remote"
 )
 
 type runtimeClientFake struct{ closes int }
 
 func (f *runtimeClientFake) Close() error                         { f.closes++; return nil }
 func (*runtimeClientFake) RemoteFiles() mapepirestdio.RemoteFiles { return nil }
+func (*runtimeClientFake) FixedMapepireProof(context.Context, mapepirestdio.LaunchPolicy, string, []byte) (remote.FixedProofMetadata, error) {
+	return remote.FixedProofMetadata{}, nil
+}
 
 func admittedSSH() Step8Result {
 	return Step8Result{RequestID: "req-6b", Decision: DecisionSSHEligible, Class: ResultProofSuccess}
