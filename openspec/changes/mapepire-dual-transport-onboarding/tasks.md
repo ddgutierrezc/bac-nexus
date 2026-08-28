@@ -57,8 +57,8 @@ All: no IBM i; rollback named files.
 - [x] 7.3.6b GREEN: add credential-free, SSH-free `configuration/step8_pre_auth.go`.
 - [x] 7.3.7a RED: profile endpoint/TLS binds WSS; auth failure terminal.
 - [x] 7.3.7b GREEN: add profile-aware WSS/session adapter; fixed `VALUES 1` only.
-- [ ] 7.3.8a RED: prompt/keyring only; denial/unavailable/invalid/empty → unavailable, no leak.
-- [ ] 7.3.8b GREEN: add `credential/step8_provider.go` dispatcher.
+- [x] 7.3.8a RED: prompt/keyring only; denial/unavailable/invalid/empty → unavailable, no leak.
+- [x] 7.3.8b GREEN: add `credential/step8_provider.go` dispatcher.
 - [ ] 7.3.9a RED: `AllowSSH` admits approved policy only; otherwise fail closed.
 - [ ] 7.3.9b GREEN: add `security/step8_ssh_policy.go`.
 - [ ] 7.3.10a RED: observed SSH fingerprint differs from enrollment; block and never reuse TLS evidence.
@@ -78,4 +78,4 @@ All: no IBM i; rollback named files.
 - [ ] 9.2 `docs/IBM_I_PROFILE_WIZARD.md`: loopback/fakes, no-live status.
 - [ ] 9.3 `sdd-verify`: offline matrix only.
 
-Exact checkbox totals: **49 total = 33 completed + 16 pending**. No generic SQL/shell/download/retry or protected-artifact changes.
+Exact checkbox totals: **49 total = 35 completed + 14 pending**. No generic SQL/shell/download/retry or protected-artifact changes.

@@ -699,3 +699,30 @@
 - Final validation: `go test ./...` — exit `0`; 22 test-bearing packages passed and 5 reported `[no test files]`. `go vet ./...` — exit `0`. Source-mutating `gofmt -w` ran before focused verification; check-only `gofmt -d` on all four touched Go files produced no output; `git diff --check` — exit `0`.
 - Completion state: **49 total = 33 completed + 16 pending**. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. No commit, stage, push, PR, `.atl`, `tmp`, or protected keyring-store edit occurred during implementation.
 - Next recommended action: apply C (`7.3.8a–b`) only on the next immediate feature-branch-chain child; do not implement A/T/D/R, Phase 8, or final cmd wiring.
+
+## Work Unit C: `step8-credential-adapter`
+
+- Scope: tasks 7.3.8a–b only; strict TDD; auto-chain, feature-branch-chain (`9845478` → `feature/step8-credential-adapter`). Added a narrow credential-owned dispatcher for only saved-profile `prompt` and `keyring` modes; it structurally satisfies the configuration consumer contract without importing configuration or creating a package cycle.
+- RED: `go test -count=1 ./internal/credential -run '^(TestStep8ProviderDispatchesOnlySavedPromptAndKeyringModes|TestStep8ProviderFailsClosedWithoutFallbackOrLeaks)$'` exited `1` before production code because `NewStep8Provider` was undefined.
+- GREEN: the same focused command exited `0` after adding the dispatcher; `ok bac-nexus/internal/credential 0.957s`.
+- TRIANGULATE: deterministic fakes prove prompt/keyring dispatch, the existing `ibmi/<profile>` key contract, fresh caller-owned output, input zeroization, prompt denial/unavailability/empty input, keyring unavailable/not-found/empty input, invalid mode/key, cancellation, and expired deadline. Alternate available branches remain at zero calls for every failure; all errors are only `credentials_unavailable` and contain no secret or backend detail.
+- REFACTOR: reused `KeyForProfile`, `validSecret`, `Zero`, `PromptProvider`, and the existing `KeyringStore` abstraction; no storage logic, fallback, or retained credential state was added.
+
+### Work Unit C TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 7.3.8a | Unit / deterministic injected prompt and keyring fakes | `go test -count=1 ./internal/credential` — exit `0`; `ok bac-nexus/internal/credential 1.082s` before edits | ✅ focused compile failure, exit `1`, before production file | ✅ focused command exit `0` | ✅ all prompt/keyring terminal modes plus invalid key/mode, cancellation/deadline, no fallback, no leak | ✅ shared fail-closed validation |
+| 7.3.8b | Unit / deterministic injected prompt and keyring fakes | Same package safety net | ✅ tests referenced missing dispatcher | ✅ focused command exit `0` | ✅ stable profile-key reconstruction and isolated buffer ownership | ✅ narrow consumer-owned interfaces avoid a package cycle |
+
+### Work Unit C Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/credential -run '^(TestStep8ProviderDispatchesOnlySavedPromptAndKeyringModes|TestStep8ProviderFailsClosedWithoutFallbackOrLeaks)$'` — exit `0`; `ok bac-nexus/internal/credential 0.939s`; 2 named tests passed. |
+| Runtime harness command/scenario and exact result | N/A: the dispatcher has no runtime boundary. Injected in-process prompt/keyring fakes prove all branches without a terminal, OS keyring, network, IBM i, WSS, SSH, Java, artifact, SQL, shell, download, retry, or marker. |
+| Rollback boundary | Revert only `internal/credential/step8_provider.go`, `internal/credential/step8_provider_test.go`, and these 7.3.8 task/progress entries; retain P/W, later pending units, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Final validation: `go test -count=1 ./internal/credential` — exit `0`; `ok bac-nexus/internal/credential 3.140s`. `go test -count=1 ./internal/configuration` — exit `0`; `ok bac-nexus/internal/configuration 2.629s`. `go test ./...`, `go vet ./...`, check-only `gofmt -d internal/credential/step8_provider.go internal/credential/step8_provider_test.go`, and `git diff --check` all exited `0`.
+- Completion state: **49 total = 35 completed + 14 pending**. Source-mutating `gofmt -w` ran only on the two owned Go files. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. No commit, stage, push, PR, `.atl`, `tmp`, or protected keyring-store edit occurred during implementation.
+- Next recommended action: apply A (`7.3.9a–b`) only on the next immediate feature-branch-chain child; do not implement T/D/R, WSS changes, final cmd wiring, or Phase 8 behavior.
