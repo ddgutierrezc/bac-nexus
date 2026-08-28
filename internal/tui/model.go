@@ -156,7 +156,7 @@ type Model struct {
 	mapepireProbe      preAuthProbe
 	mapepireFactory    func(string, int) preAuthProbe
 	mapepireResolution configuration.Resolution
-	step8Client        profileProofClient
+	step8Runner        configuration.Step8Runner
 	wizardViewport     viewport.Model
 	legacyViewport     viewport.Model
 	legacyViewportText string
@@ -183,6 +183,15 @@ type BuildInfo struct {
 
 func NewModel(store configuration.ProfilesStore) Model {
 	return NewModelWithBuildInfoAndInspector(store, BuildInfo{Version: "dev", Revision: "unknown"}, nil)
+}
+
+// NewModelWithStep8Runner injects the application-owned Step 8 boundary.
+// The runner is retained for the later explicit action lifecycle and is never
+// invoked during model construction, initialization, updates, or rendering.
+func NewModelWithStep8Runner(store configuration.ProfilesStore, runner configuration.Step8Runner) Model {
+	m := NewModel(store)
+	m.step8Runner = runner
+	return m
 }
 
 // NewModelWithBuildInfo constructs the Home model with build identity supplied

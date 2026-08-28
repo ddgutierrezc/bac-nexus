@@ -565,3 +565,29 @@
 - Exact Phase 7C.3 authored numstat: `159 additions + 2 deletions = 161 changed lines`; excludes unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state.
 - Evidence revision: `sha256:4322055e3e670f6081b02448266e25ca0218be3de7ce36c0495df06e9de53597` (canonical SHA-256 manifest of the production source, test, and task-state files).
 - Completion state: **35 total = 27 completed + 8 pending**. No native authority mutation, commit, stage, push, PR, `.atl`, or `tmp` edit occurred. Next recommended action: apply 7.3.4 only on `feature/step8-compose-tui-seam`.
+
+## Phase 7C.4: `step8-tui-runner-seam`
+
+- Scope: task 7.3.4 only; strict TDD; auto-chain, feature-branch-chain (`feature/step8-compose-factories` → `feature/step8-compose-tui-seam`). `cmd/nexus`, Step 8 actions, lifecycle handling, transport, credentials, and production factories remain out of scope.
+- The TUI model now retains only `configuration.Step8Runner` through `NewModelWithStep8Runner`. The constructor, `Init`, existing `Update`, and `View` do not invoke it. The model retains no credential bytes, provider, session/client/process/artifact handle, or transport runtime.
+- Step 3 completion navigation and Step 4 pre-auth observation continue to use the existing identity and managed-daemon primitives. The runner counter remains zero through construction, initialization, resizing, rendering, Step 3 navigation, Step 4 observation, and 120x40, 80x24 NO_COLOR, and 40x16 rendering.
+
+### Phase 7C.4 TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 7.3.4 | Unit / deterministic Bubble Tea `Update` and `View` | `go test -count=1 ./internal/tui` — exit `0`; `ok bac-nexus/internal/tui 8.178s` before edits | ✅ `go test -count=1 ./internal/tui -run '^(TestNewModelWithStep8RunnerStoresOnlyTheRunnerSeam|TestStepThreeAndFourRemainPreAuthWithInjectedStep8Runner)$'` — exit `1`; `NewModelWithStep8Runner` was undefined | ✅ same named command — exit `0`; `ok bac-nexus/internal/tui 2.989s` | ✅ constructor/Init/window-update/View plus completed Step 3 navigation and Step 4 pre-auth observation at 120x40, 80x24 NO_COLOR, and 40x16; all runner counts are zero | ✅ replaced the legacy model client field with the sole `Step8Runner` seam; no action lifecycle or rendering behavior added |
+
+### Phase 7C.4 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/tui -run '^(TestNewModelWithStep8RunnerStoresOnlyTheRunnerSeam|TestStepThreeAndFourRemainPreAuthWithInjectedStep8Runner)$'` — exit `0`; `ok bac-nexus/internal/tui 2.989s`; 2 named tests passed (the second covers 3 viewport scenarios). |
+| Runtime harness command/scenario and exact result | The same deterministic in-process Bubble Tea harness — exit `0`; directly exercised `Model.Update` and `Model.View` for construction/Init/resize and Steps 3–4 pre-auth navigation/observation with a counting `Step8Runner` and fixed pre-auth probe. No runtime boundary exists yet because tasks 8.1–8.3 own invocation; no IBM i, network, credential/keyring, SSH/Java process, artifact transfer, upload, or persistent temporary resource was used. |
+| Rollback boundary | Revert only `internal/tui/model.go`, `internal/tui/model_step8_runner_test.go`, the adjusted package-local pre-auth assertion in `internal/tui/mapepire_onboarding_step_test.go`, and the 7.3.4 task/progress entries; retain 1.1–7.3.3, pending 7.3.5–9, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Verification: `go test -count=1 ./internal/tui` exit `0` (`ok bac-nexus/internal/tui 8.815s`); `go test -count=1 ./...` exit `0` (22 test-bearing packages passed; 4 `[no test files]`); `go vet ./...` exit `0`; `go build ./...` exit `0`; check-only `gofmt -d` on all three touched Go files produced no output; `git diff --check` exit `0`.
+- Reused primitives: existing `Model.Update` dispatcher, Step 3 identity navigation, Step 4 `preAuthProbe`, wizard viewport, shell, focus, feedback, responsive rendering, and NO_COLOR behavior. Existing package render-matrix coverage remained green; no golden or copy change occurred.
+- Cleanup/process evidence: no Step 8 runner invocation occurs, the slice starts no process and creates no resources, and no cleanup is required. Existing unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` worktree changes remained untouched.
+- Exact Phase 7C.4 authored numstat: `internal/tui/model.go` `10/1`; `internal/tui/model_step8_runner_test.go` `95/0`; `internal/tui/mapepire_onboarding_step_test.go` `2/2`; `tasks.md` `2/2`; `apply-progress.md` `26/0`: **135 additions + 5 deletions = 140 changed lines**, under the 400-line budget. Evidence revision: `sha256:50396110d6260bf277b067d559a4b1c0eed008bd158dd59183b2e701a99890ee`, a canonical SHA-256 manifest of the three TUI files and task state listed above.
+- Completion state: **35 total = 28 completed + 7 pending**. No native authority mutation, commit, stage, push, PR, `.atl`, or `tmp` edit occurred. Next recommended action: apply 7.3.5 only on `feature/step8-compose`.

@@ -49,8 +49,8 @@ func TestMapepireStep4IsPreAuthAndUsesExactPendingCopy(t *testing.T) {
 	if !strings.Contains(m.View(), "[OK] Mapepire detected — authentication pending") || m.screen != screenProfileMapepire {
 		t.Fatalf("Step 4 did not show exact pre-auth state: %q", m.View())
 	}
-	if m.step8Client != nil {
-		t.Fatal("Step 4 installed an authenticated client")
+	if m.step8Runner != nil {
+		t.Fatal("Step 4 installed a Step 8 runner")
 	}
 }
 
