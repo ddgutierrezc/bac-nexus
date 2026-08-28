@@ -324,3 +324,32 @@
 - Exact Slice 6A authored numstat: `internal/configuration/step8.go` 118/0; `internal/configuration/step8_test.go` 169/0; `tasks.md` 3/3; `apply-progress.md` 32/0. Total: **322 additions + 3 deletions = 325 changed lines**, under the 400-line hard budget.
 - Completion state: tasks 6.1–6.2 are checked; cumulative task total is **31 total = 16 completed + 15 pending**. No native runtime authority was acquired, settled, reset, or changed; no commit, stage, push, PR, `.atl`, or `tmp` edit occurred.
 - Next recommended action: apply Slice 6B runtime only on `feature/step8-ssh-runtime`; it must add the runtime seam separately and preserve this gate's ordering/terminal contract.
+
+## Slice 6B: `step8-ssh-runtime`
+
+- Scope: production tasks 6.3–6.4 only; strict TDD; auto-chain, feature-branch-chain. It consumes only a successful 6A `ssh_eligible` admission and does not repeat eligibility, policy, trust, consent, or credential ordering.
+- RED: `go test -count=1 ./internal/configuration -run 'TestSSHRuntimeFactory'` — exit `1` before production implementation: `SSHRuntimeFactory`, `SSHRuntimeClient`, and `SSHRuntimeOperationTimeout` were undefined.
+- GREEN: the same focused command — exit `0`; artifact rejection occurs before the injected production-owned `remote.Dial` seam, the runtime uses a bounded 15-second operation context, Java and upload failures map to exact terminal classes, and an acquired client closes once.
+- REFACTOR: extracted `mapepirestdio.ValidateJavaHome` from the existing fixed command policy and exposed only `remote.Client.RemoteFiles()` to the artifact uploader; no launch, process, proof, SQL, shell, or download API was added.
+
+### Slice 6B TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 6.3 | Unit/counting SSH/artifact/Java/upload fakes | `go test -count=1 ./internal/configuration ./internal/remote ./internal/connectors/ibmi/mapepirestdio` — exit `0`, 3 packages | ✅ focused compile failure, exit `1` | ✅ focused command, exit `0` | ✅ six unsafe artifact states; Java and upload failures; dial deadline/timeout; close count | ✅ narrow fakes over production runtime seam |
+| 6.4 | Unit/counting fakes | Same safety net | ✅ factory, client, timeout, and seams absent | ✅ focused command, exit `0` | ✅ local verification before dial, bounded context propagation, typed artifact/java/upload/timeout classes, deterministic rollback | ✅ reused existing `VerifyServerJAR`, `EnsureServerJAR`, and remote close ownership |
+
+### Slice 6B Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/configuration ./internal/remote ./internal/connectors/ibmi/mapepirestdio` — exit `0`; 3 packages passed. |
+| Runtime harness command/scenario and exact result | `go test -count=1 ./internal/configuration -run 'TestSSHRuntimeFactory'` — exit `0`; deterministic counting SSH/artifact/Java/upload fakes prove unpinned/corrupt/partial/changed/latest/unverified local artifact rejection before dial, bounded operation contexts, Java/upload terminal classes, and close-on-partial-failure. No IBM i, corporate network, actual SSH/Java process, credential store, or download. |
+| Full/static/format/diff validation | `go test -count=1 ./...` — exit `0`: 22 test-bearing packages passed and 4 reported `[no test files]`; `go vet ./...` — exit `0`; final `gofmt -w` then `gofmt -d internal/configuration/ssh_runtime.go internal/configuration/ssh_runtime_test.go internal/remote/ssh.go internal/connectors/ibmi/mapepirestdio/policy.go` — exit `0`, no output; `git diff --check` — exit `0`. |
+| Artifact-before-mutation / typed classifications | `VerifyServerJAR` runs before `Dial`; rejected unsafe artifacts return `artifact_failure` with zero dials. Dial timeout maps to `operation_timeout`; Java failure maps to `java_failure`; bounded uploader failure maps to `upload_failure`; close failure is `cleanup_failure`. Existing `EnsureServerJAR` retains checksum, 64 MiB, exclusive temporary upload, remote verification, and rollback semantics. |
+| Cleanup/process evidence | Any client acquired after local verification is closed exactly once on Java/upload failure; credentials are zeroed on return. This slice starts no process/channel, launches no `--single`, runs no proof/SQL, and exposes no generic shell/SFTP/download surface. |
+| Rollback boundary | Revert `internal/configuration/ssh_runtime.go`, `internal/configuration/ssh_runtime_test.go`, the narrow `RemoteFiles` adapter in `internal/remote/ssh.go`, `ValidateJavaHome` extraction in `internal/connectors/ibmi/mapepirestdio/policy.go`, and only the 6B task/progress edits. Retain 6A gates, all prior history, pending 6C–9 work, and unrelated `.atl`, `tmp`, and credential-store worktree changes. |
+
+- Exact Slice 6B authored numstat: `internal/configuration/ssh_runtime.go` 126/0; `internal/configuration/ssh_runtime_test.go` 101/0; `internal/connectors/ibmi/mapepirestdio/policy.go` 13/3; `internal/remote/ssh.go` 3/0; `tasks.md` 3/3; `apply-progress.md` 29/0. Total: **275 additions + 6 deletions = 281 changed lines**, under the 400-line hard budget. It excludes unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` changes.
+- Completion state: tasks 6.3–6.4 are checked; cumulative task total is **31 total = 18 completed + 13 pending**. No native runtime authority was acquired, settled, reset, or changed; no commit, stage, push, PR, `.atl`, or `tmp` edit occurred.
+- Next recommended action: apply Slice 6C proof only on `feature/step8-ssh-proof`; keep this runtime factory free of launch, process channel, typed SSH session, `VALUES 1`, SQL, proof cleanup, or retry behavior.

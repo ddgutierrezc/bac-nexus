@@ -388,6 +388,9 @@ func (c *Client) Close() error {
 
 func (c *Client) SFTP() *sftp.Client { return c.sftp }
 
+// RemoteFiles exposes only the bounded artifact upload surface to consumers.
+func (c *Client) RemoteFiles() mapepirestdio.RemoteFiles { return c }
+
 func (c *Client) WorkingDirectory() (string, error) { return c.sftp.Getwd() }
 func (c *Client) MkdirAll(path string) error        { return c.sftp.MkdirAll(path) }
 func (c *Client) Chmod(path string, mode os.FileMode) error {
