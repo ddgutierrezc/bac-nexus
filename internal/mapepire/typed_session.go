@@ -16,26 +16,39 @@ type MessageTransport interface {
 	Close() error
 }
 type Client struct {
-	transport MessageTransport
-	pending   map[string]pendingCall
-	cursors   map[string]int
-	mu, write sync.Mutex
-	closed    chan struct{}
-	once      sync.Once
-	reader    sync.Once
-	created   time.Time
+	transport   MessageTransport
+	pending     map[string]pendingCall
+	cursors     map[string]int
+	mu, write   sync.Mutex
+	closed      chan struct{}
+	once        sync.Once
+	reader      sync.Once
+	created     time.Time
+	application string
 }
 type callResult struct {
 	response Response
 	err      error
+}
+
+const FixedProofSQL = "VALUES 1"
+const FixedProofRevision = "values-1-v1"
+
+type ProofMetadata struct {
+	Rows     int
+	Revision string
 }
 type pendingCall struct {
 	result  chan callResult
 	request Request
 }
 
-func NewMessageSession(t MessageTransport, _ ...string) *Client {
-	return &Client{transport: t, pending: map[string]pendingCall{}, cursors: map[string]int{}, closed: make(chan struct{}), created: time.Now()}
+func NewMessageSession(t MessageTransport, application ...string) *Client {
+	app := "BAC Nexus"
+	if len(application) > 0 && application[0] != "" {
+		app = application[0]
+	}
+	return &Client{transport: t, pending: map[string]pendingCall{}, cursors: map[string]int{}, closed: make(chan struct{}), created: time.Now(), application: app}
 }
 func (c *Client) start() { c.reader.Do(func() { go c.read() }) }
 func (c *Client) read() {
@@ -165,6 +178,49 @@ func (c *Client) Call(ctx context.Context, r Request) (Response, error) {
 			return Response{}, ErrSessionClosed
 		}
 	}
+}
+
+func (c *Client) Connect(ctx context.Context, username string, password []byte) error {
+	if username == "" || len(password) == 0 {
+		return ErrProtocolViolation
+	}
+	r, err := c.Call(ctx, AuthenticatedConnectRequest("", c.application, username, password))
+	if err != nil {
+		return err
+	}
+	if r.Job == "" {
+		c.Close()
+		return ErrProtocolViolation
+	}
+	return nil
+}
+
+func (c *Client) FixedProof(ctx context.Context, username string, password []byte) (ProofMetadata, error) {
+	defer c.Close()
+	if err := c.Connect(ctx, username, password); err != nil {
+		return ProofMetadata{}, err
+	}
+	r, err := c.Call(ctx, Request{Type: OperationPrepareSQLExecute, SQL: FixedProofSQL, Rows: 1})
+	if err != nil {
+		return ProofMetadata{}, err
+	}
+	if !r.HasResults || !r.IsDone || len(r.Data) != 1 {
+		return ProofMetadata{}, ErrProtocolViolation
+	}
+	// A completed one-page response may already have removed its cursor from
+	// the general paging state; the fixed proof still closes it explicitly.
+	c.mu.Lock()
+	if _, ok := c.cursors[r.ID]; !ok {
+		c.cursors[r.ID] = 0
+	}
+	c.mu.Unlock()
+	if _, err := c.Call(ctx, CloseCursorRequest("", r.ID)); err != nil {
+		return ProofMetadata{}, err
+	}
+	if _, err := c.Call(ctx, ExitRequest("")); err != nil {
+		return ProofMetadata{}, err
+	}
+	return ProofMetadata{Rows: 1, Revision: FixedProofRevision}, nil
 }
 func boundedContext(parent context.Context, sessionDeadline time.Time) (context.Context, context.CancelFunc) {
 	deadline := time.Now().Add(MaxRequestTimeout)

@@ -1,11 +1,13 @@
 package wss
 
 import (
+	"bac-nexus/internal/mapepire"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"github.com/coder/websocket"
 	"net/http"
@@ -14,6 +16,51 @@ import (
 	"testing"
 	"time"
 )
+
+func TestAuthenticatedFactoryKeepsCredentialsInConnectAndClosesProof(t *testing.T) {
+	s, roots := testServer(t, func(c *websocket.Conn) {
+		for i := 0; i < 4; i++ {
+			typ, payload, err := c.Read(context.Background())
+			if err != nil || typ != websocket.MessageText {
+				return
+			}
+			var request mapepire.Request
+			if json.Unmarshal(payload, &request) != nil {
+				return
+			}
+			var response string
+			switch request.Type {
+			case mapepire.OperationConnect:
+				if request.Password != "secret" || request.Username != "USER" {
+					return
+				}
+				response = `{"id":"` + request.ID + `","success":true,"job":"job-1"}`
+			case mapepire.OperationPrepareSQLExecute:
+				if request.SQL != mapepire.FixedProofSQL || request.Rows != 1 {
+					return
+				}
+				response = `{"id":"` + request.ID + `","success":true,"is_done":true,"has_results":true,"data":[{"value":1}]}`
+			case mapepire.OperationSQLClose:
+				response = `{"id":"` + request.ID + `","success":true}`
+			case mapepire.OperationExit:
+				response = `{"id":"` + request.ID + `","success":true}`
+			default:
+				return
+			}
+			_ = c.Write(context.Background(), websocket.MessageText, []byte(response))
+		}
+	})
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: tlsConfig(roots)}}
+	factory := NewFactory(wssURL(s), Options{HTTPClient: client, TLSConfig: client.Transport.(*http.Transport).TLSClientConfig})
+	session, err := factory.Open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := session.Prove(context.Background(), "USER", []byte("secret"))
+	if err != nil || proof.Rows != 1 || proof.Revision != mapepire.FixedProofRevision {
+		t.Fatalf("proof=%#v err=%v", proof, err)
+	}
+}
 
 func TestWSSLoopbackTextAndTLSIdentity(t *testing.T) {
 	s, roots := testServer(t, func(c *websocket.Conn) {

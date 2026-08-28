@@ -26,6 +26,66 @@ func TestPinnedProtocolFixtureRevisionIsValid(t *testing.T) {
 	}
 }
 
+func TestFixedProofUsesAuthenticatedConnectAndReturnsMetadataOnly(t *testing.T) {
+	transport := newMessageFake()
+	s := NewMessageSession(transport)
+	done := make(chan ProofMetadata, 1)
+	go func() {
+		proof, err := s.FixedProof(context.Background(), "USER", []byte("secret"))
+		if err != nil {
+			t.Errorf("fixed proof: %v", err)
+		}
+		done <- proof
+	}()
+	var connect Request
+	json.Unmarshal(<-transport.sent, &connect)
+	if connect.Type != OperationConnect || connect.Username != "USER" || connect.Password != "secret" {
+		t.Fatalf("connect request=%#v", connect)
+	}
+	transport.receive <- []byte(`{"id":"` + connect.ID + `","success":true,"job":"job-1"}`)
+	var proof Request
+	json.Unmarshal(<-transport.sent, &proof)
+	if proof.Type != OperationPrepareSQLExecute || proof.SQL != FixedProofSQL || proof.Password != "" || proof.Username != "" || proof.Rows != 1 || len(proof.Parameters) != 0 {
+		t.Fatalf("proof request=%#v", proof)
+	}
+	transport.receive <- []byte(`{"id":"` + proof.ID + `","success":true,"is_done":true,"has_results":true,"data":[{"value":1}]}`)
+	var closeRequest Request
+	json.Unmarshal(<-transport.sent, &closeRequest)
+	if closeRequest.Type != OperationSQLClose || closeRequest.ContID != proof.ID {
+		t.Fatalf("close request=%#v", closeRequest)
+	}
+	transport.receive <- []byte(`{"id":"` + closeRequest.ID + `","success":true}`)
+	var exit Request
+	json.Unmarshal(<-transport.sent, &exit)
+	if exit.Type != OperationExit {
+		t.Fatalf("exit request=%#v", exit)
+	}
+	transport.receive <- []byte(`{"id":"` + exit.ID + `","success":true}`)
+	if proof := <-done; proof.Rows != 1 || proof.Revision != FixedProofRevision {
+		t.Fatalf("proof metadata=%#v", proof)
+	}
+}
+
+func TestFixedProofCancellationClosesSessionWithoutPartialMetadata(t *testing.T) {
+	transport := newMessageFake()
+	s := NewMessageSession(transport)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { _, err := s.FixedProof(ctx, "USER", []byte("secret")); done <- err }()
+	connect := <-transport.sent
+	var request Request
+	json.Unmarshal(connect, &request)
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation=%v", err)
+	}
+	select {
+	case <-transport.closed:
+	case <-time.After(time.Second):
+		t.Fatal("cancellation did not close transport")
+	}
+}
+
 func TestTypedRequestsValidateOperationsAndBounds(t *testing.T) {
 	a, b := requestID(t), requestID(t)
 	if a == b || len(a) < 20 {

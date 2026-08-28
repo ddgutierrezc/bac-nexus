@@ -257,3 +257,38 @@
 - Security: schema-v3 saved profile only; prompt/keyring only; legacy vault requires explicit migration; unknowns fail closed; marker never readiness/bypass; fixed proof exposes metadata only.
 - Exact intended candidate: **371 additions + 13 deletions = 384 changed lines**, excluding unrelated `.atl`/`tmp`; strictly below 400 after this receipt edit. Rollback: revert the four foundation files and this Slice 1 receipt/task evidence.
 - Immutable verify hash remains `sha256:6f4da1cf3a97fc9898530b894112d9cbfab54d275e0f82badf3a455e7aff7004`; next: `apply` Slice 2 authenticated WSS; no-code-change confirmation.
+
+## Slice 2: `slice-2-authenticated-wss`
+
+- Scope: production tasks 5.1–5.3 only; strict TDD; auto-chain, feature-branch-chain; normal 400-line ceiling. SSH fallback, production composition, TUI, audit, and final verification remain out of scope.
+- RED: `go test -count=1 ./internal/mapepire -run 'TestFixedProof'` — exit 1 before implementation: missing authenticated proof API, credential fields, and fixed-proof constants. `go test -count=1 ./internal/mapepire/wss -run 'TestAuthenticatedFactory'` — exit 1 before implementation: missing WSS factory and session API.
+- GREEN: `go test -count=1 ./internal/mapepire -run 'TestFixedProof'` — exit 0; fixed proof authenticates first, sends exactly `VALUES 1`, returns metadata only, and cancellation closes the transport. `go test -count=1 ./internal/mapepire/wss -run 'TestAuthenticatedFactory'` — exit 0; loopback TLS/WSS factory/session proves credential-only connect and close lifecycle.
+- REFACTOR: application and password fields are valid only on `connect`; the WSS factory opens without credentials; fixed proof uses the release-owned SQL/revision and never returns SQL, parameters, rows, or bytes. Existing trusted WSS framing, TLS identity, bounds, cancellation, and idempotent close remain reused.
+
+### Slice 2 TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 5.1 | Loopback WSS and typed-session tests | Existing `configuration`, `mapepire`, and `wss` tests passed | ✅ focused compile/test exit 1 before new APIs | ✅ focused tests exit 0 | ✅ supported proof and cancelled proof paths | ✅ explicit factory-open/authenticate/prove separation |
+| 5.2 | Typed protocol plus WSS loopback | N/A for new session file; existing package safety net passed | ✅ tests referenced absent factory/session and auth request | ✅ focused tests exit 0 | ✅ custom application, credential-only connect, fixed proof, close | ✅ narrow `Factory`/`Session` boundary |
+| 5.3 | Loopback runtime and structural package scan | Existing WSS bounds/cancellation tests passed | ✅ cancellation and terminal behavior were represented before implementation | ✅ focused and full suites exit 0 | ✅ cancellation, frame/limit terminality, idempotent close, metadata-only result | ✅ no SSH/remote/artifact imports or calls in WSS package |
+
+### Slice 2 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/configuration ./internal/mapepire ./internal/mapepire/wss` — exit 0; 3 packages passed. |
+| Runtime harness command/scenario and exact result | Same focused command exercises `httptest.NewTLSServer` WSS loopback through `Factory.Open` and `Session.Prove` — exit 0; no IBM i, corporate network, Java, SSH process, artifact, or real credential was used. |
+| Full validation | `go test -count=1 ./...` — exit 0; 23 test-bearing packages passed and 3 reported `[no test files]`; `go vet ./...` — exit 0. |
+| Formatting and diff | `gofmt -d internal/mapepire/protocol.go internal/mapepire/typed_session.go internal/mapepire/typed_protocol_test.go internal/mapepire/wss/session.go internal/mapepire/wss/wss_test.go internal/mapepire/wss/wss.go internal/mapepire/wss/http.go` — exit 0, no output; `git diff --check` — exit 0. |
+| Security / cleanup proof | Auth fields are rejected on every non-connect operation; proof request has no credentials; successful proof sends `sqlclose` then `exit`; cancellation and all transport terminal paths close the WSS session. Structural scan found no SSH fallback, remote, artifact, Java, or upload imports/calls in `internal/mapepire/wss`. |
+| Changed-line budget | Intended Slice 2 files plus task/progress evidence: **under 400 additions+deletions**; unrelated pre-existing `.atl/`, `tmp/`, and `internal/credential/keyring_store.go` changes excluded and untouched. |
+| Rollback boundary | Revert `internal/mapepire/protocol.go`, `internal/mapepire/typed_session.go`, `internal/mapepire/typed_protocol_test.go`, `internal/mapepire/wss/session.go`, `internal/mapepire/wss/wss_test.go`, and only the Slice 2 task/progress sections; retain Slice 1 and unrelated worktree changes. |
+
+- Exact intended Slice 2 candidate: **267 additions + 18 deletions = 285 changed lines**, including source, tests, and task/progress evidence; unrelated pre-existing `.atl/`, `tmp/`, and `internal/credential/keyring_store.go` changes are excluded.
+
+### Slice 2 completion state
+
+- Tasks 1.1–1.4, 5.1–5.3 are checked for this apply history; later SSH, composition, TUI, audit, and final verification tasks remain pending in the current OpenSpec plan.
+- No native attempt authority was acquired or settled by this executor. No commit, push, PR, staging, `.atl/`, or `tmp/` edit was performed.
+- Next recommended action: `apply` the next assigned slice; this receipt does not claim final verification or archive readiness.

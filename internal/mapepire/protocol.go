@@ -44,6 +44,8 @@ type Request struct {
 	Type        string   `json:"type"`
 	Technique   string   `json:"technique,omitempty"`
 	Application string   `json:"application,omitempty"`
+	Username    string   `json:"username,omitempty"`
+	Password    string   `json:"password,omitempty"`
 	Props       string   `json:"props,omitempty"`
 	SQL         string   `json:"sql,omitempty"`
 	Rows        int      `json:"rows,omitempty"`
@@ -71,23 +73,23 @@ func ValidateRequest(r Request) error {
 	}
 	switch r.Type {
 	case OperationGetVersion, OperationPing, OperationExit:
-		if r.Application != "" || r.SQL != "" || r.Rows != 0 || r.ContID != "" || len(r.Parameters) != 0 {
+		if r.Application != "" || r.Username != "" || r.Password != "" || r.SQL != "" || r.Rows != 0 || r.ContID != "" || len(r.Parameters) != 0 {
 			return ErrProtocolViolation
 		}
 	case OperationConnect:
-		if r.Application == "" || r.SQL != "" || r.Rows != 0 || r.ContID != "" || len(r.Parameters) != 0 {
+		if r.Application == "" || len(r.Username) > MaxFieldBytes || len(r.Password) > MaxFieldBytes || r.SQL != "" || r.Rows != 0 || r.ContID != "" || len(r.Parameters) != 0 {
 			return ErrProtocolViolation
 		}
 	case OperationPrepareSQLExecute:
-		if r.SQL == "" || r.Rows < 1 || r.ContID != "" {
+		if r.Username != "" || r.Password != "" || r.SQL == "" || r.Rows < 1 || r.ContID != "" {
 			return ErrProtocolViolation
 		}
 	case OperationSQLMore:
-		if r.ContID == "" || r.Rows < 1 {
+		if r.Username != "" || r.Password != "" || r.ContID == "" || r.Rows < 1 {
 			return ErrProtocolViolation
 		}
 	case OperationSQLClose:
-		if r.ContID == "" || r.SQL != "" || r.Rows != 0 {
+		if r.Username != "" || r.Password != "" || r.ContID == "" || r.SQL != "" || r.Rows != 0 {
 			return ErrProtocolViolation
 		}
 	default:
@@ -103,6 +105,10 @@ func ValidateRequest(r Request) error {
 
 func ConnectRequest(id, application string) Request {
 	return Request{ID: id, Type: "connect", Technique: "tcp", Application: application, Props: "access=read only"}
+}
+
+func AuthenticatedConnectRequest(id, application, username string, password []byte) Request {
+	return Request{ID: id, Type: OperationConnect, Technique: "tcp", Application: application, Username: username, Password: string(password), Props: "access=read only"}
 }
 
 func PreparedQueryRequest(id, sql string, rows int, parameters []string) Request {
