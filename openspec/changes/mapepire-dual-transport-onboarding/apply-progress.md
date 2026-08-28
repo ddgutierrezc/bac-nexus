@@ -411,3 +411,29 @@
 - Exact Slice 6D authored numstat: `internal/configuration/ssh_runtime.go` 47/16; `ssh_runtime_test.go` 39/2; `ssh_proof_test.go` 51/1; `tasks.md` 3/3; `apply-progress.md` 28/0. Total: **168 additions + 22 deletions = 190 changed lines**, under the 400-line hard budget and excluding unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` changes.
 - Completion state: tasks 6.7–6.8 are checked; cumulative task total is **31 total = 22 completed + 9 pending**. No native runtime authority was acquired, settled, reset, or changed; no commit, stage, push, PR, `.atl`, or `tmp` edit occurred.
 - Next recommended action: apply Phase 7 composition only on `feature/step8-compose`.
+
+## Phase 7A: `step8-orchestrator-wss`
+
+- Scope: task 7.1 only; strict TDD; auto-chain, feature-branch-chain. The service owns saved-profile validation, marker clearing, credential-free pre-auth observation, WSS proof, cleanup, zeroization, sanitized audit/marker; it emits SSH eligibility only and never invokes fallback.
+- RED: `go test -count=1 ./internal/configuration -run '^TestStep8Service'` — exit `1` before production code: missing `Step8WSSSession`, `Step8AuditEvent`, and service contracts.
+- GREEN: same command — exit `0`; 1 package passed. The deterministic application-service harness proves `clear → observe → credential → open → prove → close → zero → audit → marker` on valid WSS success.
+- REFACTOR: narrow configuration-owned WSS, marker, and audit interfaces retain adapter trust/wire ownership and expose no endpoint, SQL, rows, secret, raw error, SSH, artifact, Java, upload, process, or fallback surface.
+
+### Phase 7A TDD Cycle Evidence
+
+| Task | Test layer | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|
+| 7.1 | Deterministic application-service fake session | ✅ exit `1`, missing service symbols | ✅ exit `0` | ✅ valid WSS, terminal historical-marker, invalid profile, proof-failure/marker suppression | ✅ narrow typed interfaces |
+
+### Phase 7A Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/configuration ./internal/mapepire ./internal/mapepire/wss` — exit `0`; 3 packages passed. |
+| Runtime harness command/scenario and exact result | `go test -count=1 ./internal/configuration -run '^TestStep8Service'` — exit `0`; counting service fakes prove WSS order, cleanup-before-zeroization-before-audit, marker write only after valid proof, and terminal marker non-readiness. No IBM i/network/SSH/process/credential store. |
+| Rollback boundary | Revert `internal/configuration/step8_service.go`, `internal/configuration/step8_service_test.go`, and only this task/progress evidence; retain 6A–6D and unrelated `.atl`, `tmp`, and keyring-store state. |
+
+- Final checks: `go test -count=1 ./...` exited `0` with 22 test-bearing packages passed and 4 packages reporting `[no test files]`; `go vet ./...` exited `0`. Source normalization used `gofmt -w "internal/configuration/step8_service.go" "internal/configuration/step8_service_test.go"`; check-only validation used `gofmt -d "internal/configuration/step8_service.go" "internal/configuration/step8_service_test.go"` and exited `0` with no output. `git diff --check` exited `0`.
+- Zero-fallback proof: the service has no SSH/artifact/Java/upload/process/fallback dependency or interface; the WSS-success trace contains only WSS operations. Terminal/unknown observations return before credential retrieval; eligible observations return the typed `ssh_eligible` continuation without execution.
+- Exact authored numstat: **364 additions + 2 deletions = 366 changed lines**, excluding unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. Task aggregate: **31 total = 23 completed + 8 pending**.
+- No native authority was acquired, settled, reset, or changed; no commit, stage, push, or PR occurred. Next recommended action: apply 7B only on `feature/step8-orchestrator-ssh`.
