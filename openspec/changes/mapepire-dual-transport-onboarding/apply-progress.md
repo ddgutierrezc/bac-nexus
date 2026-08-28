@@ -644,3 +644,30 @@
 - Risks: production dependency composition remains deliberately incomplete until P/W/C/A/T/D/R; `cmd/nexus configure` therefore must not invoke Step 8. The V1 trust, credential, and remote-runtime risks remain owned by their pending adapter units.
 - Skill resolution: paths-injected — `sdd-apply`, `bac-nexus-tui`, `go-testing`, and `work-unit-commits` were read before implementation.
 - Next route: apply P (`7.3.6a–b`) on `feature/step8-preauth`; do not begin Phase 8. No commit, stage, push, PR, branch, review, or authority mutation occurred.
+
+## Work Unit P: `step8-preauth`
+
+- Scope: tasks 7.3.6a–b only; strict TDD; auto-chain, feature-branch-chain (`feature/step8-compose` → `feature/step8-preauth`). The adapter composes the managed daemon `/version` probe at fixed port `8076` with saved-profile TLS evidence only. It has no credential, authenticated WSS, SSH policy/trust, SSH runtime, SQL, process, network side-effect test, or marker/readiness behavior.
+- RED: `go test -count=1 ./internal/configuration -run '^(TestManagedStep8PreAuthMapsDaemonOutcomes|TestManagedStep8PreAuthFailsClosedBeforeProbe)$'` exited `1` before production code because `ManagedStep8PreAuth` and `managedDaemonPort` were undefined.
+- GREEN: the same focused command exited `0` after the production adapter was added; `ok bac-nexus/internal/configuration 2.642s`.
+- TRIANGULATE: the table-driven unit tests cover supported and unsupported versions; availability and policy eligibility; identity/TLS-trust, protocol, credential, and unknown terminal cases; cancelled/expired contexts; invalid profiles; fixed `8076`; profile TLS evidence; and zero probe calls before terminal validation. A second RED exposed the expired-context mapping as `unsafe_downgrade`; it was corrected to terminal `operation_timeout`, then the focused command exited `0`.
+- REFACTOR: retained narrow `DaemonProbe` and factory seams; centralized only deterministic observation construction. No behavior change was required after the mapping was clean.
+
+### Work Unit P TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 7.3.6a | Unit / deterministic daemon-probe fake | `go test -count=1 ./internal/configuration` — exit `0`; `ok bac-nexus/internal/configuration 2.543s` before edits | ✅ focused compile failure, exit `1`, before production file | ✅ focused command exit `0` | ✅ supported, unsupported, availability, policy, identity, TLS trust, protocol, credential, unknown, cancellation, timeout, and invalid-profile paths | ✅ closed mapping helpers retain existing classes |
+| 7.3.6b | Unit / deterministic daemon-probe fake | Same package safety net | ✅ tests referenced absent adapter and fixed managed port | ✅ focused command exit `0` | ✅ profile host/TLS evidence binding plus zero-call terminal gates | ✅ narrow consumer-owned factory only |
+
+### Work Unit P Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/configuration -run '^(TestManagedStep8PreAuthMapsDaemonOutcomes|TestManagedStep8PreAuthFailsClosedBeforeProbe)$'` — exit `0`; `ok bac-nexus/internal/configuration 2.559s`; 2 named tests passed. |
+| Runtime harness command/scenario and exact result | N/A: this pure adapter has no external runtime boundary; deterministic `DaemonProbe` fakes prove mapping without network, IBM i, credentials, keyring, SSH/Java processes, or transfer side effects. |
+| Rollback boundary | Revert only `internal/configuration/step8_pre_auth.go`, `internal/configuration/step8_pre_auth_test.go`, and these 7.3.6 task/progress entries; retain prior completed units and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Final validation: `go test ./...` — exit `0`; 22 test-bearing packages passed and 4 reported `[no test files]`. `go vet ./...` — exit `0`. Source-mutating `gofmt -w internal/configuration/step8_pre_auth.go internal/configuration/step8_pre_auth_test.go` completed before validation; check-only `gofmt -d` on those files produced no output; `git diff --check` — exit `0`.
+- Completion state: **49 total = 31 completed + 18 pending**. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. No commit, stage, push, PR, `.atl`, `tmp`, or protected keyring-store edit occurred during implementation.
+- Next recommended action: apply W (`7.3.7a–b`) only on its immediate feature-branch-chain child; do not begin C/A/T/D/R, Phase 8, or final cmd wiring.
