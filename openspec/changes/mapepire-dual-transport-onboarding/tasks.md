@@ -69,13 +69,13 @@ All: no IBM i; rollback named files.
 - [x] 7.3.12b GREEN: fill `Step8ProductionDependencies` in `cmd/nexus/main.go`; wiring-only, action Phase 8.
 
 ## Phase 8 — Bubble Tea lifecycle
-- [ ] 8.1 `internal/tui/step8_action_test.go`: RED cancel/retry/stale.
-- [ ] 8.2 `internal/tui/step8_action.go`: lifecycle; sanitized cancellation.
-- [ ] 8.3 `internal/tui/step8_view.go`: responsive no-I/O View.
+- [x] 8.1 `internal/tui/step8_action_test.go`: RED cancel/retry/stale.
+- [x] 8.2 `internal/tui/step8_action.go`: lifecycle; sanitized cancellation.
+- [x] 8.3 `internal/tui/step8_view.go`: responsive no-I/O View.
 
 ## Phase 9 — Evidence
 - [ ] 9.1 `internal/audit/step8_test.go`: prohibited fields/cleanup/no marker.
 - [ ] 9.2 `docs/IBM_I_PROFILE_WIZARD.md`: loopback/fakes, no-live status.
 - [ ] 9.3 `sdd-verify`: offline matrix only.
 
-Exact checkbox totals: **49 total = 43 completed + 6 pending**. No generic SQL/shell/download/retry or protected-artifact changes.
+Exact checkbox totals: **49 total = 46 completed + 3 pending**. No generic SQL/shell/download/retry or protected-artifact changes.

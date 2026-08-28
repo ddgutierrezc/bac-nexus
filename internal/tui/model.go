@@ -35,6 +35,7 @@ const (
 	screenProfileConnection
 	screenProfileIdentity
 	screenProfileMapepire
+	screenProfileStep8Action
 	screenConfirm
 	screenSecurity
 )
@@ -157,6 +158,7 @@ type Model struct {
 	mapepireFactory    func(string, int) preAuthProbe
 	mapepireResolution configuration.Resolution
 	step8Runner        configuration.Step8Runner
+	step8Action        step8Action
 	wizardViewport     viewport.Model
 	legacyViewport     viewport.Model
 	legacyViewportText string
@@ -362,6 +364,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mapepireResolution, m.status, m.err = msg.resolution, "", msg.err
 		m.refreshWizardViewport()
 		return m, nil
+	case step8ActionMsg:
+		m.applyStep8Action(msg)
+		m.refreshWizardViewport()
+		return m, nil
 	case operationMsg:
 		m.status, m.err = m.operationText(msg.code), msg.err
 		if msg.err != nil && (msg.code == operationLoadFailed || msg.code == operationRefreshFailed) {
@@ -373,7 +379,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyMsg:
-		if m.screen == screenProfileStep || m.screen == screenProfileConnection || m.screen == screenProfileIdentity || m.screen == screenProfileMapepire {
+		if m.screen == screenProfileStep || m.screen == screenProfileConnection || m.screen == screenProfileIdentity || m.screen == screenProfileMapepire || m.screen == screenProfileStep8Action {
 			switch msg.String() {
 			case "up", "k":
 				m.wizardViewport.LineUp(1)
@@ -430,6 +436,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.screen == screenProfileMapepire {
 			updated, cmd := m.updateProfileMapepireStep(msg)
+			wizard := updated.(Model)
+			wizard.refreshWizardViewport()
+			return wizard, cmd
+		}
+		if m.screen == screenProfileStep8Action {
+			updated, cmd := m.updateStep8Action(msg)
 			wizard := updated.(Model)
 			wizard.refreshWizardViewport()
 			return wizard, cmd
@@ -851,6 +863,8 @@ func (m Model) View() string {
 		return m.renderProfileIdentityStep()
 	case screenProfileMapepire:
 		return m.renderProfileMapepireStep()
+	case screenProfileStep8Action:
+		return m.renderStep8Action()
 	case screenConfirm:
 		fmt.Fprintf(&b, "%s\n%s\n%s\n%s\n%s\n", m.text("legacy.confirm.delete", map[string]any{"Name": m.confirm}), m.text("legacy.confirm.retains_backup", nil), m.text("legacy.confirm.type_delete", map[string]any{"Name": m.confirm}), m.confirmInput.View(), m.text("legacy.confirm.cancel", nil))
 	case screenSecurity:

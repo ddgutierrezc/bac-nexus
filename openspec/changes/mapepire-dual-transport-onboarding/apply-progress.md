@@ -845,3 +845,31 @@
 
 - Verified D receipt: `go test -count=1 ./internal/audit` exit `0` (`ok bac-nexus/internal/audit 1.181s`); `go test -count=1 ./...`, `go vet ./...`, check-only `gofmt -d internal/audit/step8_auditor.go internal/audit/step8_auditor_test.go`, and `git diff --check` all exit `0`.
 - Exact D changed-line budget: **155 additions + 3 deletions = 158 changed lines**, below the 260-line native attempt limit. Completion is **49 total = 41 completed + 8 pending**; next route is R (7.3.12a–b).
+
+## Phase 8: `step8-tui-action`
+
+- Scope: tasks 8.1–8.3 only; strict TDD; auto-chain, feature-branch-chain (`feature/step8-production-wiring` → `feature/step8-tui-action`). The TUI owns only request generation, cancellation, stale-message rejection, and sanitized presentation; the injected runner remains asynchronous and owns all remote behavior.
+- RED: `go test -count=1 ./internal/tui -run '^(TestStep8ActionCancelRetryRejectsStaleResult|TestStep8ActionViewIsResponsiveAndDoesNotRun)$'` — exit `1` before production implementation because the Step 8 action screen, lifecycle state, action methods, and view symbols were undefined.
+- GREEN: the same focused command — exit `0`; `ok bac-nexus/internal/tui 2.896s`; 2 named tests passed.
+- TRIANGULATE: a blocking in-process runner proves cancel, retry with a distinct request ID, and ignored stale completion. The runtime View matrix covers idle, running, success, terminal, and cancelled states at 120x40, 80x24, and 40x16 with NO_COLOR; rendering never invokes the runner or emits a saved endpoint.
+- REFACTOR: compact terminals promote the sanitized feedback to the first panel line while wider terminals retain the shared wizard title/divider/rhythm. Result messages carry only the closed result class; the View exposes fixed safe text, never raw errors or request/profile detail.
+
+### Phase 8 TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 8.1 | Unit / direct Bubble Tea `Update` with blocking runner | `go test -count=1 ./internal/tui` — exit `0`; `ok bac-nexus/internal/tui 8.436s` before edits | ✅ focused compile failure, exit `1` | ✅ 2 named tests exit `0` | ✅ cancel, new-ID retry, stale-result rejection | ✅ one lifecycle record and typed message |
+| 8.2 | Unit / injected runner command | Same package safety net | ✅ tests preceded lifecycle code | ✅ focused exit `0` | ✅ only one active cancel ownership; cancelled/success/terminal transitions | ✅ runner result reduced to ID and closed class |
+| 8.3 | Runtime View / direct `Model.View` | Same package safety net | ✅ view states referenced absent action symbols | ✅ focused exit `0` | ✅ 5 states across 3 viewport sizes and NO_COLOR | ✅ compact feedback-first panel |
+
+### Phase 8 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/tui -run '^(TestStep8ActionCancelRetryRejectsStaleResult|TestStep8ActionViewIsResponsiveAndDoesNotRun)$'` — exit `0`; `ok bac-nexus/internal/tui 2.896s`; 2 named tests passed. |
+| Runtime harness command/scenario and exact result | The focused direct Bubble Tea `Update`/`View` harness — exit `0`; it proves all lifecycle states across 120x40, 80x24, and 40x16 without IBM i, network, keyring, SSH, Java, artifact, upload/download, shell, SQL, process, or retry side effects. |
+| Rollback boundary | Revert only `internal/tui/step8_action.go`, `internal/tui/step8_action_test.go`, `internal/tui/step8_view.go`, the Phase 8 routing hunks in `internal/tui/model.go` and `internal/tui/wizard_viewport.go`, and the Phase 8 task/progress entries; retain Phase 7 wiring, pending Phase 9, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Final validation: `go test -count=1 ./internal/tui` exit `0` (`ok bac-nexus/internal/tui 8.692s`); production-wiring injection command exit `0` across `cmd/nexus`, `internal/configuration`, and `internal/tui`; `go test -count=1 ./...` exit `0` (22 test-bearing packages and 5 no-test packages); `go vet ./...` exit `0`; check-only `gofmt -d` produced no output.
+- Exact Phase 8 candidate at this receipt: **272 additions + 6 deletions = 278 changed lines**, including source, tests, task/progress receipts; under the 380-line limit and excluding unrelated protected worktree state. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. No commit, stage, push, PR, `.atl`, `tmp`, or protected keyring-store edit occurred during implementation.
+- Completion state: **49 total = 46 completed + 3 pending**. Next recommended action: apply Phase 9 only; do not claim final verification or archive readiness.

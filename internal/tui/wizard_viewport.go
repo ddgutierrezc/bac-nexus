@@ -57,7 +57,7 @@ func wizardOverflowIndicator(vp interface {
 }
 
 func (m *Model) refreshWizardViewport() {
-	if m.screen != screenProfileStep && m.screen != screenProfileConnection && m.screen != screenProfileIdentity && m.screen != screenProfileMapepire {
+	if m.screen != screenProfileStep && m.screen != screenProfileConnection && m.screen != screenProfileIdentity && m.screen != screenProfileMapepire && m.screen != screenProfileStep8Action {
 		return
 	}
 	frameWidth, frameHeight := m.shellFrameDimensions()
@@ -84,6 +84,9 @@ func (m *Model) refreshWizardViewport() {
 	case screenProfileMapepire:
 		footer = m.text("wizard.footer.mapepire", nil)
 		panel = m.renderProfileMapepirePanel(width, height, t)
+	case screenProfileStep8Action:
+		footer = "Enter run  •  R retry  •  Esc back"
+		panel = m.renderStep8ActionPanel(width, height, t)
 	}
 	if m.status != "" {
 		if feedback, ok := m.wizardContextFeedback(); ok {
@@ -172,6 +175,8 @@ func (m Model) wizardPanelContent() string {
 		return m.renderProfileIdentityPanel(width, height, t)
 	case screenProfileMapepire:
 		return m.renderProfileMapepirePanel(width, height, t)
+	case screenProfileStep8Action:
+		return m.renderStep8ActionPanel(width, height, t)
 	}
 	return ""
 }
