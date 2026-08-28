@@ -65,8 +65,8 @@ All: no IBM i; rollback named files.
 - [x] 7.3.10b GREEN: add observed-fingerprint `security/step8_ssh_trust_adapter.go`.
 - [x] 7.3.11a RED: reject endpoint/host/user/path/error/SQL/rows/secrets from Step8 audit.
 - [x] 7.3.11b GREEN: add bounded `audit/step8_auditor.go` over Recorder.
-- [ ] 7.3.12a RED: real configure needs all adapters; startup zero calls, WSS success zero SSH/artifact/Java/upload.
-- [ ] 7.3.12b GREEN: fill `Step8ProductionDependencies` in `cmd/nexus/main.go`; wiring-only, action Phase 8.
+- [x] 7.3.12a RED: real configure needs all adapters; startup zero calls, WSS success zero SSH/artifact/Java/upload.
+- [x] 7.3.12b GREEN: fill `Step8ProductionDependencies` in `cmd/nexus/main.go`; wiring-only, action Phase 8.
 
 ## Phase 8 — Bubble Tea lifecycle
 - [ ] 8.1 `internal/tui/step8_action_test.go`: RED cancel/retry/stale.
@@ -78,4 +78,4 @@ All: no IBM i; rollback named files.
 - [ ] 9.2 `docs/IBM_I_PROFILE_WIZARD.md`: loopback/fakes, no-live status.
 - [ ] 9.3 `sdd-verify`: offline matrix only.
 
-Exact checkbox totals: **49 total = 41 completed + 8 pending**. No generic SQL/shell/download/retry or protected-artifact changes.
+Exact checkbox totals: **49 total = 43 completed + 6 pending**. No generic SQL/shell/download/retry or protected-artifact changes.

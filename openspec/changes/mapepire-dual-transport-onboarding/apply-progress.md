@@ -68,6 +68,32 @@
 - Final validation: `go test -count=1 ./internal/audit` exit `0` (`ok bac-nexus/internal/audit 1.181s`); `go test -count=1 ./...`, `go vet ./...`, check-only `gofmt -d internal/audit/step8_auditor.go internal/audit/step8_auditor_test.go`, and `git diff --check` all exit `0`.
 - Completion state: **49 total = 41 completed + 8 pending**. Source-mutating `gofmt -w` ran only on the two owned Go files. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. No commit, stage, push, PR, `.atl`, `tmp`, or protected keyring-store edit occurred during implementation.
 
+## Work Unit R: `step8-production-wiring`
+
+- Scope: tasks 7.3.12a–b only; strict TDD; auto-chain, feature-branch-chain (`feature/step8-auditor` → `feature/step8-production-wiring`). `cmd/nexus` now creates the existing Step 8 adapters and passes their composed runner to the existing TUI startup seam; Phase 8 remains the sole invocation owner.
+- RED: `go test -count=1 ./cmd/nexus -run '^TestRunCommandConfigureIsSeparateFromServe$'` — exit `1` before production wiring. The test callback required the Step 8 runner argument, but the startup seam accepted only four arguments; the initial boundary assertion also exposed incompatible raw profile-marker and audit contracts.
+- GREEN: `go test -count=1 ./cmd/nexus -run '^(TestRunCommandConfigureIsSeparateFromServe|TestStep8ProductionRunnerWSSSuccessDoesNotInvokeSSHRuntime)$'` — exit `0`; `ok bac-nexus/cmd/nexus 3.704s`.
+- TRIANGULATE: startup captures but does not invoke the fully composed runner; a deterministic WSS proof replaces only action-time WSS seams after real composition and proves one prove/close with zero SSH runtime calls. Existing `TestNewStep8ProductionUsesWSSWithoutFallbackRuntime` independently proves WSS selection bypasses fallback. No IBM i, network, credential store, SSH process, artifact, Java, upload, shell, or external side effect ran.
+- REFACTOR: kept `main.go` as composition only. The bounded audit event conversion lives with the existing audit adapter; the profile-marker contract bridge is a narrow command adapter. The SSH observer receives only context, host, and port before returning a fingerprint.
+
+### Work Unit R TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 7.3.12a | Composition / deterministic TUI and WSS fakes | `go test -count=1 ./cmd/nexus ./internal/configuration` — exit `0`; `ok bac-nexus/cmd/nexus 3.319s`; `ok bac-nexus/internal/configuration 2.737s` before edits | ✅ focused compile failure, exit `1`, before production wiring | ✅ focused named tests exit `0` | ✅ startup no-invocation and WSS success with zero SSH runtime proof; existing configuration WSS test covers fallback bypass | ✅ no action logic moved into startup |
+| 7.3.12b | Composition root | Same package safety net | ✅ test required runner injection and all production adapter contracts | ✅ focused named tests exit `0` | ✅ all P/W/C/A/T/D adapters, runtime, marker, clock, and TUI seam asserted; no startup action | ✅ bounded adapter bridges retain package ownership |
+
+### Work Unit R Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./cmd/nexus ./internal/configuration ./internal/tui -run '^(TestRunCommandConfigureIsSeparateFromServe|TestStep8ProductionRunnerWSSSuccessDoesNotInvokeSSHRuntime|TestNewStep8ProductionUsesWSSWithoutFallbackRuntime|TestStartupModelComposesInspectorAndStep8RunnerWithoutInvocation|TestStep8ProofIsExplicitlyOwnedAndCredentialFreeBeforeInvocation|TestStep8AloneProvesConnectAndQuery)$'` — exit `0`; `ok bac-nexus/cmd/nexus 4.672s`; `ok bac-nexus/internal/configuration 3.590s`; `ok bac-nexus/internal/tui 3.967s`; 3 packages passed. |
+| Runtime harness command/scenario and exact result | Deterministic in-process TUI startup and WSS proof harness through the focused command — exit `0`. It proves startup stores the runner without invoking it and WSS success leaves SSH runtime at zero; no live runtime boundary is permitted, so no IBM i, network, keyring, SSH process, Java, artifact, upload, shell, or external effect occurred. |
+| Rollback boundary | Revert only `cmd/nexus/main.go`, `cmd/nexus/step8_marker_adapter.go`, `cmd/nexus/configure_test.go`, `internal/audit/step8_configuration_adapter.go`, and the 7.3.12 task/progress entries; retain P/W/C/A/T/D, pending Phase 8–9, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Final validation: `go test -count=1 ./...` and `go vet ./...` exited `0`; source-mutating `gofmt -w` ran only on R-owned Go files, and check-only `gofmt -d` and `git diff --check` exited `0`.
+- Completion state: **49 total = 43 completed + 6 pending**. Exact R candidate: **221 additions + 7 deletions = 228 changed lines**, including source, tests, and task/progress receipts; below the 360-line attempt limit. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. No commit, stage, push, PR, `.atl`, `tmp`, or protected keyring-store edit occurred during implementation.
+
 ## Completed Tasks
 
 - [x] 1.1 RED: added schema-v2 persistence, conservative migration, ephemeral-field rejection, and independent TLS/SSH trust tests.

@@ -29,7 +29,7 @@ import (
 
 var releaseVersion = "dev"
 var vcsRevision = "unknown"
-var runConfigureTUI = tui.RunWithHostIdentityInspector
+var runConfigureTUI = tui.RunWithHostIdentityInspectorAndStep8Runner
 
 func main() {
 	err := runCommand(os.Args[1:], os.Stderr)
@@ -203,8 +203,42 @@ func runConfigure(args []string) error {
 	if err != nil {
 		return err
 	}
-	var store configuration.ProfilesStore = profile.Store{Root: root}
-	return runConfigureTUI(context.Background(), store, tui.BuildInfo{Version: releaseVersion, Revision: vcsRevision}, remote.HostIdentityInspector{})
+	profileStore := profile.Store{Root: root}
+	var store configuration.ProfilesStore = profileStore
+	return runConfigureTUI(context.Background(), store, tui.BuildInfo{Version: releaseVersion, Revision: vcsRevision}, remote.HostIdentityInspector{}, newStep8ProductionRunner(profileStore))
+}
+
+type sshFingerprintObserver struct{}
+
+func (sshFingerprintObserver) ObserveSSHFingerprint(ctx context.Context, host string, port int) (string, error) {
+	observation, err := remote.InspectHostKey(ctx, host, port)
+	if err != nil {
+		return "", err
+	}
+	return observation.Fingerprint, nil
+}
+
+func newStep8ProductionRunner(store profile.Store) configuration.Step8Runner {
+	prompt := credential.NewPromptProvider(func(ctx context.Context, _ string) ([]byte, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		return remote.TerminalSecretPrompt().Prompt("IBM i password")
+	})
+	credentials := credential.NewStep8Provider(prompt, credential.NewNativeCredentialStore())
+	trust := security.NewStep8SSHTrustAdapter(sshFingerprintObserver{})
+	return configuration.NewStep8Production(configuration.Step8ProductionDependencies{
+		Observe:        configuration.NewManagedStep8PreAuth(),
+		Credentials:    credentials,
+		WSS:            configuration.NewManagedStep8WSS(),
+		SSHPolicy:      security.NewStep8SSHPolicy(),
+		SSHTrust:       trust,
+		SSHCredentials: credentials,
+		SSH:            configuration.NewSSHRuntimeFactory(),
+		Markers:        newStep8MarkerAdapter(profile.Step8MarkerStore{Profiles: store}),
+		Audit:          audit.NewStep8ConfigurationAdapter(audit.NewStep8Auditor(audit.NewRecorder())),
+		NowUnixMs:      func() int64 { return time.Now().UnixMilli() },
+	})
 }
 
 func printServeHelp(out io.Writer) error {
