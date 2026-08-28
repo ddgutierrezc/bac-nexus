@@ -537,3 +537,31 @@
 - Diagnosis: Phase 7C.2 receipt records settled authority, explicit risks, skill resolution, 26/35, and 7.3.3 continuation.
 - This restoration's own settlement remains in the native runtime ledger and is not recursively mirrored into this receipt.
 - Native authority is canonical for the correction-attempt lifecycle.
+
+## Phase 7C.3: `step8-production-factories`
+
+- Scope: task 7.3.3 only; strict TDD; auto-chain, feature-branch-chain (`feature/step8-compose-security` → `feature/step8-compose-factories`). `cmd/nexus` and TUI remain out of scope.
+- RED: `go test -count=1 ./internal/configuration -run '^TestNewStep8Production'` — exit `1` before production code: `NewStep8Production` and `Step8ProductionDependencies` were undefined.
+- GREEN: the same command — exit `0`; the factory composes the existing Step 8 WSS-first service, typed SSH gate, runtime/proof/cleanup boundary, marker, and audit seams without adding a generic remote surface.
+- TRIANGULATE: the focused package test covers all five eligible observations, WSS proof with zero SSH runtime calls, and identity/protocol/malformed/downgrade/cancelled/operation-timeout/limit/credential/unknown terminal observations with zero gate or SSH calls.
+- REFACTOR: retained one dependency struct and delegated all routing, ordering, zeroization, cleanup, fixed `VALUES 1`, and sanitization behavior to the established application-owned boundaries.
+
+### Phase 7C.3 TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 7.3.3 | Unit / deterministic counting WSS, gate, and SSH-runtime fakes | `go test -count=1 ./internal/configuration` — exit `0` before edits | ✅ test-first compile failure, exit `1` | ✅ named factory tests exit `0` | ✅ WSS success, five eligible reasons, and terminal/unknown no-downgrade cases | ✅ single narrow composition struct; existing boundaries retain behavior |
+
+### Phase 7C.3 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/configuration` — exit `0`; `ok bac-nexus/internal/configuration 2.583s`; 1 package passed. |
+| Runtime harness command/scenario and exact result | `go test -count=1 ./internal/configuration -run '^TestNewStep8Production'` — exit `0`; deterministic counting seams prove WSS success makes zero SSH runtime calls and the exact five eligible observations traverse the existing gate and fixed runtime. No IBM i, network, real credential/keyring, SSH/Java process, artifact download/upload, or persistent temporary resource was used. |
+| Rollback boundary | Revert only `internal/configuration/step8_production.go`, `internal/configuration/step8_production_test.go`, and this 7.3.3 task/progress evidence; retain 1.1–7.3.2, pending 7.3.4–9, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Final validation: `go test -count=1 ./...` exit `0` (22 test-bearing packages passed; 4 `[no test files]`); `go vet ./...` exit `0`; `gofmt -d internal/configuration/step8_production.go internal/configuration/step8_production_test.go` exit `0` with no output; `git diff --check` exit `0`.
+- Cleanup/process evidence: the composition starts no process itself. WSS success cannot invoke the supplied SSH runtime; SSH eligibility delegates to the existing gate and fixed runtime, which retain trust-before-consent-before-credential ordering, credential zeroization after settlement, and cleanup ownership.
+- Exact Phase 7C.3 authored numstat: `159 additions + 2 deletions = 161 changed lines`; excludes unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state.
+- Evidence revision: `sha256:4322055e3e670f6081b02448266e25ca0218be3de7ce36c0495df06e9de53597` (canonical SHA-256 manifest of the production source, test, and task-state files).
+- Completion state: **35 total = 27 completed + 8 pending**. No native authority mutation, commit, stage, push, PR, `.atl`, or `tmp` edit occurred. Next recommended action: apply 7.3.4 only on `feature/step8-compose-tui-seam`.

@@ -47,7 +47,7 @@ Chain strategy: feature-branch-chain
 Eligible: `daemon_refused|daemon_unavailable|daemon_availability_timeout|daemon_policy_disabled|unsupported_version`; other/unknown terminal; helpers/catalogspike never prove composition.
 - [x] 7.3.1 `internal/profile/step8_marker.go` + `internal/audit/step8.go`: add adapters; assert prohibited-field redaction and endpoint/policy/trust invalidation; retain bounded marker/allowlisted audit.
 - [x] 7.3.2 `internal/credential/prompt_provider.go` + `internal/security/ssh_trust.go`: add adapters; assert denial=`credentials_unavailable`, mismatch blocks; no downgrade/remote/TLS-trust reuse.
-- [ ] 7.3.3 `internal/configuration/step8_production.go`: compose factories; assert `daemon_refused|daemon_unavailable|daemon_availability_timeout|daemon_policy_disabled|unsupported_version`→SSH, WSS proof zero SSH/artifact/Java/upload; unknown/terminal fail closed/no downgrade.
+- [x] 7.3.3 `internal/configuration/step8_production.go`: compose factories; assert `daemon_refused|daemon_unavailable|daemon_availability_timeout|daemon_policy_disabled|unsupported_version`→SSH, WSS proof zero SSH/artifact/Java/upload; unknown/terminal fail closed/no downgrade.
 - [ ] 7.3.4 `internal/tui/model.go`: inject only `configuration.Step8Runner`; assert Steps 3–4 pre-auth/zero runner-credential-runtime calls; retain credential-free runtime-free state.
 - [ ] 7.3.5 `cmd/nexus/main.go`: wire `runConfigure→runConfigureTUI`; assert constructor receives/no Step-8 invocation; retain Phase-8 action ownership/no live IBM i.
 
@@ -61,4 +61,4 @@ Eligible: `daemon_refused|daemon_unavailable|daemon_availability_timeout|daemon_
 - [ ] 9.2 `docs/IBM_I_PROFILE_WIZARD.md`: document loopback/fakes; assert no live IBM i; report `not_validated_on_ibmi`.
 - [ ] 9.3 `sdd-verify`: run acceptance matrix; assert offline `not_validated_on_ibmi`; no archive/live-IBM-i claim.
 
-Exact checkbox totals: **35 total = 26 completed + 9 pending**. Tasks through 7.3.2 source/tests and hybrid task/progress evidence are complete; no native/VCS/.atl/tmp edits occurred.
+Exact checkbox totals: **35 total = 27 completed + 8 pending**. Tasks through 7.3.3 source/tests and hybrid task/progress evidence are complete; no native/VCS/.atl/tmp edits occurred.
