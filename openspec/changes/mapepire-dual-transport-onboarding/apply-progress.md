@@ -671,3 +671,31 @@
 - Final validation: `go test ./...` — exit `0`; 22 test-bearing packages passed and 4 reported `[no test files]`. `go vet ./...` — exit `0`. Source-mutating `gofmt -w internal/configuration/step8_pre_auth.go internal/configuration/step8_pre_auth_test.go` completed before validation; check-only `gofmt -d` on those files produced no output; `git diff --check` — exit `0`.
 - Completion state: **49 total = 31 completed + 18 pending**. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. No commit, stage, push, PR, `.atl`, `tmp`, or protected keyring-store edit occurred during implementation.
 - Next recommended action: apply W (`7.3.7a–b`) only on its immediate feature-branch-chain child; do not begin C/A/T/D/R, Phase 8, or final cmd wiring.
+
+## Work Unit W: `step8-wss-adapter`
+
+- Scope: tasks 7.3.7a–b only; strict TDD; auto-chain, feature-branch-chain (`0dc5e9f` → `feature/step8-wss-adapter`). The adapter binds only the saved profile host and independent TLS evidence to managed `wss://host:8076`, then exposes the existing typed fixed-proof session to `Step8Service`.
+- Architecture discovery: the requested `internal/connectors/ibmi/mapepirewss` package did not exist on this branch. It was added as the connector-owned narrow wrapper over the existing `internal/mapepire/wss` typed factory/session; `internal/configuration` imports only that approved connector package.
+- RED: `go test -count=1 ./internal/configuration -run '^(TestManagedStep8WSSBindsSavedProfileAndIndependentTLSTrust|TestManagedStep8WSSFailuresStayTerminalAndNeverReachSSH)$'` exited `1` before production implementation because `NewManagedStep8WSS`, its factory seam, and its session fake were undefined.
+- GREEN: the same focused command exited `0` after the adapter and connector wrapper were added; `ok bac-nexus/internal/configuration 2.531s`.
+- TRIANGULATE: profile binding asserts fixed `:8076`, the profile TLS pin, and no implicit TOFU; the table-driven terminal cases cover authentication, authorization, identity, trust, protocol, limits, cancellation, timeout, and unknown proof failures. Every case returns a terminal `Step8Result` and records zero SSH runtime calls.
+- REFACTOR: the connector wrapper maps only existing typed `ProofMetadata` at the configuration boundary; no new protocol, credential, query, retry, or fallback surface was introduced.
+
+### Work Unit W TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 7.3.7a | Unit / deterministic factory and session fakes | `go test -count=1 ./internal/configuration` — exit `0`; `ok bac-nexus/internal/configuration 2.348s` before edits | ✅ focused compile failure, exit `1`, before production files | ✅ focused command exit `0` | ✅ profile endpoint/TLS binding plus nine terminal proof-failure inputs and zero SSH calls | ✅ narrow typed factory/session seam |
+| 7.3.7b | Unit plus existing local WSS loopback | Same package safety net | ✅ tests referenced absent adapter, factory seam, and session type | ✅ focused configuration and WSS package tests exit `0` | ✅ fixed endpoint/TLS options, metadata-only session mapping, and loopback authenticated `VALUES 1` lifecycle | ✅ connector wrapper contains only metadata translation |
+
+### Work Unit W Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/configuration -run '^(TestManagedStep8WSSBindsSavedProfileAndIndependentTLSTrust|TestManagedStep8WSSFailuresStayTerminalAndNeverReachSSH)$'` — exit `0`; `ok bac-nexus/internal/configuration 2.531s`; 2 named tests passed. |
+| Runtime harness command/scenario and exact result | `go test -count=1 ./internal/mapepire/wss -run '^TestAuthenticatedFactoryKeepsCredentialsInConnectAndClosesProof$'` — exit `0`; `ok bac-nexus/internal/mapepire/wss 2.504s`. The existing bounded `httptest.NewTLSServer` WSS loopback proves authenticated typed `connect` then release-owned `VALUES 1`, cursor/session close, and no external network, IBM i, keyring, SSH, Java, artifact, or transfer side effect. |
+| Rollback boundary | Revert only `internal/configuration/step8_wss.go`, `internal/configuration/step8_wss_test.go`, `internal/connectors/ibmi/mapepirewss/session.go`, the approved-import entry in `internal/configuration/service_test.go`, and these 7.3.7 task/progress entries. Retain P, later pending units, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Final validation: `go test ./...` — exit `0`; 22 test-bearing packages passed and 5 reported `[no test files]`. `go vet ./...` — exit `0`. Source-mutating `gofmt -w` ran before focused verification; check-only `gofmt -d` on all four touched Go files produced no output; `git diff --check` — exit `0`.
+- Completion state: **49 total = 33 completed + 16 pending**. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. No commit, stage, push, PR, `.atl`, `tmp`, or protected keyring-store edit occurred during implementation.
+- Next recommended action: apply C (`7.3.8a–b`) only on the next immediate feature-branch-chain child; do not implement A/T/D/R, Phase 8, or final cmd wiring.

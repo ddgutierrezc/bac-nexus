@@ -103,7 +103,7 @@ func TestPackageRespectsInwardPointingBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	approved := map[string]bool{
-		"bac-nexus/internal/connectors/ibmi/mapepirestdio": true, "bac-nexus/internal/credential": true,
+		"bac-nexus/internal/connectors/ibmi/mapepirestdio": true, "bac-nexus/internal/connectors/ibmi/mapepirewss": true, "bac-nexus/internal/credential": true,
 		"bac-nexus/internal/profile": true, "bac-nexus/internal/remote": true,
 		"crypto/subtle": true, "encoding/json": true, "errors": true,
 		"fmt": true, "io": true, "os": true, "path/filepath": true,

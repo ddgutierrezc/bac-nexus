@@ -55,8 +55,8 @@ All: no IBM i; rollback named files.
 - [x] 7.3.5 Startup seam injects runner; zero invocation, empty dependencies, final wiring pending.
 - [x] 7.3.6a RED: `daemon_refused|unavailable|availability_timeout|policy_disabled|unsupported` only; other/unknown terminal/no downgrade.
 - [x] 7.3.6b GREEN: add credential-free, SSH-free `configuration/step8_pre_auth.go`.
-- [ ] 7.3.7a RED: profile endpoint/TLS binds WSS; auth failure terminal.
-- [ ] 7.3.7b GREEN: add profile-aware WSS/session adapter; fixed `VALUES 1` only.
+- [x] 7.3.7a RED: profile endpoint/TLS binds WSS; auth failure terminal.
+- [x] 7.3.7b GREEN: add profile-aware WSS/session adapter; fixed `VALUES 1` only.
 - [ ] 7.3.8a RED: prompt/keyring only; denial/unavailable/invalid/empty → unavailable, no leak.
 - [ ] 7.3.8b GREEN: add `credential/step8_provider.go` dispatcher.
 - [ ] 7.3.9a RED: `AllowSSH` admits approved policy only; otherwise fail closed.
@@ -78,4 +78,4 @@ All: no IBM i; rollback named files.
 - [ ] 9.2 `docs/IBM_I_PROFILE_WIZARD.md`: loopback/fakes, no-live status.
 - [ ] 9.3 `sdd-verify`: offline matrix only.
 
-Exact checkbox totals: **49 total = 29 completed + 20 pending**. No generic SQL/shell/download/retry or protected-artifact changes.
+Exact checkbox totals: **49 total = 33 completed + 16 pending**. No generic SQL/shell/download/retry or protected-artifact changes.
