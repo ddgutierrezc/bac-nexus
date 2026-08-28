@@ -591,3 +591,56 @@
 - Cleanup/process evidence: no Step 8 runner invocation occurs, the slice starts no process and creates no resources, and no cleanup is required. Existing unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` worktree changes remained untouched.
 - Exact Phase 7C.4 authored numstat: `internal/tui/model.go` `10/1`; `internal/tui/model_step8_runner_test.go` `95/0`; `internal/tui/mapepire_onboarding_step_test.go` `2/2`; `tasks.md` `2/2`; `apply-progress.md` `26/0`: **135 additions + 5 deletions = 140 changed lines**, under the 400-line budget. Evidence revision: `sha256:50396110d6260bf277b067d559a4b1c0eed008bd158dd59183b2e701a99890ee`, a canonical SHA-256 manifest of the three TUI files and task state listed above.
 - Completion state: **35 total = 28 completed + 7 pending**. No native authority mutation, commit, stage, push, PR, `.atl`, or `tmp` edit occurred. Next recommended action: apply 7.3.5 only on `feature/step8-compose`.
+
+## Phase 7C.5: `step8-tui-startup-and-cmd-wiring`
+
+- Scope: maintainer-authorized minimum correction for task 7.3.5 only; strict TDD; auto-chain, feature-branch-chain (`feature/step8-compose-tui-seam` → `feature/step8-compose`). It remediates the failed cmd-only evidence `sha256:63b9306fc676f2e703def7a3fddaff896dbf0da1c1852a5e9a289a155ac0a389` by adding the one authorized startup seam in `internal/tui/model.go` and wiring the application-owned runner in `cmd/nexus/main.go`.
+- `runConfigure` now constructs `configuration.NewStep8Production(...)` through the wiring-only `newStep8Runner` factory and passes it with the existing `remote.HostIdentityInspector` through `runConfigureTUI` to `tui.RunWithHostIdentityInspectorAndStep8Runner`. The real model receives both boundaries; compatibility entrypoints continue to pass a nil runner.
+- Startup, model construction, `Init`, resize, and `View` retain the runner without invoking it. The runner has no credential, keyring, WSS, SSH, runtime, Java, artifact, upload/download, or IBM i effect before the future Phase 8 lifecycle owns its explicit invocation.
+
+### Phase 7C.5 TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 7.3.5 | Unit / deterministic TUI and cmd composition fakes | `go test -count=1 ./internal/tui ./cmd/nexus` — exit `0`; 2 packages passed before edits | ✅ `TestStartupModelComposesInspectorAndStep8RunnerWithoutInvocation` and `TestRunCommandConfigureIsSeparateFromServe` first failed to compile (missing startup seam, runner factory, and five-argument TUI wiring) | ✅ both named commands exited `0` after the minimum seam and cmd injection | ✅ TUI construction/Init/resize/View prove zero calls; real `runCommand configure` proves exact runner identity and zero calls; rejected arguments prove zero runner construction | ➖ None needed; the new helper only composes existing inspector and runner seams |
+
+### Phase 7C.5 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/tui ./cmd/nexus` — exit `0`; `ok bac-nexus/internal/tui 15.750s`, `ok bac-nexus/cmd/nexus 9.241s`; 2 packages passed. Named RED/GREEN commands covered the new TUI startup model and cmd wiring tests. |
+| Runtime harness command/scenario and exact result | `go test -count=1 ./internal/tui -run '^TestLegacyRuntimeReachabilityAcrossFullMatrix$'` — exit `0`; `ok bac-nexus/internal/tui 6.172s`. The deterministic in-process Bubble Tea `Update`/`View` matrix exercises 120x40, 80x24, and 40x16 with true-color and NO_COLOR. No terminal, network, credential/keyring, WSS/SSH, Java, process, artifact, transfer, or IBM i boundary is created because Phase 8 exclusively owns runner invocation. |
+| Rollback boundary | Revert only `internal/tui/model.go`, `internal/tui/model_startup_step8_runner_test.go`, `cmd/nexus/main.go`, `cmd/nexus/configure_test.go`, and the 7.3.5 task/progress entries. Retain 1.1–7.3.4, pending 8.1–9.3, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Final validation: `go test -count=1 ./...` exit `0` (22 test-bearing packages passed; 4 `[no test files]`); `go vet ./...` exit `0`; `go build ./...` exit `0`; check-only `gofmt -d internal/tui/model.go internal/tui/model_startup_step8_runner_test.go cmd/nexus/main.go cmd/nexus/configure_test.go` exit `0` with no output; `git diff --check` exit `0` before artifact persistence.
+- Cleanup/process evidence: no runner invocation occurs in the TUI startup or cmd composition tests; no process or external resource is created, so no cleanup action is required. The cmd root contains only factory construction and injection; it introduces no business routing, security, protocol, shell, SQL, retry, or transport behavior.
+- Exact correction candidate numstat: `cmd/nexus/configure_test.go` `45/1`; `cmd/nexus/main.go` `5/2`; `internal/tui/model.go` `13/1`; `internal/tui/model_startup_step8_runner_test.go` `39/0`; `tasks.md` `2/2`; `apply-progress.md` `25/0`: **129 additions + 6 deletions = 135 changed lines**, below the 400-line budget and excluding unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. Evidence revision: `sha256:a2e311add4ccdbae02ecad550f23fb62e392d7b9ca35448d1eb2ffed1d7f8262`, the canonical SHA-256 manifest of the four correction source/test files and updated task state, distinct from failed evidence `sha256:63b9306fc676f2e703def7a3fddaff896dbf0da1c1852a5e9a289a155ac0a389`.
+- Completion state: **35 total = 29 completed + 6 pending**. No native authority mutation, commit, stage, push, PR, `.atl`, or `tmp` edit occurred. Next recommended action: apply 8.1 only on `feature/step8-tui`.
+
+## Phase 7 Correction Addendum: `step8-post-replan-clean-baseline`
+
+- Native authority is canonical: acquired `proceed` token `sha256:106192306803ee205345eb2c5df70c3b0356e9a1465a3ce5f1ace5b978bc99c0`; one attempt, 200 correction-line maximum. This correction remediates failed evidence `sha256:aee0980e27e55838ffce38ed1f161f97261d163caa58bbc604bd4ec4bf46a886` and does not acquire, settle, reset, or otherwise mutate authority.
+- Fresh validation invalidated the prior cmd claim: `cmd/nexus` constructed `NewStep8Production(Step8ProductionDependencies{})`, whose required adapter dependencies were all nil and therefore non-operational. The invalid `cmd/nexus` factory/injection and its associated cmd tests were removed, restoring the last valid `RunWithHostIdentityInspector` configure path until P/W/C/A/T/D/R exist.
+- The valid TUI startup seam in `internal/tui/model.go` and `internal/tui/model_startup_step8_runner_test.go` is preserved unchanged. It retains an injected `Step8Runner` without invoking it; no Phase 8 action, lifecycle, cancellation, retry, stale-result, credential, transport, process, or remote behavior appears.
+- Task plan is preserved exactly at **49 total = 29 completed + 20 pending**. No P/W/C/A/T/D/R unit is marked complete; 7.3.12 remains the pending final production-wiring unit. The retained 7.3.5 startup seam does not claim operational cmd composition.
+
+### Correction TDD Cycle Evidence
+
+| Work unit | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|
+| `step8-post-replan-clean-baseline` | `go test -count=1 ./cmd/nexus ./internal/tui` — exit `0`; 2 packages | Temporary focused regression `TestConfigureDoesNotConstructEmptyStep8ProductionDependencies` — exit `1`, proving the invalid empty constructor was present | Restored the prior configure path, removed the temporary regression with the invalid cmd test hunk, then `go test -count=1 ./cmd/nexus ./internal/tui` — exit `0`; 2 packages | TUI counting-runner startup, model, `Init`, `Update`, `View`, responsive, and NO_COLOR matrix tests remain green with zero runner calls | No refactor: correction is a rollback to the last valid cmd composition |
+
+### Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./cmd/nexus ./internal/tui` — exit `0`; `ok bac-nexus/cmd/nexus 2.919s`, `ok bac-nexus/internal/tui 10.978s`; 2 packages passed. |
+| Runtime harness command/scenario and exact result | `go test -count=1 ./internal/tui -run '^(TestStartupModelComposesInspectorAndStep8RunnerWithoutInvocation|TestNewModelWithStep8RunnerStoresOnlyTheRunnerSeam|TestStepThreeAndFourRemainPreAuthWithInjectedStep8Runner|TestLegacyRuntimeReachabilityAcrossFullMatrix)$'` — exit `0`; `ok bac-nexus/internal/tui 12.256s`. Deterministic `Update`/`View` at 120x40, 80x24, and 40x16, including NO_COLOR, retained zero runner calls; no external or runtime boundary exists before Phase 8. |
+| Rollback boundary | Reapply only the removed uncommitted cmd hunks in `cmd/nexus/main.go` and `cmd/nexus/configure_test.go` to restore the invalid state; this correction leaves the valid TUI seam and all unrelated worktree changes intact. |
+
+- Verification: `go test -count=1 ./...` exit `0` (22 test-bearing packages passed; 4 `[no test files]`); `go vet ./...` exit `0`; `go build ./...` exit `0`; check-only `gofmt -d` on the four authorized Go files produced no output; `git diff --check` exit `0`.
+- Structural proof: `cmd/nexus` has zero `Step8ProductionDependencies{}`, `newStep8Runner`, and `RunWithHostIdentityInspectorAndStep8Runner` matches. `internal/tui` has zero `step8Runner.Run` matches; it retains only the startup/model seam. No IBM i, network, credentials, keyring, SSH, Java, artifact, process, temporary, `.atl`, or protected keyring-store resource was touched.
+- Correction-owned net source/test numstat is **0 additions + 0 deletions** because only invalid uncommitted hunks were removed. This addendum is the sole new authorized artifact content. Evidence revision: `sha256:edc49b7d8af9488f480a519a50c2b8b0804459ac01ddd35991d6253bacfe40eb`, calculated from the canonical authority, failed evidence, restored-path, preserved-seam, aggregate, and pending-wiring manifest; it is distinct from the failed evidence revision.
+- Risks: production dependency composition remains deliberately incomplete until P/W/C/A/T/D/R; `cmd/nexus configure` therefore must not invoke Step 8. The V1 trust, credential, and remote-runtime risks remain owned by their pending adapter units.
+- Skill resolution: paths-injected — `sdd-apply`, `bac-nexus-tui`, `go-testing`, and `work-unit-commits` were read before implementation.
+- Next route: apply P (`7.3.6a–b`) on `feature/step8-preauth`; do not begin Phase 8. No commit, stage, push, PR, branch, review, or authority mutation occurred.

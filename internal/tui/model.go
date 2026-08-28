@@ -206,8 +206,13 @@ func NewModelWithBuildInfoAndInspector(store configuration.ProfilesStore, buildI
 }
 
 func newModelWithIdentityInspector(store configuration.ProfilesStore, buildInfo BuildInfo, inspector hostidentity.Inspector, parent context.Context, timeout time.Duration) Model {
+	return newModelWithIdentityInspectorAndStep8Runner(store, buildInfo, inspector, nil, parent, timeout)
+}
+
+func newModelWithIdentityInspectorAndStep8Runner(store configuration.ProfilesStore, buildInfo BuildInfo, inspector hostidentity.Inspector, runner configuration.Step8Runner, parent context.Context, timeout time.Duration) Model {
 	m := NewModelWithBuildInfoAndLocalizer(store, buildInfo, localization.Spanish())
 	m.identityInspector = inspector
+	m.step8Runner = runner
 	m.identityParent, m.identityTimeout = parent, timeout
 	return m
 }
@@ -1049,7 +1054,14 @@ func Run(ctx context.Context, store configuration.ProfilesStore, buildInfo Build
 }
 
 func RunWithHostIdentityInspector(ctx context.Context, store configuration.ProfilesStore, buildInfo BuildInfo, inspector hostidentity.Inspector) error {
-	program := tea.NewProgram(newModelWithIdentityInspector(store, buildInfo, inspector, ctx, identityInspectionTimeout), tuiProgramOptions(ctx)...)
+	return RunWithHostIdentityInspectorAndStep8Runner(ctx, store, buildInfo, inspector, nil)
+}
+
+// RunWithHostIdentityInspectorAndStep8Runner composes the no-auth inspector
+// and application-owned Step 8 boundary. Startup retains both seams but never
+// invokes the runner; the explicit Phase 8 lifecycle owns invocation.
+func RunWithHostIdentityInspectorAndStep8Runner(ctx context.Context, store configuration.ProfilesStore, buildInfo BuildInfo, inspector hostidentity.Inspector, runner configuration.Step8Runner) error {
+	program := tea.NewProgram(newModelWithIdentityInspectorAndStep8Runner(store, buildInfo, inspector, runner, ctx, identityInspectionTimeout), tuiProgramOptions(ctx)...)
 	_, err := program.Run()
 	return err
 }
