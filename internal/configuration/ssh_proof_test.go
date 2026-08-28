@@ -16,9 +16,14 @@ type proofRuntimeClientFake struct {
 	transport mapepire.MessageTransport
 	launchErr error
 	policy    mapepirestdio.LaunchPolicy
+	closes    int
+	closeErr  error
 }
 
-func (*proofRuntimeClientFake) Close() error                           { return nil }
+func (f *proofRuntimeClientFake) Close() error {
+	f.closes++
+	return f.closeErr
+}
 func (*proofRuntimeClientFake) RemoteFiles() mapepirestdio.RemoteFiles { return nil }
 func (f *proofRuntimeClientFake) FixedMapepireProof(_ context.Context, policy mapepirestdio.LaunchPolicy, username string, secret []byte) (remote.FixedProofMetadata, error) {
 	f.policy = policy
@@ -157,6 +162,51 @@ func TestProofErrorClassMapsTypedTerminalFailures(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSSHRuntimeProveSettlesClientBeforeZeroingCredentials(t *testing.T) {
+	tests := []struct {
+		name      string
+		client    *proofRuntimeClientFake
+		ctx       context.Context
+		wantClass ResultClass
+		cleanup   bool
+	}{
+		{name: "success", client: &proofRuntimeClientFake{transport: newProofTransportFake()}, ctx: context.Background(), wantClass: ResultProofSuccess, cleanup: true},
+		{name: "proof failure", client: &proofRuntimeClientFake{transport: failingProofTransport{}}, ctx: context.Background(), wantClass: ResultProofFailure, cleanup: true},
+		{name: "cancelled", client: &proofRuntimeClientFake{transport: failingProofTransport{}}, ctx: cancelledContext(), wantClass: ResultCancelled, cleanup: true},
+		{name: "cleanup failure preserves primary result", client: &proofRuntimeClientFake{transport: failingProofTransport{}, closeErr: errors.New("close")}, ctx: context.Background(), wantClass: ResultProofFailure},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			secret := []byte("opaque")
+			runtime := &SSHRuntime{client: tt.client, remoteJAR: "/tmp/pinned.jar", requestID: "req-6d"}
+			_, result := runtime.Prove(tt.ctx, savedStep8Profile(t), secret)
+			if result.Class != tt.wantClass || result.Cleanup != tt.cleanup {
+				t.Fatalf("result=%+v", result)
+			}
+			if tt.client.closes != 1 {
+				t.Fatalf("client closes=%d want 1", tt.client.closes)
+			}
+			if err := runtime.Close(); err != nil && tt.cleanup {
+				t.Fatalf("second close: %v", err)
+			}
+			if tt.client.closes != 1 {
+				t.Fatalf("client settled more than once: %d", tt.client.closes)
+			}
+			for _, b := range secret {
+				if b != 0 {
+					t.Fatalf("credential was not zeroed: %q", secret)
+				}
+			}
+		})
+	}
+}
+
+func cancelledContext() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return ctx
 }
 
 type failingProofTransport struct{}

@@ -383,3 +383,31 @@
 - Exact Slice 6C authored numstat: `internal/configuration/ssh_runtime.go` 55/3; `ssh_runtime_test.go` 4/0; `ssh_proof_test.go` 168/0; `internal/remote/ssh.go` 72/0; `tasks.md` 3/3; `apply-progress.md` 30/0. Total: **332 additions + 6 deletions = 338 changed lines**, under the 400-line hard budget. Unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` changes are excluded and untouched.
 - Completion state: tasks 6.5–6.6 are checked; cumulative task total is **31 total = 20 completed + 11 pending**. No native runtime authority was acquired, settled, reset, or changed; no commit, stage, push, PR, `.atl`, or `tmp` edit occurred.
 - Next recommended action: apply Slice 6D cleanup only on `feature/step8-ssh-cleanup`; do not add composition, TUI, audit/docs, or final verification.
+
+## Slice 6D: `step8-ssh-cleanup`
+
+- Scope: production tasks 6.7–6.8 only; strict TDD; auto-chain, feature-branch-chain. Preserves the committed 6A admission gates, 6B acquisition/rollback, and 6C fixed proof. No composition, TUI, audit/docs, final verify, artifact capability, generic remote API, native runtime authority, `.atl`, `tmp`, or credential-store changes.
+- RED: `go test -count=1 ./internal/configuration -run '^TestSSHRuntimeProveSettlesClientBeforeZeroingCredentials$'` — exit `1`; success, proof-failure, and cancellation paths returned `Cleanup:false`, and the cleanup-failure path settled no client. `go test -count=1 ./internal/configuration -run '^TestSSHRuntimeFactoryKeepsPrimaryFailureAndAssignsUniqueTraceIDs$'` — exit `1`; cleanup failure incorrectly replaced the Java primary classification with `cleanup_failure`.
+- GREEN: `go test -count=1 ./internal/configuration -run '^(TestSSHRuntimeProveSettlesClientBeforeZeroingCredentials|TestSSHRuntimeFactoryKeepsPrimaryFailureAndAssignsUniqueTraceIDs)$'` — exit `0`; every proven runtime client settles exactly once, credentials are zeroed after settlement on success/failure/cancellation, cleanup status remains sanitized, primary failure remains typed, and factory-acquired trace IDs are distinct.
+- REFACTOR: `SSHRuntime` owns a private atomic trace ID and mutex-guarded settlement. `Prove` introduces a bounded 60-second proof context and uses deferred settlement before credential zeroization; it exposes neither trace IDs nor cleanup errors in `Step8Result`.
+
+### Slice 6D TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 6.7 | Unit / deterministic acquire-settle fakes | `go test -count=1 ./internal/configuration ./internal/remote ./internal/mapepire/sshstdio ./internal/connectors/ibmi/mapepirestdio` — exit `0`; 4 packages | ✅ both named lifecycle/mapping tests failed before production changes (exit `1`) | ✅ named lifecycle tests exit `0` | ✅ success, proof failure, cancellation, cleanup failure, and distinct acquired-runtime traces | ✅ closed consumer-facing interface retained; no generic primitive added |
+| 6.8 | Unit / bounded fake typed channel | Same safety net | ✅ cleanup/zeroization behavior failed before implementation | ✅ named lifecycle tests exit `0` | ✅ client settles once even after a second `Close`; cleanup failure preserves the primary class and exposes only sanitized cleanup state | ✅ deferred LIFO order is proof/session cleanup → SSH client settlement → zero credential buffer |
+
+### Slice 6D Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/configuration ./internal/remote ./internal/mapepire/sshstdio ./internal/connectors/ibmi/mapepirestdio` — exit `0`; 4 packages passed. |
+| Runtime harness command/scenario and exact result | `go test -count=1 ./internal/configuration -run '^(TestSSHRuntimeProveSettlesClientBeforeZeroingCredentials|TestSSHRuntimeFactoryKeepsPrimaryFailureAndAssignsUniqueTraceIDs)$'` — exit `0`; deterministic counting client plus bounded fake typed channel prove proof/session cleanup precedes client settlement, exact-once settlement, cancellation, typed primary result preservation, and credential zeroization. No IBM i, corporate network, actual SSH/Java process, real credential store, or download. |
+| Full/static/format/diff validation | `go test -count=1 ./...` — exit `0`: 22 test-bearing packages passed and 4 reported `[no test files]`; `go vet ./...` — exit `0`; final `gofmt -w` then `gofmt -d internal/configuration/ssh_runtime.go internal/configuration/ssh_runtime_test.go internal/configuration/ssh_proof_test.go` — exit `0`, no output; `git diff --check` — exit `0`. |
+| Terminal, rejection, and no-downgrade proof | Existing exhaustive `IsTerminalResult`/Step 8 mapping tests cover every defined public terminal class and unknown fail-closed behavior. The 6D lifecycle matrix covers proof timeout/cancellation/limit/protocol/framing/launch/session/proof paths through the fixed proof boundary. `SSHRuntimeClient` remains exactly `Close`, bounded `RemoteFiles`, and `FixedMapepireProof`; it accepts no shell, command, SQL, download, retry, or alternate-transport input. |
+| Rollback boundary | Revert only `internal/configuration/ssh_runtime.go`, `internal/configuration/ssh_runtime_test.go`, `internal/configuration/ssh_proof_test.go`, and the 6D checkbox/progress additions; retain committed 6A–6C behavior, Phase 7+ pending work, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Exact Slice 6D authored numstat: `internal/configuration/ssh_runtime.go` 47/16; `ssh_runtime_test.go` 39/2; `ssh_proof_test.go` 51/1; `tasks.md` 3/3; `apply-progress.md` 28/0. Total: **168 additions + 22 deletions = 190 changed lines**, under the 400-line hard budget and excluding unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` changes.
+- Completion state: tasks 6.7–6.8 are checked; cumulative task total is **31 total = 22 completed + 9 pending**. No native runtime authority was acquired, settled, reset, or changed; no commit, stage, push, PR, `.atl`, or `tmp` edit occurred.
+- Next recommended action: apply Phase 7 composition only on `feature/step8-compose`.

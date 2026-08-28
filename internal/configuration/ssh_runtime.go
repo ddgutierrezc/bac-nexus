@@ -3,6 +3,8 @@ package configuration
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
@@ -10,7 +12,12 @@ import (
 	"bac-nexus/internal/remote"
 )
 
-const SSHRuntimeOperationTimeout = 15 * time.Second
+const (
+	SSHRuntimeOperationTimeout = 15 * time.Second
+	SSHRuntimeProofTimeout     = 60 * time.Second
+)
+
+var sshRuntimeTraceSequence atomic.Uint64
 
 // SSHRuntimeClient is the only remote surface the fallback runtime consumes.
 type SSHRuntimeClient interface {
@@ -20,16 +27,36 @@ type SSHRuntimeClient interface {
 }
 
 type SSHRuntime struct {
+	mu        sync.Mutex
 	client    SSHRuntimeClient
 	remoteJAR string
 	requestID string
+	traceID   uint64
+	settled   bool
 }
 
 func (r *SSHRuntime) Close() error {
-	if r == nil || r.client == nil {
+	if r == nil {
 		return nil
 	}
-	return r.client.Close()
+	r.mu.Lock()
+	if r.client == nil || r.settled {
+		r.mu.Unlock()
+		return nil
+	}
+	client := r.client
+	r.settled = true
+	r.mu.Unlock()
+	return client.Close()
+}
+
+func (r *SSHRuntime) activeClient() SSHRuntimeClient {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.settled {
+		return nil
+	}
+	return r.client
 }
 
 type SSHRuntimeFactory struct {
@@ -85,12 +112,7 @@ func (f SSHRuntimeFactory) Open(ctx context.Context, admission Step8Result, p pr
 	cleanup := true
 	defer func() {
 		if cleanup {
-			if err := client.Close(); err != nil {
-				runtime = nil
-				result = terminalGateResult(result, ResultCleanupFailure)
-				return
-			}
-			result.Cleanup = true
+			result.Cleanup = client.Close() == nil
 		}
 	}()
 	if f.JavaReady == nil {
@@ -107,23 +129,32 @@ func (f SSHRuntimeFactory) Open(ctx context.Context, admission Step8Result, p pr
 		return nil, terminalGateResult(result, runtimeErrorClass(ctx, err, ResultUploadFailure))
 	}
 	cleanup = false
-	return &SSHRuntime{client: client, remoteJAR: remoteJAR, requestID: admission.RequestID}, Step8Result{RequestID: admission.RequestID, Decision: DecisionSSHEligible, Class: ResultProofSuccess}
+	return &SSHRuntime{client: client, remoteJAR: remoteJAR, requestID: admission.RequestID, traceID: sshRuntimeTraceSequence.Add(1)}, Step8Result{RequestID: admission.RequestID, Decision: DecisionSSHEligible, Class: ResultProofSuccess}
 }
 
 // Prove starts only the release-owned single-mode process and fixed proof.
-func (r *SSHRuntime) Prove(ctx context.Context, p profile.Profile, secret []byte) (ProofMetadata, Step8Result) {
+func (r *SSHRuntime) Prove(ctx context.Context, p profile.Profile, secret []byte) (metadata ProofMetadata, result Step8Result) {
+	defer zeroCredential(secret)
 	if r == nil {
 		return ProofMetadata{}, terminalGateResult(Step8Result{}, ResultSessionFailure)
 	}
-	result := Step8Result{RequestID: r.requestID}
-	if r.client == nil || r.remoteJAR == "" {
+	result = Step8Result{RequestID: r.requestID}
+	client := r.activeClient()
+	if client == nil || r.remoteJAR == "" {
 		return ProofMetadata{}, terminalGateResult(result, ResultSessionFailure)
 	}
-	proof, err := r.client.FixedMapepireProof(ctx, mapepirestdio.LaunchPolicy{JavaHome: p.JavaHome, RemoteJAR: r.remoteJAR, Consented: true}, p.Username, secret)
+	proofContext, cancel := context.WithTimeout(ctx, SSHRuntimeProofTimeout)
+	defer cancel()
+	defer func() {
+		if r.Close() == nil {
+			result.Cleanup = true
+		}
+	}()
+	proof, err := client.FixedMapepireProof(proofContext, mapepirestdio.LaunchPolicy{JavaHome: p.JavaHome, RemoteJAR: r.remoteJAR, Consented: true}, p.Username, secret)
 	if err != nil {
-		return ProofMetadata{}, terminalGateResult(result, proofErrorClass(ctx, err))
+		return ProofMetadata{}, terminalGateResult(result, proofErrorClass(proofContext, err))
 	}
-	metadata := ProofMetadata{Rows: proof.Rows, ProofRevision: proof.Revision}
+	metadata = ProofMetadata{Rows: proof.Rows, ProofRevision: proof.Revision}
 	if err := ValidateProofMetadata(metadata); err != nil {
 		return ProofMetadata{}, terminalGateResult(result, ResultProofFailure)
 	}

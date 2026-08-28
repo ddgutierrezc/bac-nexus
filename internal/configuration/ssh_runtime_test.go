@@ -11,9 +11,12 @@ import (
 	"bac-nexus/internal/remote"
 )
 
-type runtimeClientFake struct{ closes int }
+type runtimeClientFake struct {
+	closes   int
+	closeErr error
+}
 
-func (f *runtimeClientFake) Close() error                         { f.closes++; return nil }
+func (f *runtimeClientFake) Close() error                         { f.closes++; return f.closeErr }
 func (*runtimeClientFake) RemoteFiles() mapepirestdio.RemoteFiles { return nil }
 func (*runtimeClientFake) FixedMapepireProof(context.Context, mapepirestdio.LaunchPolicy, string, []byte) (remote.FixedProofMetadata, error) {
 	return remote.FixedProofMetadata{}, nil
@@ -101,5 +104,39 @@ func TestSSHRuntimeFactoryMapsDialTimeoutWithoutRuntime(t *testing.T) {
 func TestSSHRuntimeFactoryDefaultHasBoundedOperationTimeout(t *testing.T) {
 	if SSHRuntimeOperationTimeout <= 0 || SSHRuntimeOperationTimeout > time.Minute {
 		t.Fatalf("operation timeout=%s", SSHRuntimeOperationTimeout)
+	}
+}
+
+func TestSSHRuntimeFactoryKeepsPrimaryFailureAndAssignsUniqueTraceIDs(t *testing.T) {
+	clients := []*runtimeClientFake{{}, {}, {}, {}}
+	index := 0
+	factory := SSHRuntimeFactory{
+		VerifyArtifact: func(string) error { return nil },
+		Dial: func(context.Context, profile.Profile, []byte) (SSHRuntimeClient, error) {
+			client := clients[index]
+			index++
+			return client, nil
+		},
+		JavaReady: func(context.Context, profile.Profile) error { return errors.New("java") },
+		Upload: func(context.Context, mapepirestdio.RemoteFiles, string) (string, error) {
+			return "/tmp/pinned.jar", nil
+		},
+	}
+	for i := range clients[:2] {
+		clients[i].closeErr = errors.New("cleanup")
+		_, result := factory.Open(context.Background(), admittedSSH(), savedStep8Profile(t), []byte("opaque"))
+		if result.Class != ResultJavaFailure || result.Cleanup {
+			t.Fatalf("result=%+v", result)
+		}
+		if clients[i].closes != 1 {
+			t.Fatalf("client %d closes=%d", i, clients[i].closes)
+		}
+	}
+
+	factory.JavaReady = func(context.Context, profile.Profile) error { return nil }
+	runtimeA, resultA := factory.Open(context.Background(), admittedSSH(), savedStep8Profile(t), []byte("opaque"))
+	runtimeB, resultB := factory.Open(context.Background(), admittedSSH(), savedStep8Profile(t), []byte("opaque"))
+	if resultA.Class != ResultProofSuccess || resultB.Class != ResultProofSuccess || runtimeA.traceID == 0 || runtimeA.traceID == runtimeB.traceID {
+		t.Fatalf("runtime traces=%+v,%+v results=%+v,%+v", runtimeA, runtimeB, resultA, resultB)
 	}
 }
