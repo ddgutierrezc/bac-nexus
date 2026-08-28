@@ -47,8 +47,8 @@ Original 3.1–3.5 remain historical superseded/helper-only evidence; they are n
 - [x] 5.3 REFACTOR/VERIFY: loopback TLS/WSS acquire/settle; test protocol/limit terminality and no SSH imports/calls; stop before 400.
 
 ### Phase 6 — Managed SSH Fallback (non-goal: generic primitives)
-- [ ] 6.1 RED (6A): test eligible-only classifications, policy/trust gates, consent-before-credential, credential terminality, and no daemon-terminal downgrade.
-- [ ] 6.2 GREEN (6A): implement the post-observation gate and typed terminal mapping; acceptance is eligible-only fallback with consent before credential. Non-goals: `remote.Dial`, artifact, Java, upload, launch, proof, TUI.
+- [x] 6.1 RED (6A): test eligible-only classifications, policy/trust gates, consent-before-credential, credential terminality, and no daemon-terminal downgrade.
+- [x] 6.2 GREEN (6A): implement the post-observation gate and typed terminal mapping; acceptance is eligible-only fallback with consent before credential. Non-goals: `remote.Dial`, artifact, Java, upload, launch, proof, TUI.
 - [ ] 6.3 RED (6B): test `remote.Dial` seam, pinned/checksummed artifact rejection before mutation, bounded upload, Java readiness failure, and partial acquisition rollback.
 - [ ] 6.4 GREEN (6B): add the minimal production-owned SSH factory/Java-readiness seam and invoke existing verification/upload/rollback; acceptance blocks unsafe artifacts before mutation and bounds upload. Non-goals: arbitrary commands, user SQL, proof.
 - [ ] 6.5 RED (6C): test fixed `--single`, typed `VALUES 1` metadata-only proof, connect-before-proof, and artifact/launch/session/proof terminal classifications.
@@ -71,4 +71,4 @@ Original 3.1–3.5 remain historical superseded/helper-only evidence; they are n
 - [ ] 9.2 GREEN: implement allowlisted audit, marker write/clear behavior, docs distinguishing current/proposed behavior, and complete deterministic evidence.
 - [ ] 9.3 VERIFY: run `gofmt`, `go test -count=1 ./...`, `go vet ./...`, `go build ./...`, `git diff --check`, forbidden-path checks, and fresh independent `sdd-verify`; archive only after zero CRITICAL.
 
-Exact checkbox totals: **31 total = 14 completed + 17 pending**. Old 6.1 → 6.1, 6.3, 6.5; old 6.2 → 6.2, 6.4, 6.6; old 6.3 → 6.7, 6.8 plus 6A–6D verification criteria. Every runtime-bearing unit uses acquire/settle and unique IDs. Phase 7 begins only after 6D. No staging, commit, push, PR, or automatic apply is authorized; apply may auto-chain from `feature/step8-wss`.
+Exact checkbox totals: **31 total = 16 completed + 15 pending**. Old 6.1 → 6.1, 6.3, 6.5; old 6.2 → 6.2, 6.4, 6.6; old 6.3 → 6.7, 6.8 plus 6A–6D verification criteria. Every runtime-bearing unit uses acquire/settle and unique IDs. Phase 7 begins only after 6D. No staging, commit, push, PR, or automatic apply is authorized; apply may auto-chain from `feature/step8-wss`.

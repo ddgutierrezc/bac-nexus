@@ -292,3 +292,35 @@
 - Tasks 1.1–1.4, 5.1–5.3 are checked for this apply history; later SSH, composition, TUI, audit, and final verification tasks remain pending in the current OpenSpec plan.
 - No native attempt authority was acquired or settled by this executor. No commit, push, PR, staging, `.atl/`, or `tmp/` edit was performed.
 - Next recommended action: `apply` the next assigned slice; this receipt does not claim final verification or archive readiness.
+
+## Slice 6A: `step8-ssh-gates`
+
+- Scope: production tasks 6.1–6.2 only; strict TDD; auto-chain, feature-branch-chain. No SSH client/runtime, artifact, Java, upload, launch, proof, composition, TUI, audit, or documentation behavior was added.
+- Safety net: `go test -count=1 ./internal/configuration ./internal/security` — exit `0`; 2 packages passed before production edits.
+- RED: `go test -count=1 ./internal/configuration -run 'TestPostObservationGate'` — exit `1` before production implementation; compiler reported missing `PostObservationGate` and `Observation` symbols.
+- Additional RED: `go test -count=1 ./internal/configuration -run 'TestPostObservationGateZeroesCredentialOnTerminalRetrievalFailure'` — exit `1`; a returned credential remained non-zero after terminal retrieval failure.
+- GREEN: both focused named commands exited `0` after adding the post-observation gate and credential zeroization.
+- REFACTOR: extracted exact observation-terminal mapping and one credential-zeroization helper; focused named tests remained green.
+
+### Slice 6A TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 6.1 | Unit/counting fakes | `./internal/configuration ./internal/security` exit `0` | ✅ missing gate/observation symbols, exit `1` | ✅ named gate tests exit `0` | ✅ eligible, WSS, every terminal/unknown observation, invalid profile, policy, trust, consent, credential paths and zero calls | ✅ shared deterministic fakes |
+| 6.2 | Unit/counting fakes | Same safety net | ✅ credential-error zeroization failure, exit `1` | ✅ named gate tests exit `0` | ✅ ordered policy → trust → consent → credential, terminal classes, credential zeroization | ✅ terminal mapper and zeroization helper |
+
+### Slice 6A Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/configuration ./internal/security` — exit `0`; `ok bac-nexus/internal/configuration 2.570s`, `ok bac-nexus/internal/security 1.090s`; 2 packages passed. |
+| Runtime harness command/scenario and exact result | The focused command exercised deterministic in-process counting policy/trust/credential fakes — exit `0`; no remote/runtime boundary exists in 6A, and no IBM i, network, SSH, process, Java, artifact, upload, or credential store was contacted. |
+| Full/static/format/diff validation | `go test -count=1 ./...` exit `0`: 22 test-bearing packages passed and 3 reported `[no test files]`; `go vet ./...` exit `0`; `gofmt -w` then `gofmt -d internal/configuration/step8.go internal/configuration/step8_test.go` exit `0` with no output; `git diff --check` exit `0`. |
+| Order and zero-call/security proof | Tests prove saved request/profile and observation validation before all gates; only the five eligible reasons can reach policy; policy and SSH trust precede consent, which precedes `CredentialProvider.Get`; invalid/WSS/terminal/unknown observations make zero gate calls; policy/trust/consent blocks prevent credential retrieval; credential terminality ends at the gate. Credential buffers are zeroed on success and retrieval failure. |
+| Structural proof | `step8.go` and `step8_test.go` import no `remote`, SSH framing, artifact, Java, upload, launch, process, shell, SQL, or download package and contain no remote/runtime calls. The only artifact/Java/upload/launch occurrences are pre-existing typed `ResultClass` constants from Foundation. |
+| Cleanup/process evidence | No runtime resource or process can be acquired in this slice; credential bytes are zeroed before `Apply` returns on both success and retrieval failure. |
+| Rollback boundary | Revert only `internal/configuration/step8.go`, `internal/configuration/step8_test.go`, and the 6A checkbox/progress edits; retain all earlier history, pending 6B–9 work, and unrelated `.atl`, `tmp`, and credential-store worktree changes. |
+
+- Exact Slice 6A authored numstat: `internal/configuration/step8.go` 118/0; `internal/configuration/step8_test.go` 169/0; `tasks.md` 3/3; `apply-progress.md` 32/0. Total: **322 additions + 3 deletions = 325 changed lines**, under the 400-line hard budget.
+- Completion state: tasks 6.1–6.2 are checked; cumulative task total is **31 total = 16 completed + 15 pending**. No native runtime authority was acquired, settled, reset, or changed; no commit, stage, push, PR, `.atl`, or `tmp` edit occurred.
+- Next recommended action: apply Slice 6B runtime only on `feature/step8-ssh-runtime`; it must add the runtime seam separately and preserve this gate's ordering/terminal contract.

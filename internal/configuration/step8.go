@@ -98,6 +98,32 @@ func ClassifyCredentialFailure(err error) ResultClass {
 	}
 	return ""
 }
+
+// TerminalResultForObservation converts only known pre-auth terminal reasons
+// into their public result class. Unknown values block downgrade.
+func TerminalResultForObservation(reason Step8Reason) ResultClass {
+	switch reason {
+	case ReasonIdentityFailure:
+		return ResultIdentityFailure
+	case ReasonProtocolFailure:
+		return ResultProtocolFailure
+	case ReasonMalformedResponse:
+		return ResultMalformedResponse
+	case ReasonDowngradeBlocked:
+		return ResultDowngradeBlocked
+	case ReasonCancelled:
+		return ResultCancelled
+	case ReasonOperationTimeout:
+		return ResultOperationTimeout
+	case ReasonLimitExceeded:
+		return ResultLimitExceeded
+	case ReasonCredentialsUnavailable:
+		return ResultCredentialsUnavailable
+	default:
+		return ResultDowngradeBlocked
+	}
+}
+
 func ValidateCredentialMode(mode profile.CredentialMode) error {
 	if mode != profile.CredentialModePrompt && mode != profile.CredentialModeKeyring {
 		return ErrInvalidCredentialMode
@@ -110,6 +136,98 @@ type Step8Request struct {
 	Profile   profile.Profile
 	Consent   bool
 }
+
+// Observation is the typed, credential-free WSS outcome that precedes all
+// fallback consideration.
+type Observation struct {
+	Decision Decision
+	Reason   Step8Reason
+}
+
+// SSHPolicy authorizes managed SSH fallback without exposing a transport.
+type SSHPolicy interface {
+	AllowSSH(context.Context, profile.Profile) error
+}
+
+// SSHTrust verifies independent persisted SSH trust without reusing WSS trust.
+type SSHTrust interface {
+	VerifySSH(context.Context, profile.Profile) error
+}
+
+// CredentialProvider retrieves one opaque credential at the final gate.
+type CredentialProvider interface {
+	Get(context.Context, string, profile.CredentialMode) ([]byte, error)
+}
+
+// PostObservationGate stops unsafe fallback before any SSH runtime exists.
+// Runtime acquisition remains a later-slice responsibility.
+type PostObservationGate struct {
+	Policy      SSHPolicy
+	Trust       SSHTrust
+	Credentials CredentialProvider
+}
+
+func (g PostObservationGate) Apply(ctx context.Context, request Step8Request, observation Observation) Step8Result {
+	result := Step8Result{RequestID: request.RequestID}
+	if request.RequestID == "" || ValidateStep8Profile(request.Profile) != nil {
+		return terminalGateResult(result, ResultDowngradeBlocked)
+	}
+	if err := ctx.Err(); err != nil {
+		return terminalGateResult(result, ResultCancelled)
+	}
+	if observation.Decision != DecisionForReason(observation.Reason) {
+		return terminalGateResult(result, ResultDowngradeBlocked)
+	}
+	switch observation.Decision {
+	case DecisionWSSSelected:
+		return Step8Result{RequestID: request.RequestID, Decision: DecisionWSSSelected, Class: ResultProofSuccess}
+	case DecisionTerminal:
+		return terminalGateResult(result, TerminalResultForObservation(observation.Reason))
+	case DecisionSSHEligible:
+		// Continue through every independent gate below.
+	default:
+		return terminalGateResult(result, ResultDowngradeBlocked)
+	}
+	if g.Policy == nil || g.Trust == nil || g.Credentials == nil {
+		return terminalGateResult(result, ResultDowngradeBlocked)
+	}
+	if err := g.Policy.AllowSSH(ctx, request.Profile); err != nil {
+		return terminalGateResult(result, gateContextResult(ctx, ResultAuthorizationDenied))
+	}
+	if err := g.Trust.VerifySSH(ctx, request.Profile); err != nil {
+		return terminalGateResult(result, gateContextResult(ctx, ResultTrustMismatch))
+	}
+	if !request.Consent {
+		return terminalGateResult(result, ResultConsentDeclined)
+	}
+	key := "ibmi/" + request.Profile.Name
+	credential, err := g.Credentials.Get(ctx, key, request.Profile.CredentialMode)
+	defer zeroCredential(credential)
+	if err != nil || len(credential) == 0 {
+		return terminalGateResult(result, gateContextResult(ctx, ResultCredentialsUnavailable))
+	}
+	return Step8Result{RequestID: request.RequestID, Decision: DecisionSSHEligible, Class: ResultProofSuccess}
+}
+
+func zeroCredential(credential []byte) {
+	for i := range credential {
+		credential[i] = 0
+	}
+}
+
+func terminalGateResult(result Step8Result, class ResultClass) Step8Result {
+	result.Decision = DecisionTerminal
+	result.Class = class
+	return result
+}
+
+func gateContextResult(ctx context.Context, fallback ResultClass) ResultClass {
+	if errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return ResultCancelled
+	}
+	return fallback
+}
+
 type Step8Result struct {
 	RequestID     string
 	Decision      Decision
