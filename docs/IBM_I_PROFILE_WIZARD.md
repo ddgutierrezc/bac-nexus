@@ -4,11 +4,11 @@ This is the permanent source of truth for the **Crear perfil IBM i** wizard: wha
 
 ## Executive status
 
-**FACT:** the wizard preserves the nine-step order. Step 3 is trust and policy enrollment only, with independent TLS and SSH trust state; it does not authenticate or use credentials. Step 4 reports bounded local/pre-auth Mapepire readiness and uses the exact state `[OK] Mapepire detected — authentication pending`. Step 8 alone owns credentials, transport selection/fallback, authenticated `connect`, and the optional read-only query proof.
+**FACT:** the wizard preserves the nine-step order. Step 3 is trust and policy enrollment only, with independent TLS and SSH trust state; it does not authenticate or use credentials. Step 4 reports bounded local/pre-auth Mapepire readiness and uses the exact state `[OK] Mapepire detected — authentication pending`. The implemented Step 8 service and lifecycle alone own credentials, transport selection/fallback, authenticated `connect`, and the fixed read-only proof; this does not claim a completed end-to-end nine-step journey or live IBM i validation.
 
 **DECISION:** current code, current tests, valid OpenSpec specifications, and current documentation outrank archived OpenSpec artifacts and this document. Historical material is useful context only.
 
-**PROPOSAL:** the requested nine-step sequence is retained exactly as a conceptual architecture. Step 4 is now composed only as local/pre-auth readiness; Steps 5–9 remain future composition unless explicitly stated below.
+**PROPOSAL:** the requested nine-step sequence is retained exactly as a conceptual architecture. Step 4 is composed only as local/pre-auth readiness. Steps 5–7 and 9 remain future composition; Step 8 has an implemented service/lifecycle boundary but is not evidence of live IBM i validation.
 
 This document does not replace OpenSpec requirements or Architecture Decision Records (ADRs). It records their current relationship to the wizard and identifies where an ADR or approved specification is still needed.
 
@@ -188,12 +188,25 @@ The following order is preserved without renumbering: **Step 1 Profile; Step 2 C
 | --- | --- |
 | Purpose / why | **DECISION:** give the operator an explicit opt-in, bounded proof after credentials and review rather than an implicit connection during entry. |
 | Requested information / actions | Consent, visible scope, timeout, cancellation, sanitized outcome, and a choice to skip. Candidate checks may include pinned-host verification, authentication, bounded Java check, Mapepire artifact/launch check, and a read-only service probe. |
-| Current UX/TUI | **FACT:** no Step 8 wizard screen exists. |
-| Actual backend and tests | **FACT:** `RunRemoteDiagnostic` supplies timeout/cancellation and sanitized classifications; remote SSH, Mapepire artifact, and launch primitives exist below the TUI. No live IBM i validation has occurred. |
-| Continue does | **DECISION:** after consent, own credentials, WSS-first selection, fixed `--single` SSH fallback when eligible, authenticated `connect`, and the optional bounded read-only Db2 query. Success marks only checks actually completed. |
+| Current UX/TUI | **FACT:** an injected Step 8 action screen renders bounded running, success, terminal, and cancelled feedback. It rejects stale request IDs, retry creates a new request, and `View()` performs no I/O. This lifecycle does not compose the missing Step 5–7 review/save journey. |
+| Actual backend and tests | **FACT:** `Step8Service` accepts a saved profile, clears historical marker data before a fresh attempt, selects trusted WSS first, retrieves opaque credentials only at Step 8, and records bounded audit metadata. It uses the release-owned `VALUES 1` proof revision `values-1-v1`; no generic SQL, proof rows, or proof text is returned. Existing tests use deterministic fakes, in-process counters, and local TLS/WSS loopback only. No live IBM i validation has occurred. |
+| Continue does | **DECISION:** after consent, the service owns credentials, WSS-first selection, fixed `--single` SSH fallback only for bounded eligible reasons, authenticated `connect`, and the fixed bounded proof. Success marks only checks actually completed. |
 | Continue does not do | **DECISION:** Save and test are distinct. A failed, cancelled, or skipped test must not silently discard an already saved profile, nor convert a save into a tested profile. |
 | Decisions / proposal / missing work | **PROPOSAL:** define exact remote test scope, timeout budgets, audit class, and recovery behavior before composition. The valid spec’s “legacy diagnostics” limit applies until changed. |
-| Status | **FACT:** Backend only — diagnostic primitives exist, not the optional test journey. |
+| Status | **FACT:** Partial — service and action lifecycle contracts exist, but the complete Step 5–8 operator journey and live field validation do not. |
+
+#### Step 8 evidence and live-validation boundary
+
+The current evidence is intentionally offline. It proves deterministic contract behavior; it does **not** prove production network, IBM i, SSH, Java, artifact transfer, upload/download, keyring, credential, or bank-environment behavior.
+
+| Topic | Current evidence | Not established |
+| --- | --- | --- |
+| WSS proof | In-process fakes and local TLS/WSS loopback cover WSS-first selection, authenticated fixed proof, closure, and zero SSH fallback on WSS success. | A live IBM i daemon, account authorization, certificate deployment, or network route. |
+| SSH fallback | Deterministic fakes cover only the allowlisted fallback reasons: `daemon_connection_refused`, `daemon_unavailable`, `daemon_availability_timeout`, `daemon_policy_disabled`, and `daemon_version_verified_unsupported`. TLS and SSH trust remain independent. | SSH reachability, Java availability, pinned-artifact acquisition, upload, process launch, or remote cleanup in an approved environment. |
+| Audit and marker | In-memory `Recorder` tests reject prohibited values, retain only bounded taxonomy and explicit cleanup state, and prove a historical marker never establishes readiness. | External audit-sink delivery or any production retention policy. |
+| Readiness | Local reports retain `ready_for_controlled_ibmi_validation` and `not_validated_on_ibmi`. | A claim that IBM i was contacted or that a profile is production-ready. |
+
+An approved live verification requires an explicitly approved environment, configuration, identity/authority, endpoint and trust policy, and a separately authorized read-oriented run. Until that happens, `not_validated_on_ibmi` is the required status.
 
 ### Step 9 — Completion
 
@@ -233,7 +246,7 @@ The nine-step sequence makes valuable boundaries visible: profile identity, endp
 | 5 Java | Proposed | Not started | Backend only | Partial | Backend only |
 | 6 Credentials | Proposed | Not started | Backend only | Partial | Backend only |
 | 7 Review | Proposed | Not started | Partial | Partial | Proposed |
-| 8 Optional Test | Proposed | Not started | Backend only | Partial | Backend only |
+| 8 Optional Test | Partial | Partial | Partial | Complete | Partial |
 | 9 Completion | Proposed | Not started | Backend only | Partial | Backend only |
 
 `Complete` in a cell means only that dimension; no visual-only step is called complete.

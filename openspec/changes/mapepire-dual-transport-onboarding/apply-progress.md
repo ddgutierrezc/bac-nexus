@@ -1,5 +1,31 @@
 # Apply Progress: Mapepire Dual-Transport Onboarding
 
+## Phase 9 Evidence: `step8-offline-evidence`
+
+- Scope: tasks 9.1 and 9.2 only; strict TDD; auto-chain, feature-branch-chain (`feature/step8-tui-action` → `feature/step8-offline-evidence`). Task 9.3 and independent SDD verification remain pending.
+- RED: no production behavior was added or changed. The existing audit and marker contracts already satisfied the new acceptance scenarios, so the test-first acceptance coverage ran green rather than exposing a real defect; expanding production scope was prohibited.
+- GREEN: `go test -count=1 ./internal/audit -run '^(TestStep8AuditEvidenceRejectsProhibitedValues|TestStep8AuditEvidenceHasBoundedCleanupAndNoReadinessMarker)$'` — exit `0`; `ok bac-nexus/internal/audit 1.796s`; 2 named tests passed.
+- TRIANGULATE: rejected endpoint-like transport, credential-like class, and proof-text revision values remain absent from the existing `Recorder`; successful cleanup and incomplete cleanup have distinct bounded lifecycle suffixes; the fixed `Step8Event` surface has no marker field and a historical marker cannot establish readiness.
+- REFACTOR: no production refactor was needed. The documentation groups implemented behavior, offline proof, live prerequisites, and limitations without changing product behavior.
+
+### Phase 9 TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 9.1 | Unit / in-memory `Recorder` | `go test -count=1 ./internal/audit` — exit `0`; `ok bac-nexus/internal/audit 1.669s` before edits | Test-first acceptance coverage found no production defect; existing contract was already green | ✅ focused named tests exit `0` | ✅ prohibited transport/class/revision, cleanup/incomplete lifecycle, no marker field/readiness | ➖ no production change required |
+| 9.2 | Documentation / structural readback | N/A: documentation-only task | N/A: no executable production behavior | ✅ documentation accurately matches deterministic evidence | ✅ implemented/offline/live prerequisite/limitation sections | ✅ concise evidence matrix |
+
+### Phase 9 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/audit -run '^(TestStep8AuditEvidenceRejectsProhibitedValues|TestStep8AuditEvidenceHasBoundedCleanupAndNoReadinessMarker)$'` — exit `0`; `ok bac-nexus/internal/audit 1.796s`; 2 named tests passed. Relevant checks: `go test -count=1 ./internal/configuration ./internal/tui` — exit `0`; `ok bac-nexus/internal/configuration 2.603s`; `ok bac-nexus/internal/tui 8.243s`. |
+| Runtime harness command/scenario and exact result | The relevant configuration/TUI command above ran deterministic in-process fakes and existing local loopback coverage only — exit `0`. No live runtime boundary is permitted: no IBM i, network, keyring, SSH, Java, artifact, transfer, shell, SQL, credential, or bank-environment action occurred. |
+| Rollback boundary | Revert only `internal/audit/step8_test.go`, the Phase 9 evidence wording in `docs/IBM_I_PROFILE_WIZARD.md`, the 9.1/9.2 checkboxes, and this Phase 9 receipt; retain all prior implementation and leave 9.3 pending. |
+
+- Final checks: `go test -count=1 ./...`, `go vet ./...`, `go build ./...`, check-only `gofmt -d internal/audit/step8_test.go`, and `git diff --check` all exited `0`.
+- Completion state: **49 total = 48 completed + 1 pending**. Exact Phase 9 candidate: **102 additions + 30 deletions = 132 changed lines**, below the 300-line limit. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. `not_validated_on_ibmi` remains required; `verify-report.md` remains untouched and no independent SDD verification was run.
+
 ## Work Unit
 
 - Slice: 1

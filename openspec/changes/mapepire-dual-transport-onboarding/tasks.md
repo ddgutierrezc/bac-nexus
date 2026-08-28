@@ -74,8 +74,8 @@ All: no IBM i; rollback named files.
 - [x] 8.3 `internal/tui/step8_view.go`: responsive no-I/O View.
 
 ## Phase 9 — Evidence
-- [ ] 9.1 `internal/audit/step8_test.go`: prohibited fields/cleanup/no marker.
-- [ ] 9.2 `docs/IBM_I_PROFILE_WIZARD.md`: loopback/fakes, no-live status.
+- [x] 9.1 `internal/audit/step8_test.go`: prohibited fields/cleanup/no marker.
+- [x] 9.2 `docs/IBM_I_PROFILE_WIZARD.md`: loopback/fakes, no-live status.
 - [ ] 9.3 `sdd-verify`: offline matrix only.
 
-Exact checkbox totals: **49 total = 46 completed + 3 pending**. No generic SQL/shell/download/retry or protected-artifact changes.
+Exact checkbox totals: **49 total = 48 completed + 1 pending**. No generic SQL/shell/download/retry or protected-artifact changes.
