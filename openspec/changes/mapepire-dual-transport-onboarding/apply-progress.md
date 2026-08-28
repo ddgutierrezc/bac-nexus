@@ -42,6 +42,32 @@
 - REFACTOR/validation: source-mutating `gofmt -w` ran only on the two T files; focused security, configuration, full Go test, vet, check-only formatting, and `git diff --check` passed. Task completion remains **39/49**; no additional task was marked.
 - Final T candidate: `216 additions + 3 deletions = 219 changed lines`, including source, tests, and T task/progress receipts; under the existing 280-line limit and excluding unrelated protected worktree state.
 
+## Work Unit D: `step8-audit-adapter`
+
+- Scope: tasks 7.3.11a–b only; strict TDD; auto-chain, feature-branch-chain (`feature/step8-ssh-trust-adapter` → `feature/step8-auditor`). Added only `internal/audit/step8_auditor.go` and its focused test, reusing the existing `Recorder`; no transport, runtime, TUI, cmd wiring, or native-authority action occurred.
+- RED: `go test -count=1 ./internal/audit -run '^(TestStep8AuditorRecordsOnlyAllowlistedMetadata|TestStep8AuditorRejectsForbiddenValuesWithoutRecording)$'` — exit `1` before production implementation because `NewStep8Auditor` was undefined.
+- GREEN: the same command — exit `0`; `ok bac-nexus/internal/audit 1.105s`.
+- TRIANGULATE: WSS proof success/cleanup and SSH trust-mismatch/incomplete cleanup map to fixed metadata; each endpoint, host, user, path, raw-error, SQL, rows, and secret sentinel is injected into transport, class, and revision and is rejected before the Recorder receives an event.
+- REFACTOR: one narrow wrapper validates the existing `Step8Event` taxonomy before deriving a fixed `Recorder` event; it accepts no arbitrary caller string or audit stack.
+
+### Work Unit D TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 7.3.11a | Unit / in-memory Recorder | `go test -count=1 ./internal/audit` — exit `0`; `ok bac-nexus/internal/audit 1.123s` before edits | ✅ focused compile failure, exit `1`, before production file | ✅ focused named tests exit `0` | ✅ eight adversarial sentinels across all three Step 8 string fields; rejected events remain absent | ✅ fixed taxonomy only |
+| 7.3.11b | Unit / existing Recorder | Same package safety net | ✅ tests referenced missing auditor | ✅ focused named tests exit `0` | ✅ WSS allow and SSH terminal/error mappings plus cleanup lifecycle | ✅ wrapper reuses `Recorder.Record` |
+
+### Work Unit D Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/audit -run '^(TestStep8AuditorRecordsOnlyAllowlistedMetadata|TestStep8AuditorRejectsForbiddenValuesWithoutRecording|TestStep8AuditorRecordsFailureAndCleanupState)$'` — exit `0`; `ok bac-nexus/internal/audit 1.109s`; 3 named tests passed. |
+| Runtime harness command/scenario and exact result | N/A: this unit is a deterministic in-memory `Recorder` mapping with no runtime boundary. It performed no IBM i, network, SSH, WSS, keyring, shell, Java, process, SQL, artifact, or credential operation. |
+| Rollback boundary | Revert only `internal/audit/step8_auditor.go`, `internal/audit/step8_auditor_test.go`, and the 7.3.11 task/progress entries; retain P/W/C/A/T, pending R/Phase 8–9, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Final validation: `go test -count=1 ./internal/audit` exit `0` (`ok bac-nexus/internal/audit 1.181s`); `go test -count=1 ./...`, `go vet ./...`, check-only `gofmt -d internal/audit/step8_auditor.go internal/audit/step8_auditor_test.go`, and `git diff --check` all exit `0`.
+- Completion state: **49 total = 41 completed + 8 pending**. Source-mutating `gofmt -w` ran only on the two owned Go files. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. No commit, stage, push, PR, `.atl`, `tmp`, or protected keyring-store edit occurred during implementation.
+
 ## Completed Tasks
 
 - [x] 1.1 RED: added schema-v2 persistence, conservative migration, ephemeral-field rejection, and independent TLS/SSH trust tests.
@@ -788,3 +814,8 @@
 - Completion state: **49 total = 37 completed + 12 pending**. Source-mutating `gofmt -w` ran only on the two owned Go files. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. No commit, stage, push, PR, `.atl`, `tmp`, or protected keyring-store edit occurred during implementation.
 - Changed-line budget: source/tests `156 additions + 0 deletions`; task/progress receipts add `31 additions + 3 deletions`; total **187 additions + 3 deletions = 190 changed lines**, under the 240-line native limit.
 - Next recommended action: apply T (`7.3.10a–b`) only on the next immediate feature-branch-chain child; do not implement D/R, WSS changes, final cmd wiring, or Phase 8 behavior.
+
+## Work Unit D Receipt Addendum
+
+- Verified D receipt: `go test -count=1 ./internal/audit` exit `0` (`ok bac-nexus/internal/audit 1.181s`); `go test -count=1 ./...`, `go vet ./...`, check-only `gofmt -d internal/audit/step8_auditor.go internal/audit/step8_auditor_test.go`, and `git diff --check` all exit `0`.
+- Exact D changed-line budget: **155 additions + 3 deletions = 158 changed lines**, below the 260-line native attempt limit. Completion is **49 total = 41 completed + 8 pending**; next route is R (7.3.12a–b).
