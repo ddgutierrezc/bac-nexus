@@ -32,9 +32,9 @@ Original 3.1–3.5 remain historical superseded/helper-only evidence; they are n
 ## Production Step 8 (all pending; RED → GREEN → REFACTOR/VERIFY)
 
 ### Phase 4 — Foundation (non-goal: transport/runtime/TUI)
-- [ ] 4.1 RED: exhaustively test `Decision`, reason, `ResultClass`, fail-closed unknowns, saved-profile gate, credential failures, marker invalidation, key `ibmi/<name>`, proof metadata/bounds (security/config/protocol scenarios).
-- [ ] 4.2 GREEN: add application-owned Step8 contracts/service, exact mappings, v3 `prompt|keyring` migration, marker schema, credential derivation, fixed proof constants.
-- [ ] 4.3 REFACTOR/VERIFY: narrow interfaces; in-memory acquire/settle fakes with unique IDs; prove no transport/TUI/secret exposure and stop before 400.
+- [x] 4.1 RED: exhaustively test `Decision`, reason, `ResultClass`, fail-closed unknowns, saved-profile gate, credential failures, marker invalidation, key `ibmi/<name>`, proof metadata/bounds (security/config/protocol scenarios).
+- [x] 4.2 GREEN: add application-owned Step8 contracts/service, exact mappings, v3 `prompt|keyring` migration, marker schema, credential derivation, fixed proof constants.
+- [x] 4.3 REFACTOR/VERIFY: narrow interfaces; in-memory acquire/settle fakes with unique IDs; prove no transport/TUI/secret exposure and stop before 400.
 
 ### Phase 5 — Authenticated WSS (non-goal: SSH fallback)
 - [ ] 5.1 RED: test distinct `/version` pre-auth, credential-only `connect`, `VALUES 1`, TLS mismatch, cancellation/close, zero SSH/artifact calls (WSS scenarios).
@@ -61,4 +61,4 @@ Original 3.1–3.5 remain historical superseded/helper-only evidence; they are n
 - [ ] 9.2 GREEN: implement allowlisted audit, marker write/clear behavior, docs distinguishing current/proposed behavior, and complete deterministic evidence.
 - [ ] 9.3 VERIFY: run `gofmt`, `go test -count=1 ./...`, `go vet ./...`, `go build ./...`, `git diff --check`, forbidden-path checks, and fresh independent `sdd-verify`; archive only after zero CRITICAL.
 
-Actual checkbox totals: **26 total = 8 completed + 18 pending**. Every runtime-bearing slice uses acquire/settle and unique IDs. No staging, commit, push, PR, or automatic apply is authorized; first decision is planning review/native reset to Slice 1.
+Actual checkbox totals: **26 total = 11 completed + 15 pending**. Every runtime-bearing slice uses acquire/settle and unique IDs. No staging, commit, push, PR, or automatic apply is authorized; first decision is planning review/native reset to Slice 1.

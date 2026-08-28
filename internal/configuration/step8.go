@@ -1,0 +1,189 @@
+package configuration
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"bac-nexus/internal/profile"
+)
+
+type Decision string
+
+const (
+	DecisionWSSSelected Decision = "wss_selected"
+	DecisionSSHEligible Decision = "ssh_eligible"
+	DecisionTerminal    Decision = "terminal"
+)
+
+type Step8Reason string
+
+const (
+	ReasonWSSSelected               Step8Reason = "wss_selected"
+	ReasonDaemonRefused             Step8Reason = "daemon_connection_refused"
+	ReasonDaemonUnavailable         Step8Reason = "daemon_unavailable"
+	ReasonDaemonAvailabilityTimeout Step8Reason = "daemon_availability_timeout"
+	ReasonDaemonPolicyDisabled      Step8Reason = "daemon_policy_disabled"
+	ReasonUnsupportedVersion        Step8Reason = "daemon_version_verified_unsupported"
+	ReasonIdentityFailure           Step8Reason = "identity_hostname_pin_tofu_trust_mismatch_or_rotation"
+	ReasonProtocolFailure           Step8Reason = "protocol_or_framing_failure"
+	ReasonMalformedResponse         Step8Reason = "malformed_response"
+	ReasonDowngradeBlocked          Step8Reason = "unsafe_downgrade"
+	ReasonCancelled                 Step8Reason = "cancelled"
+	ReasonOperationTimeout          Step8Reason = "operation_timeout"
+	ReasonLimitExceeded             Step8Reason = "limit_exceeded"
+	ReasonCredentialsUnavailable    Step8Reason = "credentials_unavailable"
+)
+
+func DecisionForReason(reason Step8Reason) Decision {
+	switch reason {
+	case ReasonWSSSelected:
+		return DecisionWSSSelected
+	case ReasonDaemonRefused, ReasonDaemonUnavailable, ReasonDaemonAvailabilityTimeout, ReasonDaemonPolicyDisabled, ReasonUnsupportedVersion:
+		return DecisionSSHEligible
+	default:
+		return DecisionTerminal
+	}
+}
+
+type ResultClass string
+
+const (
+	ResultProofSuccess           ResultClass = "proof_success"
+	ResultIdentityFailure        ResultClass = "identity_failure"
+	ResultTrustMismatch          ResultClass = "trust_mismatch"
+	ResultProtocolFailure        ResultClass = "protocol_failure"
+	ResultFramingFailure         ResultClass = "framing_failure"
+	ResultMalformedResponse      ResultClass = "malformed_response"
+	ResultDowngradeBlocked       ResultClass = "downgrade_blocked"
+	ResultCredentialsUnavailable ResultClass = "credentials_unavailable"
+	ResultAuthenticationFailed   ResultClass = "authentication_failed"
+	ResultAuthorizationDenied    ResultClass = "authorization_denied"
+	ResultCancelled              ResultClass = "cancelled"
+	ResultOperationTimeout       ResultClass = "operation_timeout"
+	ResultProofTimeout           ResultClass = "proof_timeout"
+	ResultCleanupTimeout         ResultClass = "cleanup_timeout"
+	ResultCleanupFailure         ResultClass = "cleanup_failure"
+	ResultLimitExceeded          ResultClass = "limit_exceeded"
+	ResultConsentDeclined        ResultClass = "consent_declined_or_absent"
+	ResultArtifactFailure        ResultClass = "artifact_failure"
+	ResultJavaFailure            ResultClass = "java_failure"
+	ResultUploadFailure          ResultClass = "upload_failure"
+	ResultLaunchFailure          ResultClass = "launch_failure"
+	ResultSessionFailure         ResultClass = "session_failure"
+	ResultProofFailure           ResultClass = "proof_failure"
+)
+
+func IsTerminalResult(c ResultClass) bool {
+	switch c {
+	case ResultIdentityFailure, ResultTrustMismatch, ResultProtocolFailure, ResultFramingFailure, ResultMalformedResponse, ResultDowngradeBlocked, ResultCredentialsUnavailable, ResultAuthenticationFailed, ResultAuthorizationDenied, ResultCancelled, ResultOperationTimeout, ResultProofTimeout, ResultCleanupTimeout, ResultCleanupFailure, ResultLimitExceeded, ResultConsentDeclined, ResultArtifactFailure, ResultJavaFailure, ResultUploadFailure, ResultLaunchFailure, ResultSessionFailure, ResultProofFailure:
+		return true
+	}
+	return false
+}
+
+var (
+	ErrPromptUnavailable     = errors.New("prompt unavailable")
+	ErrPromptDenied          = errors.New("prompt denied")
+	ErrKeyringUnavailable    = errors.New("keyring unavailable")
+	ErrKeyringDenied         = errors.New("keyring denied")
+	ErrCredentialNotFound    = errors.New("credential not found")
+	ErrInvalidCredentialMode = errors.New("invalid credential mode")
+)
+
+func ClassifyCredentialFailure(err error) ResultClass {
+	switch err {
+	case ErrPromptUnavailable, ErrPromptDenied, ErrKeyringUnavailable, ErrKeyringDenied, ErrCredentialNotFound, ErrInvalidCredentialMode:
+		return ResultCredentialsUnavailable
+	}
+	return ""
+}
+func ValidateCredentialMode(mode profile.CredentialMode) error {
+	if mode != profile.CredentialModePrompt && mode != profile.CredentialModeKeyring {
+		return ErrInvalidCredentialMode
+	}
+	return nil
+}
+
+type Step8Request struct {
+	RequestID string
+	Profile   profile.Profile
+	Consent   bool
+}
+type Step8Result struct {
+	RequestID     string
+	Decision      Decision
+	Class         ResultClass
+	ProofRevision string
+	Outcome       string
+	Cleanup       bool
+}
+type Step8Runner interface {
+	Run(context.Context, Step8Request) Step8Result
+}
+
+// Step8ProofService is the application-owned service boundary. Transport
+// implementations are supplied by later slices behind Step8Runner.
+type Step8ProofService struct{ Runner Step8Runner }
+
+func (r Step8Result) Validate() error {
+	if r.Decision == DecisionSSHEligible || r.Decision == DecisionWSSSelected {
+		if r.Class != ResultProofSuccess {
+			return errors.New("non-terminal decision has terminal result")
+		}
+		return nil
+	}
+	if r.Decision != DecisionTerminal || !IsTerminalResult(r.Class) {
+		return errors.New("invalid terminal result")
+	}
+	return nil
+}
+func ValidateStep8Profile(p profile.Profile) error {
+	if p.SchemaVersion != profile.SchemaVersionV3 || p.Name == "" {
+		return errors.New("step8 requires a saved schema-v3 profile")
+	}
+	return p.Validate()
+}
+
+const ProofRevision = "values-1-v1"
+
+type ProofMetadata struct {
+	Rows          int
+	ProofRevision string
+}
+
+func ValidateProofMetadata(m ProofMetadata) error { return validateProofMetadata(m) }
+func validateProofMetadata(m ProofMetadata) error {
+	if m.Rows != 1 || m.ProofRevision != ProofRevision {
+		return errors.New("invalid fixed proof metadata")
+	}
+	return nil
+}
+
+const MarkerSchemaVersion = 1
+
+type Marker struct {
+	SchemaVersion int         `json:"schemaVersion"`
+	AtUnixMs      int64       `json:"atUnixMs"`
+	Outcome       ResultClass `json:"outcome"`
+	ProofRevision string      `json:"proofRevision"`
+}
+type ConfigChange uint8
+
+const (
+	ConfigUnchanged ConfigChange = iota
+	ConfigEndpointChanged
+	ConfigPolicyChanged
+	ConfigTrustChanged
+)
+
+func ValidateMarker(m Marker) error {
+	if m.SchemaVersion != MarkerSchemaVersion || m.AtUnixMs <= 0 || m.AtUnixMs > time.Now().Add(5*time.Minute).UnixMilli() || m.Outcome == "" || m.ProofRevision != ProofRevision {
+		return errors.New("invalid proof marker")
+	}
+	return nil
+}
+func MarkerValid(m Marker, change ConfigChange) bool {
+	return change == ConfigUnchanged && ValidateMarker(m) == nil
+}
+func MarkerIsReadiness(Marker) bool { return false }

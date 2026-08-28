@@ -27,15 +27,17 @@ type HostKeyTrust string
 type TrustMode string
 
 const SchemaVersionV2 = 2
+const SchemaVersionV3 = 3
 
 const (
-	CredentialModeVault  CredentialMode = "vault"
-	CredentialModePrompt CredentialMode = "prompt"
-	HostKeyTrustTOFU     HostKeyTrust   = "tofu"
-	HostKeyTrustVerified HostKeyTrust   = "verified"
-	TrustModeCA          TrustMode      = "ca"
-	TrustModePin         TrustMode      = "pin"
-	TrustModeTOFU        TrustMode      = "tofu"
+	CredentialModeVault   CredentialMode = "vault"
+	CredentialModePrompt  CredentialMode = "prompt"
+	CredentialModeKeyring CredentialMode = "keyring"
+	HostKeyTrustTOFU      HostKeyTrust   = "tofu"
+	HostKeyTrustVerified  HostKeyTrust   = "verified"
+	TrustModeCA           TrustMode      = "ca"
+	TrustModePin          TrustMode      = "pin"
+	TrustModeTOFU         TrustMode      = "tofu"
 )
 
 // TrustEvidence is transport-specific approved identity evidence. Pin is
@@ -56,6 +58,7 @@ var (
 
 var profileV1Keys = []string{"name", "host", "port", "username", "hostKeyFingerprint", "hostKeyTrust", "hostKeyProvenance", "javaHome", "mapepireJar", "credentialMode"}
 var profileV2Keys = append(append([]string{}, profileV1Keys...), "schemaVersion", "policyRef", "fallbackAllowed", "tlsTrust", "sshTrust")
+var profileV3Keys = profileV2Keys
 
 type Profile struct {
 	SchemaVersion      int            `json:"schemaVersion,omitempty"`
@@ -136,7 +139,7 @@ func (p Profile) Validate() error {
 		if err := ValidateHostKey(p.HostKeyFingerprint, p.HostKeyTrust); err != nil {
 			return err
 		}
-	} else if p.SchemaVersion != SchemaVersionV2 {
+	} else if p.SchemaVersion != SchemaVersionV2 && p.SchemaVersion != SchemaVersionV3 {
 		return errors.New("unsupported profile schema version")
 	}
 	if p.JavaHome != "" && (!javaHomePattern.MatchString(p.JavaHome) || strings.Contains(p.JavaHome, "..")) {
@@ -145,7 +148,7 @@ func (p Profile) Validate() error {
 	if p.MapepireJAR != "" && (len(p.MapepireJAR) > 4096 || !filepath.IsAbs(p.MapepireJAR) || strings.ContainsAny(p.MapepireJAR, "\x00\r\n")) {
 		return errors.New("Mapepire JAR path must be an absolute local path")
 	}
-	if p.CredentialMode != CredentialModeVault && p.CredentialMode != CredentialModePrompt {
+	if p.SchemaVersion == SchemaVersionV3 && (p.CredentialMode != CredentialModePrompt && p.CredentialMode != CredentialModeKeyring) || p.SchemaVersion != SchemaVersionV3 && p.CredentialMode != CredentialModeVault && p.CredentialMode != CredentialModePrompt {
 		return errors.New("credential mode must be vault or prompt")
 	}
 	if len(p.HostKeyProvenance) > 128 || strings.ContainsAny(p.HostKeyProvenance, "\x00\r\n") {
@@ -221,6 +224,18 @@ func MigrateV1(data []byte) (Profile, error) {
 	}
 	p.SchemaVersion, p.EndpointPolicyRef = SchemaVersionV2, "legacy-migrated"
 	p.FallbackAllowed, p.TLSTrust, p.SSHTrust = false, TrustEvidence{}, TrustEvidence{}
+	return p, nil
+}
+
+// MigrateToV3 preserves prompt profiles and refuses legacy vault retention.
+func MigrateToV3(p Profile) (Profile, error) {
+	if p.SchemaVersion != SchemaVersionV2 || p.CredentialMode == CredentialModeVault {
+		return Profile{}, errors.New("profile migration to v3 requires explicit credential migration")
+	}
+	p.SchemaVersion = SchemaVersionV3
+	if err := p.Validate(); err != nil {
+		return Profile{}, err
+	}
 	return p, nil
 }
 
@@ -386,7 +401,9 @@ func (s Store) Load(name string) (Profile, error) {
 	if err := json.Unmarshal(data, &header); err != nil {
 		return Profile{}, fmt.Errorf("decode profile: %w", err)
 	}
-	if header.SchemaVersion != 0 {
+	if header.SchemaVersion == SchemaVersionV3 {
+		keys = profileV3Keys
+	} else if header.SchemaVersion != 0 {
 		keys = profileV2Keys
 	}
 	if err := strictjson.ValidateObjectKeys(data, keys...); err != nil {
