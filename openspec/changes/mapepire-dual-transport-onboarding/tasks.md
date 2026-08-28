@@ -18,14 +18,35 @@ Chain strategy: feature-branch-chain
 | 8.1–8.3 / 7.3.5 | `feature/step8-compose`→`feature/step8-tui`; ≤360(≥40); `go test -count=1 ./internal/tui` | `Update/View` 120x40,80x24,40x16,NO_COLOR; lifecycle safety; rollback `internal/tui/step8*`,task/progress; no adapters. |
 | 9.1–9.3 / 8.1–8.3 | `feature/step8-tui`→`feature/step8-audit`; ≤300(≥100); `go test -count=1 ./internal/audit ./internal/configuration ./internal/tui` | counting matrix; redaction/docs/`not_validated_on_ibmi`; rollback audit/docs/task/progress; no archive. |
 
-- [x] 1.1  - [x] 1.2  - [x] 1.3  - [x] 1.4  - [x] 2.1  - [x] 2.2  - [x] 2.3  - [x] 2.4
-- [x] 4.1  - [x] 4.2  - [x] 4.3  - [x] 5.1  - [x] 5.2  - [x] 5.3  - [x] 6.1  - [x] 6.2
-- [x] 6.3  - [x] 6.4  - [x] 6.5  - [x] 6.6  - [x] 6.7  - [x] 6.8  - [x] 7.1  - [x] 7.2
+- [x] 1.1
+- [x] 1.2
+- [x] 1.3
+- [x] 1.4
+- [x] 2.1
+- [x] 2.2
+- [x] 2.3
+- [x] 2.4
+- [x] 4.1
+- [x] 4.2
+- [x] 4.3
+- [x] 5.1
+- [x] 5.2
+- [x] 5.3
+- [x] 6.1
+- [x] 6.2
+- [x] 6.3
+- [x] 6.4
+- [x] 6.5
+- [x] 6.6
+- [x] 6.7
+- [x] 6.8
+- [x] 7.1
+- [x] 7.2
 
 ## Phase 7 — Production composition
 Eligible: `daemon_refused|daemon_unavailable|daemon_availability_timeout|daemon_policy_disabled|unsupported_version`; other/unknown terminal; helpers/catalogspike never prove composition.
 - [x] 7.3.1 `internal/profile/step8_marker.go` + `internal/audit/step8.go`: add adapters; assert prohibited-field redaction and endpoint/policy/trust invalidation; retain bounded marker/allowlisted audit.
-- [ ] 7.3.2 `internal/credential/prompt_provider.go` + `internal/security/ssh_trust.go`: add adapters; assert denial=`credentials_unavailable`, mismatch blocks; no downgrade/remote/TLS-trust reuse.
+- [x] 7.3.2 `internal/credential/prompt_provider.go` + `internal/security/ssh_trust.go`: add adapters; assert denial=`credentials_unavailable`, mismatch blocks; no downgrade/remote/TLS-trust reuse.
 - [ ] 7.3.3 `internal/configuration/step8_production.go`: compose factories; assert `daemon_refused|daemon_unavailable|daemon_availability_timeout|daemon_policy_disabled|unsupported_version`→SSH, WSS proof zero SSH/artifact/Java/upload; unknown/terminal fail closed/no downgrade.
 - [ ] 7.3.4 `internal/tui/model.go`: inject only `configuration.Step8Runner`; assert Steps 3–4 pre-auth/zero runner-credential-runtime calls; retain credential-free runtime-free state.
 - [ ] 7.3.5 `cmd/nexus/main.go`: wire `runConfigure→runConfigureTUI`; assert constructor receives/no Step-8 invocation; retain Phase-8 action ownership/no live IBM i.
@@ -40,4 +61,4 @@ Eligible: `daemon_refused|daemon_unavailable|daemon_availability_timeout|daemon_
 - [ ] 9.2 `docs/IBM_I_PROFILE_WIZARD.md`: document loopback/fakes; assert no live IBM i; report `not_validated_on_ibmi`.
 - [ ] 9.3 `sdd-verify`: run acceptance matrix; assert offline `not_validated_on_ibmi`; no archive/live-IBM-i claim.
 
-Exact checkbox totals: **35 total = 25 completed + 10 pending**. Only task 7.3.1 source/tests and hybrid task/progress evidence are complete; no native/VCS/.atl/tmp edits occurred.
+Exact checkbox totals: **35 total = 26 completed + 9 pending**. Tasks through 7.3.2 source/tests and hybrid task/progress evidence are complete; no native/VCS/.atl/tmp edits occurred.

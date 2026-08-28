@@ -498,3 +498,42 @@
 - **Risks:** no CRITICAL risk exists in 7.3.1. Generic `Clear` is adapter capability only; concrete endpoint/policy/trust-change trigger integration is intentionally deferred to later production factories/composition and must be verified there. A historical marker never establishes readiness.
 - **Skill resolution:** injected and loaded: `C:\Users\David\.config\opencode\skills\sdd-apply\SKILL.md`, `C:\Users\David\.config\opencode\skills\go-testing\SKILL.md`, `C:\Users\David\.config\opencode\skills\work-unit-commits\SKILL.md`, and `C:\Users\David\.claude\skills\chained-pr\SKILL.md`.
 - Task aggregate remains **25/35**; next route remains **7.3.2** on `feature/step8-compose-security`.
+
+## Phase 7C.2: `step8-prompt-ssh-trust-adapters`
+
+- Scope: task 7.3.2 only; strict TDD; auto-chain, feature-branch-chain. Adds narrow prompt credential and independent SSH trust adapters only. No factory, TUI, root, transport/runtime, marker/audit, live IBM i, native authority, `.atl`, `tmp`, or keyring-store change.
+- RED: `go test -count=1 ./internal/credential ./internal/security` — exit `1` before production code: prompt-provider and SSH-trust adapter symbols were undefined.
+- GREEN: same focused command — exit `0`; 2 packages passed. Prompt denial, cancellation, empty input, unavailable callback, and wrong mode return only `credentials_unavailable`, no bytes, and no secret in errors. Accepted callback bytes are copied only to the existing opaque boundary and the callback buffer is zeroized.
+- SSH trust verifies only `Profile.SSHTrust` exact SSH TOFU/pin evidence. Missing, mismatch, unapproved/unknown mode, invalid input, and cancellation produce typed sanitized `ssh_trust_blocked` failures; TLS evidence is not read or reused. The gate maps trust block to terminal `trust_mismatch` before credential or runtime callback execution.
+
+### Phase 7C.2 TDD Cycle Evidence
+
+| Task | RED | GREEN | REFACTOR |
+|---|---|---|---|
+| 7.3.2 | ✅ focused package compile failure, exit `1`, before production files | ✅ focused package command exit `0` | ✅ retained one prompt callback/opaque handoff and one exact SSH verification method; no persistence, logging, enrollment, or remote surface |
+
+### Phase 7C.2 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/credential ./internal/security` — exit `0`; `ok bac-nexus/internal/credential 0.967s`, `ok bac-nexus/internal/security 1.487s`; 2 packages passed. |
+| Runtime harness command/scenario and exact result | Same focused command — exit `0`; deterministic injected prompt callback and in-process SSH trust/profile inputs prove denial/cancellation/empty/non-leakage, exact SSH match, TLS/SSH separation, and gate zero credential/runtime callbacks on mismatch. No runtime boundary exists; no IBM i, network, credential store, SSH process, Java, artifact, upload, or download was used. |
+| Full/static/format/diff validation | `go test -count=1 ./...` exit `0`: 22 test-bearing packages passed and 4 reported `[no test files]`; `go vet ./...` exit `0`; final `gofmt -w` then exact-path `gofmt -d internal/credential/prompt_provider.go internal/credential/prompt_provider_test.go internal/security/ssh_trust.go internal/security/ssh_trust_test.go` exit `0` with no output; `git diff --check` exit `0`. |
+| Structural/security proof | Production adapter imports are only standard library plus `internal/profile`; no transport, remote, runtime, TUI, root, persistence, logging, enrollment, or arbitrary trust API exists. `PromptProvider.Get` accepts only context/profile key/mode; `SSHTrust.VerifySSH` accepts only context/profile and returns a bounded error. |
+| Rollback boundary | Revert only `internal/credential/prompt_provider.go`, `internal/credential/prompt_provider_test.go`, `internal/security/ssh_trust.go`, `internal/security/ssh_trust_test.go`, and this 7.3.2 task/progress evidence; retain 1.1–7.3.1 including the settled receipt correction, pending 7.3.3–9, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Exact Phase 7C.2 authored numstat: source/tests `283/0`, tasks `2/2`, progress `26/0`: **311 additions + 2 deletions = 313 changed lines**, under the 400-line hard budget and excluding unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` changes.
+- Completion state: **35 total = 26 completed + 9 pending**. No native authority was acquired, settled, reset, finished, or changed; no commit, stage, push, or PR occurred. Next recommended action: apply 7.3.3 only on `feature/step8-compose-factories`.
+
+### Post-settlement receipt addendum
+
+- Native authority: attempt 30 passed; 30 charged lines; evidence `sha256:4a85009caf8078c3ab0e029c703b83ee5a4d490f85170284511627d0d1672890`; objective complete.
+- **Risks:** no CRITICAL risk exists in 7.3.2. Production factory integration remains deferred to 7.3.3 and must preserve trust-before-credential/runtime ordering. The prompt adapter depends on its injected UI callback to avoid secret retention outside the opaque copied/zeroizable result. SSH trust remains independent and cannot be satisfied by TLS/WSS evidence.
+- **Skill resolution:** injected and loaded: `C:\Users\David\.config\opencode\skills\sdd-apply\SKILL.md`, `C:\Users\David\.config\opencode\skills\go-testing\SKILL.md`, `C:\Users\David\.config\opencode\skills\work-unit-commits\SKILL.md`, and `C:\Users\David\.claude\skills\chained-pr\SKILL.md`.
+- Task aggregate remains **26/35**; next route remains **7.3.3** on `feature/step8-compose-factories`.
+
+#### Attempt 31 receipt restoration
+- Native authority: attempt 31 passed with 7 charged lines; evidence `sha256:4dd7a49b2ab77dc3ccdf8e97af8208e203733c1f50b55e133ae740fc33814108`.
+- Diagnosis: Phase 7C.2 receipt records settled authority, explicit risks, skill resolution, 26/35, and 7.3.3 continuation.
+- This restoration's own settlement remains in the native runtime ledger and is not recursively mirrored into this receipt.
+- Native authority is canonical for the correction-attempt lifecycle.
