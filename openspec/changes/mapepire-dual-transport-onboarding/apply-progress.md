@@ -463,3 +463,38 @@
 - Structural/call-order proof: `DecisionForReason` has exactly five SSH-eligible constants; unknown/mismatched observations fail closed. The service reaches SSH only from `DecisionSSHEligible`, then delegates policy/trust/consent/credential to 6A, `SSHRuntimeFactory.Open` to 6B, and fixed `SSHRuntime.Prove` to 6C/6D. The service accepts no shell, command, path, SQL, download, retry, alternate transport, source, row, raw error, or secret result. Success writes the marker only after valid metadata and cleanup; failures audit only allowlisted class/revision/cleanup metadata and do not establish a marker. Cleanup failure preserves the primary result class with `Cleanup:false`.
 - Exact Phase 7B authored numstat: **301 additions + 6 deletions = 307 changed lines**. The complete current intended diff is **302 additions + 7 deletions = 309 changed lines** because it also retains the pre-authorized tasks-only correction; both exclude unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. Task aggregate: **31 total = 24 completed + 7 pending**.
 - No native authority was acquired, settled, reset, or changed; no commit, stage, push, or PR occurred. Next recommended action: apply 7C only on `feature/step8-compose`.
+
+## Phase 7C.1: `step8-marker-audit-adapters`
+
+- Scope: task 7.3.1 only; strict TDD; auto-chain, feature-branch-chain. Adds profile-owned historical marker persistence and audit-owned sanitized-event recording only. No credential/trust prompt, transport/runtime/factory, TUI, root, live IBM i, native authority, `.atl`, `tmp`, or keyring-store change.
+- RED: `go test -count=1 ./internal/profile ./internal/audit` — exit `1` before production code because `Step8MarkerStore`, `Step8Marker`, `Step8Event`, and `NewStep8Recorder` were undefined.
+- GREEN: same command — exit `0`; 2 packages passed. Profile temporary-store tests prove secret-free bounded JSON, invalid/cancelled write refusal, and profile-bound invalidation by clear. Audit in-memory sink tests prove only allowlisted transport/class/revision/cleanup metadata is retained; endpoint, credentials, paths, SQL, rows, raw errors, arbitrary keys, and unbounded values have no field and are rejected.
+- REFACTOR: marker JSON is constrained to the four historical fields and stored beside the validated saved profile using the existing private profile-store root/temp/atomic replacement helpers. Audit accepts fixed classifications only; validation errors are deterministic and do not echo rejected values.
+
+### Phase 7C.1 TDD Cycle Evidence
+
+| Task | RED | GREEN | REFACTOR |
+|---|---|---|---|
+| 7.3.1 | ✅ focused package compile failure, exit `1`, before production files | ✅ focused package command exit `0` | ✅ local profile-store atomic helpers and audit's closed event surface retained |
+
+### Phase 7C.1 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/profile ./internal/audit` — exit `0`; `ok bac-nexus/internal/profile 1.129s`, `ok bac-nexus/internal/audit 1.064s`; 2 packages passed. |
+| Runtime harness command/scenario and exact result | Same focused command — exit `0`; `t.TempDir()` profile store plus in-memory audit recorder prove bounded persistence, invalidation/clear, cancellation refusal, redaction, and no failure marker. No runtime boundary exists; no IBM i, network, credentials, process, or download was used. |
+| Full/static/format/diff validation | `go test -count=1 ./...` exit `0`: 22 test-bearing packages passed and 4 reported `[no test files]`; `go vet ./...` exit `0`; final `gofmt -w` then exact-path `gofmt -d internal/profile/step8_marker.go internal/profile/step8_marker_test.go internal/audit/step8.go internal/audit/step8_test.go` exit `0` with no output; `git diff --check` exit `0`. |
+| Marker/audit security and cleanup evidence | Marker permits only schema/timestamp/`proof_success`/`values-1-v1`; invalid, failed, or cancelled writes return typed sanitized errors and persist nothing. `Clear` removes historical evidence before fresh proof; markers are never read as readiness. Audit permits only WSS/SSH, fixed result classes, fixed proof revision, and cleanup boolean; no arbitrary metadata surface exists. |
+| Structural proof | New adapters import only standard-library/profile-store code and expose no credential, transport, runtime, TUI, root, SQL, endpoint, path, source, or arbitrary metadata API. |
+| Rollback boundary | Revert only `internal/profile/step8_marker.go`, `internal/profile/step8_marker_test.go`, `internal/audit/step8.go`, `internal/audit/step8_test.go`, and this 7.3.1 task/progress evidence; retain 1.x–7.2, pending 7.3.2–9, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Exact Phase 7C.1 authored numstat: four new Go files `225/0`, progress `27/0`, tasks `2/2`: **254 additions + 2 deletions = 256 changed lines**, excluding unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` worktree changes.
+- Completion state: **35 total = 25 completed + 10 pending**. No native authority was acquired, settled, reset, or changed; no commit, stage, push, or PR occurred. Next recommended action: apply 7.3.2 only on `feature/step8-compose-security`.
+
+### Post-settlement receipt addendum
+
+- Historical pre-settlement statements above remain true for the original executor. Afterward, native attempt 28 passed with evidence revision `sha256:673f6835694ce59abc6f2446ea94232b6cdc9193568cf095e3f8e59f3c500bec`; it remediates failed evidence `sha256:0375585840b9995f02639af79bb8b0f236446b67797748f19845f8cabaf48069`.
+- Native authority records 31 charged lines and objective completion. A maintainer-authorized documented `sdd-attempt finish` compatibility recovery settled attempt 28 because compact `settle` omitted its required runtime-revision input.
+- **Risks:** no CRITICAL risk exists in 7.3.1. Generic `Clear` is adapter capability only; concrete endpoint/policy/trust-change trigger integration is intentionally deferred to later production factories/composition and must be verified there. A historical marker never establishes readiness.
+- **Skill resolution:** injected and loaded: `C:\Users\David\.config\opencode\skills\sdd-apply\SKILL.md`, `C:\Users\David\.config\opencode\skills\go-testing\SKILL.md`, `C:\Users\David\.config\opencode\skills\work-unit-commits\SKILL.md`, and `C:\Users\David\.claude\skills\chained-pr\SKILL.md`.
+- Task aggregate remains **25/35**; next route remains **7.3.2** on `feature/step8-compose-security`.
