@@ -8,6 +8,40 @@
 - Scope: tasks 1.1 and 1.2 only
 - Authored changed lines: 377 (including prior Slice 1 work and this correction; excluding unrelated worktree changes)
 
+## Work Unit T: `step8-ssh-trust-adapter`
+
+- Scope: tasks 7.3.10a–b only; strict TDD; auto-chain, feature-branch-chain (`d603db8` → `feature/step8-ssh-trust-adapter`). No consent prompt, credential acquisition, SSH runtime, Java, artifact, upload/download, WSS, cmd wiring, TUI, or native-attempt authority action was added.
+- RED: `go test -count=1 ./internal/security -run '^(TestStep8SSHTrustAdapterVerifiesOnlyIndependentSSHEnrollment|TestStep8SSHTrustAdapterDenialPrecedesConsentCredentialsAndRuntime)$'` — exit `1` before production implementation because `NewStep8SSHTrustAdapter` was undefined.
+- GREEN: the same command — exit `0`; `ok bac-nexus/internal/security 1.662s`.
+- TRIANGULATE: direct deterministic fakes cover exact SSH match, rotation, missing SSH enrollment despite matching TLS-looking text, missing/malformed observed fingerprints, unapproved enrollment, observer failure, cancellation, and deadline. The `PostObservationGate` integration proves rotated SSH trust returns terminal `trust_mismatch` before consent, credential retrieval, or runtime callback acquisition.
+- REFACTOR: the adapter has one injected observer interface and delegates enrollment/match validation to existing `security.SSHTrust`; it never reads `TLSTrust` or exposes observer failures.
+
+### Work Unit T TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 7.3.10a | Unit / deterministic observer fake and gate integration | `go test -count=1 ./internal/security` — exit `0`; `ok bac-nexus/internal/security 1.731s` before edits | ✅ focused compile failure, exit `1`, before production file | ✅ focused named test exit `0` | ✅ exact/mismatch/missing/malformed/unapproved/context/observer/TLS-separation plus zero credential/runtime gate proof | ✅ shared saved-profile fixture and bounded fake |
+| 7.3.10b | Unit / injected observed-fingerprint source | Same package safety net | ✅ tests referenced missing adapter | ✅ focused named test exit `0` | ✅ only `SSHTrust` authorizes an observed fingerprint; all observer failures sanitize to existing trust errors | ✅ narrow observer interface; existing `SSHTrust` owns semantics |
+
+### Work Unit T Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/security -run '^(TestStep8SSHTrustAdapterVerifiesOnlyIndependentSSHEnrollment|TestStep8SSHTrustAdapterDenialPrecedesConsentCredentialsAndRuntime)$'` — exit `0`; `ok bac-nexus/internal/security 1.647s`; 2 named tests passed. |
+| Runtime harness command/scenario and exact result | N/A: observation is a deterministic injected source, so this unit has no runtime boundary. In-process tests prove trust denial before credential/runtime callbacks without network, IBM i, SSH dialing, process, Java, artifact, upload, WSS, SQL, shell, retry, or marker activity. |
+| Rollback boundary | Revert only `internal/security/step8_ssh_trust_adapter.go`, `internal/security/step8_ssh_trust_adapter_test.go`, and the 7.3.10 task/progress entries; retain 7.3.6–7.3.9, pending D/R and later work, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Final validation: `go test -count=1 ./internal/security` exit `0` (`ok bac-nexus/internal/security 1.686s`); `go test -count=1 ./internal/configuration` exit `0` (`ok bac-nexus/internal/configuration 2.535s`); `go test ./...`, `go vet ./...`, check-only `gofmt -d` on both owned Go files, and `git diff --check` all exit `0`.
+- Completion state: **49 total = 39 completed + 10 pending**. Source-mutating `gofmt -w` ran only on the two owned Go files. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. No commit, stage, push, PR, `.atl`, `tmp`, or protected keyring-store edit occurred during implementation.
+
+### Work Unit T boundary correction
+
+- Review found that the first observer interface accepted `profile.Profile`, allowing access to TLS and saved SSH evidence. The interface now accepts only `context.Context`, `host string`, and `port int`; `VerifySSH` passes only those coordinates, then delegates comparison against the original profile to existing `SSHTrust`.
+- RED: the focused security test exited `1` because its narrowed host/port fake no longer implemented the profile-taking observer interface.
+- GREEN: the same focused command exited `0`; the observer asserts `ibmi.example.test:22` and cannot receive profile, TLS trust, SSH enrollment, credential, username, or policy data by construction.
+- REFACTOR/validation: source-mutating `gofmt -w` ran only on the two T files; focused security, configuration, full Go test, vet, check-only formatting, and `git diff --check` passed. Task completion remains **39/49**; no additional task was marked.
+- Final T candidate: `216 additions + 3 deletions = 219 changed lines`, including source, tests, and T task/progress receipts; under the existing 280-line limit and excluding unrelated protected worktree state.
+
 ## Completed Tasks
 
 - [x] 1.1 RED: added schema-v2 persistence, conservative migration, ephemeral-field rejection, and independent TLS/SSH trust tests.

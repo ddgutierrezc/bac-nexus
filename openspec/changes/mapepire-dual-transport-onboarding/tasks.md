@@ -61,8 +61,8 @@ All: no IBM i; rollback named files.
 - [x] 7.3.8b GREEN: add `credential/step8_provider.go` dispatcher.
 - [x] 7.3.9a RED: `AllowSSH` admits approved policy only; otherwise fail closed.
 - [x] 7.3.9b GREEN: add `security/step8_ssh_policy.go`.
-- [ ] 7.3.10a RED: observed SSH fingerprint differs from enrollment; block and never reuse TLS evidence.
-- [ ] 7.3.10b GREEN: add observed-fingerprint `security/step8_ssh_trust_adapter.go`.
+- [x] 7.3.10a RED: observed SSH fingerprint differs from enrollment; block and never reuse TLS evidence.
+- [x] 7.3.10b GREEN: add observed-fingerprint `security/step8_ssh_trust_adapter.go`.
 - [ ] 7.3.11a RED: reject endpoint/host/user/path/error/SQL/rows/secrets from Step8 audit.
 - [ ] 7.3.11b GREEN: add bounded `audit/step8_auditor.go` over Recorder.
 - [ ] 7.3.12a RED: real configure needs all adapters; startup zero calls, WSS success zero SSH/artifact/Java/upload.
@@ -78,4 +78,4 @@ All: no IBM i; rollback named files.
 - [ ] 9.2 `docs/IBM_I_PROFILE_WIZARD.md`: loopback/fakes, no-live status.
 - [ ] 9.3 `sdd-verify`: offline matrix only.
 
-Exact checkbox totals: **49 total = 37 completed + 12 pending**. No generic SQL/shell/download/retry or protected-artifact changes.
+Exact checkbox totals: **49 total = 39 completed + 10 pending**. No generic SQL/shell/download/retry or protected-artifact changes.
