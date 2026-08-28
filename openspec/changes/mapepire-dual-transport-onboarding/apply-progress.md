@@ -726,3 +726,31 @@
 - Final validation: `go test -count=1 ./internal/credential` — exit `0`; `ok bac-nexus/internal/credential 3.140s`. `go test -count=1 ./internal/configuration` — exit `0`; `ok bac-nexus/internal/configuration 2.629s`. `go test ./...`, `go vet ./...`, check-only `gofmt -d internal/credential/step8_provider.go internal/credential/step8_provider_test.go`, and `git diff --check` all exited `0`.
 - Completion state: **49 total = 35 completed + 14 pending**. Source-mutating `gofmt -w` ran only on the two owned Go files. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. No commit, stage, push, PR, `.atl`, `tmp`, or protected keyring-store edit occurred during implementation.
 - Next recommended action: apply A (`7.3.9a–b`) only on the next immediate feature-branch-chain child; do not implement T/D/R, WSS changes, final cmd wiring, or Phase 8 behavior.
+
+## Work Unit A: `step8-ssh-policy`
+
+- Scope: tasks 7.3.9a–b only; strict TDD; auto-chain, feature-branch-chain (`27e2820` → `feature/step8-ssh-policy`). Added the pure fail-closed `security.Step8SSHPolicy` adapter and direct/integration regression tests. It admits only the existing approved `verified-readonly` saved schema-v3 profile policy with fallback explicitly enabled.
+- RED: `go test -count=1 ./internal/security -run '^(TestStep8SSHPolicyAllowsOnlyApprovedSavedFallbackProfile|TestStep8SSHPolicyDenialPrecedesTrustCredentialAndRuntime)$'` exited `1` before production code because `NewStep8SSHPolicy` was undefined.
+- GREEN: the same focused command exited `0`; `ok bac-nexus/internal/security 1.660s`.
+- TRIANGULATE: table-driven direct cases cover approved, missing/blank/malformed/unapproved policy references, disabled fallback, invalid profile, cancellation, and deadline expiry. The `PostObservationGate` integration proves policy denial returns `authorization_denied` before independent SSH trust, credential retrieval, or runtime callback calls.
+- REFACTOR: retained one stateless adapter, the established `ValidateStep8Profile` saved-profile gate, profile policy fields, and an existing approved policy identifier. The sole error is sanitized `ssh_fallback_policy_denied`; no endpoint, policy detail, TLS evidence, fingerprint, credential, transport, or runtime behavior is exposed.
+
+### Work Unit A TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 7.3.9a | Unit / deterministic policy cases | `go test -count=1 ./internal/security` — exit `0`; `ok bac-nexus/internal/security 1.659s` before edits | ✅ focused compile failure, exit `1`, before production file | ✅ focused command exit `0` | ✅ approved plus eight fail-closed policy/profile/context branches | ✅ shared saved-profile fixtures retain direct behavior assertions |
+| 7.3.9b | Unit / `PostObservationGate` integration with counting fakes | Same package safety net | ✅ tests referenced missing adapter | ✅ focused command exit `0` | ✅ denial makes SSH trust, credentials, and runtime callback counts zero | ✅ stateless adapter and closed identifier comparison only |
+
+### Work Unit A Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/security -run '^(TestStep8SSHPolicyAllowsOnlyApprovedSavedFallbackProfile|TestStep8SSHPolicyDenialPrecedesTrustCredentialAndRuntime)$'` — exit `0`; `ok bac-nexus/internal/security 1.660s`; 2 named tests passed. |
+| Runtime harness command/scenario and exact result | N/A: this adapter is pure policy logic. Deterministic direct policy and `PostObservationGate` counting-fake tests prove denial precedes trust, credentials, and runtime without SSH dialing, process, Java, artifact, upload/download, network, IBM i, SQL, shell, retry, consent prompt, or marker. |
+| Rollback boundary | Revert only `internal/security/step8_ssh_policy.go`, `internal/security/step8_ssh_policy_test.go`, and these 7.3.9 task/progress entries; retain P/W/C, pending T/D/R and later tasks, plus unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Final validation: `go test -count=1 ./internal/security` — exit `0`; `ok bac-nexus/internal/security 1.641s`. `go test -count=1 ./internal/configuration` — exit `0`; `ok bac-nexus/internal/configuration 2.586s`. `go test ./...`, `go vet ./...`, check-only `gofmt -d internal/security/step8_ssh_policy.go internal/security/step8_ssh_policy_test.go`, and `git diff --check` all exited `0`.
+- Completion state: **49 total = 37 completed + 12 pending**. Source-mutating `gofmt -w` ran only on the two owned Go files. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. No commit, stage, push, PR, `.atl`, `tmp`, or protected keyring-store edit occurred during implementation.
+- Changed-line budget: source/tests `156 additions + 0 deletions`; task/progress receipts add `31 additions + 3 deletions`; total **187 additions + 3 deletions = 190 changed lines**, under the 240-line native limit.
+- Next recommended action: apply T (`7.3.10a–b`) only on the next immediate feature-branch-chain child; do not implement D/R, WSS changes, final cmd wiring, or Phase 8 behavior.
