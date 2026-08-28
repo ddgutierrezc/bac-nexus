@@ -1,21 +1,26 @@
 # Tasks: Mapepire Dual-Transport Onboarding
 
 ## Review Workload Forecast
-Production estimate: **2,070 lines**; overall risk **High**; every slice is strictly below 400 additions+deletions. Delivery: `auto-chain`, `feature-branch-chain`; no size exception. Planning has its own reviewable boundary.
+Production estimate: **2,880 lines**; overall risk **High**; every work unit is strictly below 400 authored additions+deletions, including tests and task/progress updates. Delivery: `auto-chain`, `feature-branch-chain`; no size exception. Planning has its own reviewable boundary.
 
-Decision needed before apply: Yes
+Decision needed before apply: No
 Chained PRs recommended: Yes
 Chain strategy: feature-branch-chain
 400-line budget risk: High
 
-| Slice | Parent → child; ceiling; focused test | Deterministic harness; rollback |
+| Work unit | Parent → child; estimate; focused test | Deterministic harness; rollback |
 |---|---|---|
 | 1 Foundation | `fix/mapepire-dual-transport-verification` → `feature/step8-foundation`; 380; `go test -count=1 ./internal/profile ./internal/credential ./internal/configuration` | in-memory fakes; foundation contracts |
 | 2 WSS | `feature/step8-foundation` → `feature/step8-wss`; 350; `go test -count=1 ./internal/configuration ./internal/mapepire ./internal/mapepire/wss` | loopback TLS/WSS; WSS adapter |
-| 3 SSH | `feature/step8-wss` → `feature/step8-ssh`; 390; `go test -count=1 ./internal/configuration ./internal/remote ./internal/mapepire/sshstdio ./internal/connectors/ibmi/mapepirestdio` | counting SSH/process/artifact fakes; fallback |
-| 4 Composition | `feature/step8-ssh` → `feature/step8-compose`; 330; `go test -count=1 ./cmd/nexus ./internal/configuration` | real configure + loopback; root wiring |
-| 5 TUI | `feature/step8-compose` → `feature/step8-tui`; 380; `go test -count=1 ./internal/tui` | `Update/View` 120x40,80x24,40x16,NO_COLOR; TUI |
-| 6 Final | `feature/step8-tui` → `feature/step8-audit`; 240; `go test -count=1 ./internal/audit ./internal/configuration ./internal/tui` | counting-fake matrix; audit/docs |
+| 6A Gates | `feature/step8-wss` → `feature/step8-ssh-gates`; 250–320; `go test -count=1 ./internal/configuration ./internal/security` | policy/trust/credential fakes; revert gate files/tests |
+| 6B Runtime | `feature/step8-ssh-gates` → `feature/step8-ssh-runtime`; 280–350; `go test -count=1 ./internal/configuration ./internal/remote ./internal/connectors/ibmi/mapepirestdio` | counting SSH/SFTP/artifact/Java fakes; revert runtime seam |
+| 6C Proof | `feature/step8-ssh-runtime` → `feature/step8-ssh-proof`; 260–330; `go test -count=1 ./internal/configuration ./internal/mapepire ./internal/mapepire/sshstdio` | fake channel; revert proof adapter/tests |
+| 6D Cleanup | `feature/step8-ssh-proof` → `feature/step8-ssh-cleanup`; 280–360; `go test -count=1 ./internal/configuration ./internal/remote ./internal/mapepire/sshstdio ./internal/connectors/ibmi/mapepirestdio` | acquire/settle traces; revert cleanup changes |
+| 7 Composition | `feature/step8-ssh-cleanup` → `feature/step8-compose`; 330; `go test -count=1 ./cmd/nexus ./internal/configuration` | real configure + loopback; root wiring |
+| 8 TUI | `feature/step8-compose` → `feature/step8-tui`; 380; `go test -count=1 ./internal/tui` | `Update/View` 120x40,80x24,40x16,NO_COLOR; TUI |
+| 9 Final | `feature/step8-tui` → `feature/step8-audit`; 240; `go test -count=1 ./internal/audit ./internal/configuration ./internal/tui` | counting-fake matrix; audit/docs |
+
+Each 6A–6D unit is one autonomous GREEN PR with an offline harness, task/progress edits included in its estimate, and a named rollback boundary; no RED-only commit.
 
 ## Completed lower-layer history
 - [x] 1.1 RED: schema-v2 persistence, conservative migration, secret-free fields, and independent TLS/SSH trust tests.
@@ -42,9 +47,14 @@ Original 3.1–3.5 remain historical superseded/helper-only evidence; they are n
 - [x] 5.3 REFACTOR/VERIFY: loopback TLS/WSS acquire/settle; test protocol/limit terminality and no SSH imports/calls; stop before 400.
 
 ### Phase 6 — Managed SSH Fallback (non-goal: generic primitives)
-- [ ] 6.1 RED: test eligible-only policy/trust/consent-before-credential, unsafe artifact, Java/upload/launch failures, LIFO cleanup/cancel, arbitrary command rejection (SSH/fallback threat scenarios).
-- [ ] 6.2 GREEN: invoke `remote.Dial`, verified artifact/Java/upload/fixed `--single`, authenticated proof, rollback, and typed terminal results.
-- [ ] 6.3 REFACTOR/VERIFY: counting fakes acquire/settle every resource with unique IDs; prove no silent retry/downgrade and stop before 400.
+- [ ] 6.1 RED (6A): test eligible-only classifications, policy/trust gates, consent-before-credential, credential terminality, and no daemon-terminal downgrade.
+- [ ] 6.2 GREEN (6A): implement the post-observation gate and typed terminal mapping; acceptance is eligible-only fallback with consent before credential. Non-goals: `remote.Dial`, artifact, Java, upload, launch, proof, TUI.
+- [ ] 6.3 RED (6B): test `remote.Dial` seam, pinned/checksummed artifact rejection before mutation, bounded upload, Java readiness failure, and partial acquisition rollback.
+- [ ] 6.4 GREEN (6B): add the minimal production-owned SSH factory/Java-readiness seam and invoke existing verification/upload/rollback; acceptance blocks unsafe artifacts before mutation and bounds upload. Non-goals: arbitrary commands, user SQL, proof.
+- [ ] 6.5 RED (6C): test fixed `--single`, typed `VALUES 1` metadata-only proof, connect-before-proof, and artifact/launch/session/proof terminal classifications.
+- [ ] 6.6 GREEN (6C): wire `remote.Dial` output to existing typed SSH framing/session and fixed proof; acceptance is fixed `--single`, `VALUES 1`, metadata-only proof. Non-goals: generic SQL/download, silent retry, alternate transport.
+- [ ] 6.7 RED (6D): test LIFO cleanup/cancellation, unique resource IDs, all terminal result mappings, arbitrary shell/SQL/download rejection, and no silent downgrade.
+- [ ] 6.8 GREEN (6D): close every acquired resource in reverse order, zero credentials after settlement, and return sanitized typed results; acceptance covers every failure trace and rejection. Non-goal: production composition/TUI/audit docs.
 
 ### Phase 7 — Production Composition (non-goal: helper/catalogspike evidence)
 - [ ] 7.1 RED: actual `runConfigure → runConfigureTUI → production constructor → Step8 runner → result`; prove saved profile and daemon zero SSH (composition scenarios).
@@ -61,4 +71,4 @@ Original 3.1–3.5 remain historical superseded/helper-only evidence; they are n
 - [ ] 9.2 GREEN: implement allowlisted audit, marker write/clear behavior, docs distinguishing current/proposed behavior, and complete deterministic evidence.
 - [ ] 9.3 VERIFY: run `gofmt`, `go test -count=1 ./...`, `go vet ./...`, `go build ./...`, `git diff --check`, forbidden-path checks, and fresh independent `sdd-verify`; archive only after zero CRITICAL.
 
-Actual checkbox totals: **26 total = 14 completed + 12 pending**. Every runtime-bearing slice uses acquire/settle and unique IDs. No staging, commit, push, PR, or automatic apply is authorized; first decision is planning review/native reset to Slice 1.
+Exact checkbox totals: **31 total = 14 completed + 17 pending**. Old 6.1 → 6.1, 6.3, 6.5; old 6.2 → 6.2, 6.4, 6.6; old 6.3 → 6.7, 6.8 plus 6A–6D verification criteria. Every runtime-bearing unit uses acquire/settle and unique IDs. Phase 7 begins only after 6D. No staging, commit, push, PR, or automatic apply is authorized; apply may auto-chain from `feature/step8-wss`.
