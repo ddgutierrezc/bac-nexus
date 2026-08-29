@@ -61,6 +61,7 @@ Nexus exposes no generic SSH, SQL, shell, or MCP recovery operation. The MCP ser
 | Evidence | What it proves | What it does not prove |
 |---|---|---|
 | Go unit tests with fakes and temporary SQLite | Ordering, fail-closed contracts, exact ownership behavior, and bounded ledger handling | Live IBM i behavior or durability across power loss |
+| Opt-in local SSH transport harness | Loopback-only pre-auth host-key observation and authenticated SSH/SFTP transport prerequisites | IBM i, Step 4 HTTPS `/version`, Mapepire `--single`, SQL, or complete Step 8 fallback |
 | GitHub Actions | Available runner/package evidence, including available platform and cross-process evidence where recorded | Windows/macOS/Linux runtime behavior on runners that were not available |
 | WDAC-constrained developer environment | A local runtime restriction that is not bypassed | A substitute runtime harness |
 

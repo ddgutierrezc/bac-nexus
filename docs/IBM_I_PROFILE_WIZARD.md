@@ -126,6 +126,8 @@ The following order is preserved without renumbering: **Step 1 Profile; Step 2 C
 
 **FACT:** lower SSH inspection runs during key exchange before authentication, requires a context deadline, uses secure supported algorithms, and returns an unverified `tofu` candidate. It does not authenticate. Exact pinned mismatch reports `host_key_changed` and prevents remote discovery.
 
+**FACT:** the opt-in local SSH transport harness under `internal/remote/testdata/ssh` exercises this pre-auth observation boundary and an authenticated SSH/SFTP prerequisite against an ephemeral loopback OpenSSH container. It does not provide IBM i, Step 4, Mapepire, SQL, or complete Step 8 evidence.
+
 **PROPOSAL:** V1 may ship 3A only after an approved independent fingerprint source exists. V1 may ship 3B only when policy explicitly authorizes TOFU; it remains unverified. V1 requires at least one approved trust-enrollment path. If neither prerequisite exists, the wizard must remain `BLOCKED` and cannot honestly complete trust enrollment. Pin mismatch remains fail-closed for every permitted path.
 
 ### Step 4 — Mapepire
