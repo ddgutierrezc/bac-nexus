@@ -358,6 +358,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.identityDraft = profileIdentityDraft{host: m.connectionDraft.host, port: m.connectionDraft.port, algorithm: msg.candidate.Algorithm, fingerprint: msg.candidate.Fingerprint, trustMethod: profile.HostKeyTrustTOFU}
 		m.identityPhase, m.status = profileIdentityCompleted, wizardFeedbackRow(wizardFeedback{kind: wizardFeedbackOK, message: m.text("wizard.identity.completed", nil)})
+		m.identityFocus = profileIdentityFocusInspect
 		m.refreshWizardViewport()
 		return m, nil
 	case mapepireProbeMsg:

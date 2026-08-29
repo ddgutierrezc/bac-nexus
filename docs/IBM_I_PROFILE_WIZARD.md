@@ -4,11 +4,11 @@ This is the permanent source of truth for the **Crear perfil IBM i** wizard: wha
 
 ## Executive status
 
-**FACT:** the wizard preserves the nine-step order. Step 3 is trust and policy enrollment only, with independent TLS and SSH trust state; it does not authenticate or use credentials. Step 4 reports bounded local/pre-auth Mapepire readiness and uses the exact state `[OK] Mapepire detected — authentication pending`. The implemented Step 8 service and lifecycle alone own credentials, transport selection/fallback, authenticated `connect`, and the fixed read-only proof; this does not claim a completed end-to-end nine-step journey or live IBM i validation.
+**FACT:** the wizard preserves the nine-step order. Step 3 is trust and policy enrollment only, with independent TLS and SSH trust state; it does not authenticate or use credentials. After explicit TOFU acceptance, focus returns to its valid forward action, so the next explicit `Enter` reaches Step 4 without `Tab`; acceptance itself does not auto-transition. Step 4 performs a bounded pre-auth HTTPS `/version` probe and uses the exact detected state `[OK] Mapepire detected — authentication pending`. The implemented Step 8 service and lifecycle alone own credentials, transport selection/fallback, authenticated `connect`, and the fixed read-only proof; this does not claim a completed end-to-end nine-step journey or live IBM i validation.
 
 **DECISION:** current code, current tests, valid OpenSpec specifications, and current documentation outrank archived OpenSpec artifacts and this document. Historical material is useful context only.
 
-**PROPOSAL:** the requested nine-step sequence is retained exactly as a conceptual architecture. Step 4 is composed only as local/pre-auth readiness. Steps 5–7 and 9 remain future composition; Step 8 has an implemented service/lifecycle boundary but is not evidence of live IBM i validation.
+**PROPOSAL:** the requested nine-step sequence is retained exactly as a conceptual architecture. Step 4 is composed only as pre-auth readiness. Steps 5–7 and 9 remain uncomposed; Step 8 has an implemented service/lifecycle boundary but is not evidence of live IBM i validation or a reachable fresh-profile journey.
 
 This document does not replace OpenSpec requirements or Architecture Decision Records (ADRs). It records their current relationship to the wizard and identifies where an ADR or approved specification is still needed.
 
@@ -55,7 +55,7 @@ flowchart LR
 
 ### Local work, remote work, and persistence
 
-**FACT:** Step 3 makes no authentication or runtime call. Its trust/policy observations are independent: TLS daemon trust is not SSH host trust. Step 4 may perform only a bounded, injected pre-auth daemon readiness probe; it never receives credentials, starts SSH fallback, launches Java, handles a JAR, uploads, or queries Db2. If the daemon is unavailable, the UI reports authentication pending for Step 8 rather than silently downgrading.
+**FACT:** Step 3 performs the explicitly authorized SSH host-key inspection but makes no authentication or Mapepire runtime call. Its trust/policy observations are independent: TLS daemon trust is not SSH host trust. Step 4 may perform only a bounded, injected pre-auth daemon readiness probe; its managed implementation requests HTTPS `/version` at the configured host and port, without credentials. It never starts SSH fallback, launches Java, handles a JAR, uploads, or queries Db2. If the daemon is unavailable, the UI reports authentication pending for Step 8 rather than silently downgrading.
 
 **FACT:** the first wizard remote contact is the explicit Step 3 TOFU inspection action, not entry or Continue. It requires consent, a program-lifecycle deadline, cancellation, and sanitized feedback. **PROPOSAL:** a later Step 8 test requires its own approved remote-action contract.
 
@@ -109,7 +109,7 @@ The following order is preserved without renumbering: **Step 1 Profile; Step 2 C
 | Requested information / actions | **DECISION:** visible V1 is explicit TOFU only. The manual independently verified path is hidden/deferred pending an approved corporate fingerprint source; manual/verified lower-layer capability remains available outside this wizard. |
 | Current UX/TUI | **FACT:** one `Paso 3 de 9 — Identidad` has authorization, loading/error, observed-identity review, and completed in-memory substates. It displays the draft host/port, then complete observed algorithm/fingerprint, and accepts through `[ CONFIAR EN ESTA CLAVE ]`. Review Back returns to authorization and clears unaccepted evidence; completed Back returns to Step 2 while retaining accepted evidence for the unchanged endpoint. |
 | Actual backend and tests | **FACT:** production `nexus configure` injects an adapter around `remote.InspectHostKey`; its TUI contract accepts only context, host, and port. Inspection is deadline-bound by the program lifecycle context, cancellable by Escape, retryable, and request-identified so stale responses cannot alter state. |
-| Continue does | **FACT:** only the focused trust action copies the exact current successful candidate to the draft with algorithm, full fingerprint, and `tofu` provenance. Step 4 remains a separate pre-auth readiness boundary. |
+| Continue does | **FACT:** only the focused trust action copies the exact current successful candidate to the draft with algorithm, full fingerprint, and `tofu` provenance. After that acceptance, focus returns to the valid forward action; the next explicit `Enter` advances to Step 4 without a `Tab` workaround. Acceptance does not auto-transition. Step 4 remains a separate pre-auth readiness boundary. |
 | Continue does not do | **FACT:** it does not authenticate, read credentials, start Mapepire, call a trust-enrollment service, save/read/update a profile, or issue another remote command. |
 | Decisions / proposal / missing work | **DECISION:** observed is not independently verified and changed pinned keys fail closed. **FUTURE:** profile persistence remains the Review/Save boundary; Steps 5–9 remain proposals. |
 | Status | **FACT:** Partial — explicit TOFU inspection and in-memory preparation exist; profile persistence and later steps do not. |
@@ -134,14 +134,14 @@ The following order is preserved without renumbering: **Step 1 Profile; Step 2 C
 
 | Topic | Current evidence and required interpretation |
 | --- | --- |
-| Purpose / why | **DECISION:** report local/pre-auth Mapepire readiness without claiming authentication or query readiness. |
+| Purpose / why | **DECISION:** report pre-auth Mapepire readiness without claiming authentication or query readiness. |
 | Requested information / actions | A bounded daemon readiness observation may report detected/authentication-pending or unavailable/authentication-pending. Transport is not user-selected. |
 | Current UX/TUI | **FACT:** uses the shared wizard shell, panel, actions, feedback, viewport, responsive sizes, and `NO_COLOR`; it preserves `Step 4 of 9 — Mapepire`. |
-| Actual backend and tests | **FACT:** Step 4 uses the bounded pre-auth readiness seam; it does not perform local JAR discovery or acquisition. Lower-layer artifact and launch capabilities remain separate fallback dependencies and are not wizard behavior. |
+| Actual backend and tests | **FACT:** Step 4 uses the bounded pre-auth readiness seam. Its managed probe requests HTTPS `/version` at the configured host and port and accepts only version `2.3.5`; it does not perform local JAR discovery or acquisition. A local Docker SSH endpoint such as `localhost:2222` cannot satisfy this HTTPS endpoint. Lower-layer artifact and launch capabilities remain separate fallback dependencies and are not wizard behavior. |
 | Continue does | **DECISION:** retain only ephemeral readiness and defer authentication to Step 8. |
 | Continue does not do | It does not look up credentials, authenticate, select/fallback transports, invoke SSH/JAR/Java/upload/cache, or query IBM i. |
 | Decisions / proposal / missing work | WSS `:8076` is preferred by managed policy. SSH fallback is fixed `--single` and is eligible only after later consent, credentials, and independent SSH trust; no silent downgrade is permitted. |
-| Status | **FACT:** pre-auth readiness only; no live IBM i validation is claimed. |
+| Status | **FACT:** pre-auth readiness only; no live IBM i validation is claimed. The SSH Docker base mode proves Step 3 host-key observation only; its authenticated override proves SSH/SFTP prerequisites only. Neither proves Step 4 HTTPS `/version`, Mapepire, fallback, or IBM i behavior. |
 
 **Current OpenSpec contract:** Mapepire readiness is pre-auth only. Java, JAR, artifact, upload, and launch work remains an authenticated SSH fallback concern and is not implied by daemon readiness.
 
@@ -190,7 +190,7 @@ The following order is preserved without renumbering: **Step 1 Profile; Step 2 C
 | --- | --- |
 | Purpose / why | **DECISION:** give the operator an explicit opt-in, bounded proof after credentials and review rather than an implicit connection during entry. |
 | Requested information / actions | Consent, visible scope, timeout, cancellation, sanitized outcome, and a choice to skip. Candidate checks may include pinned-host verification, authentication, bounded Java check, Mapepire artifact/launch check, and a read-only service probe. |
-| Current UX/TUI | **FACT:** an injected Step 8 action screen renders bounded running, success, terminal, and cancelled feedback. It rejects stale request IDs, retry creates a new request, and `View()` performs no I/O. This lifecycle does not compose the missing Step 5–7 review/save journey. |
+| Current UX/TUI | **FACT:** an injected Step 8 action screen renders bounded running, success, terminal, and cancelled feedback. It rejects stale request IDs, retry creates a new request, and `View()` performs no I/O. This lifecycle does not compose the missing Step 5–7 review/save journey. The fresh-profile path never creates the saved V3 profile Step 8 requires, and the current new-profile flow has no fallback-consent UX. |
 | Actual backend and tests | **FACT:** `Step8Service` accepts a saved profile, clears historical marker data before a fresh attempt, selects trusted WSS first, retrieves opaque credentials only at Step 8, and records bounded audit metadata. It uses the release-owned `VALUES 1` proof revision `values-1-v1`; no generic SQL, proof rows, or proof text is returned. Existing tests use deterministic fakes, in-process counters, and local TLS/WSS loopback only. No live IBM i validation has occurred. |
 | Continue does | **DECISION:** after consent, the service owns credentials, WSS-first selection, fixed `--single` SSH fallback only for bounded eligible reasons, authenticated `connect`, and the fixed bounded proof. Success marks only checks actually completed. |
 | Continue does not do | **DECISION:** Save and test are distinct. A failed, cancelled, or skipped test must not silently discard an already saved profile, nor convert a save into a tested profile. |
@@ -277,7 +277,7 @@ The nine-step sequence makes valuable boundaries visible: profile identity, endp
 | Manually enroll independently verified fingerprint | Yes | No | No | Yes, when profile update is invoked |
 | Test profile (conceptual Step 8) | No | Yes | Usually yes after pin verification | **PROPOSAL:** profile already saved; record only sanitized outcome if approved |
 | Java remote validation (conceptual) | No | Yes | Yes | No, unless explicit status persistence is approved |
-| Step 4 pre-auth Mapepire readiness | Yes | No | No | No |
+| Step 4 pre-auth Mapepire readiness | No | Potentially, at configured HTTPS endpoint | No | No |
 | Remote Mapepire artifact activation / launch | No | Yes | Yes | Remote JAR only; no wizard composition |
 | Credential keyring operation | Yes | No | No | Native keyring only |
 | Save profile | Yes | No | No | Local profile JSON, secret-free |
@@ -300,15 +300,15 @@ The nine-step sequence makes valuable boundaries visible: profile identity, endp
 
 ## Remaining Work
 
-1. Extend the approved pre-auth Step 4 composition only when additional local runtime behavior is explicitly specified; Java remains separate.
-2. Define V1 server-trust policy: independent fingerprint source, TOFU eligibility, known_hosts relationship, and whether both 3A/3B ship.
-3. Compose a wizard service boundary that injects trust, credential, readiness, diagnostic, preview, and profile-save services without placing secret or connector logic in Bubble Tea.
-4. **FUTURE:** define and approve a hidden manual independently verified enrollment path only when a corporate fingerprint source exists; do not change the implemented explicit TOFU flow without a new decision.
-5. Approve credential terminology/schema convergence from legacy `vault|prompt` to user-facing policy, then implement Step 6 transient entry.
-6. Specify and implement Steps 4–7, including local Mapepire/Java state meanings and one secret-free atomic save point.
-7. Specify and implement opt-in Step 8 remote checks, partial outcomes, audit behavior, and save-versus-test recovery.
-8. Implement Step 9 honest completion/readiness/preview navigation; do not repair or claim `nexus serve` composition by UI copy.
-9. Complete approved serve composition and perform separately authorized, read-only controlled IBM i field validation.
+### Continuation checklist (Step 3→9)
+
+1. Preserve the Step 3 fix: TOFU acceptance remains explicit, focuses the forward action, and requires the next `Enter` to enter Step 4.
+2. Validate Step 4 against a real compatible Mapepire HTTPS `/version` endpoint; do not use the Docker SSH service on `localhost:2222` as Step 4 evidence.
+3. Specify and compose Steps 5–7, including Java/credential ownership, secret-safe UX, review, and one secret-free atomic saved-profile boundary.
+4. Make Step 8 reachable from a newly created profile by supplying that saved profile and implementing explicit fallback-consent UX; retain save-versus-test separation.
+5. Implement Step 9 completion/readiness/preview navigation without claiming live IBM i or `nexus serve` readiness.
+6. Define V1 server-trust policy: independent fingerprint source, TOFU eligibility, `known_hosts` relationship, and whether both 3A/3B ship.
+7. Perform separately approved, read-only validation against real Mapepire and IBM i environments; Docker base/authenticated override evidence remains limited to SSH boundaries.
 
 ## Risks and open decisions
 
