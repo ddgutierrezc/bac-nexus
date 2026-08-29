@@ -1,0 +1,27 @@
+services:
+  ssh:
+    image: lscr.io/linuxserver/openssh-server:10.3_p1-r0-ls233@sha256:96b9a4d3b5106746d08d43a6911650d4d21f7d5c7f2ac9660e792bdb5e63157c
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: UTC
+      USER_NAME: transporttest
+      USER_PASSWORD_FILE: /run/secrets/ssh_test_password
+      PASSWORD_ACCESS: "true"
+      SUDO_ACCESS: "false"
+      LOG_STDOUT: "true"
+    ports:
+      - 127.0.0.1:${BAC_NEXUS_SSH_TEST_PORT:-2222}:2222
+    secrets:
+      - source: ssh_test_password
+        target: ssh_test_password
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 2222"]
+      interval: 1s
+      timeout: 2s
+      retries: 20
+      start_period: 5s
+
+secrets:
+  ssh_test_password:
+    file: ${BAC_NEXUS_SSH_TEST_PASSWORD_FILE:?set BAC_NEXUS_SSH_TEST_PASSWORD_FILE}

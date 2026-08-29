@@ -27,3 +27,12 @@ go.work.sum
 extension-items-ibmi-main
 .codegraph/
 .atl/
+
+# Local SSH transport harness secrets and generated Compose state.
+/internal/remote/testdata/ssh/.env
+/internal/remote/testdata/ssh/.env.*
+/internal/remote/testdata/ssh/*.secret
+/internal/remote/testdata/ssh/*.key
+/internal/remote/testdata/ssh/*.pub
+/internal/remote/testdata/ssh/compose.override.yaml
+/internal/remote/testdata/ssh/state/
