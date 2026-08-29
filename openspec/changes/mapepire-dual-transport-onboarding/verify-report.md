@@ -1,6 +1,6 @@
 ```yaml
 schema: gentle-ai.verify-result/v1
-evidence_revision: sha256:f9638f3954bb49015b173df9ddfb45e236b8e31f3f95d87f8bed822ebf3d2498
+evidence_revision: sha256:3efb00ca3bcf7eec52bbd741c0298fb1cec9e65a74968a63c046e8bcc5e0515e
 verdict: pass_with_warnings
 blockers: 0
 critical_findings: 0
@@ -8,7 +8,7 @@ requirements: 18/18
 scenarios: 48/48
 test_command: go test -count=1 ./...
 test_exit_code: 0
-test_output_hash: sha256:41f6fafa0c7f73e49ac4aa1e7825e28976e4a74f051667bf23b53a02dea9a58a
+test_output_hash: sha256:d38268fa3d5b0c6770c2eac5fcf4ff5db13a8b0e525aae4447dc648d95b88e02
 build_command: go build ./...
 build_exit_code: 0
 build_output_hash: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
@@ -18,32 +18,29 @@ build_output_hash: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca49599
 
 **Change**: `mapepire-dual-transport-onboarding`
 **Mode**: Strict TDD; hybrid OpenSpec + Engram; offline-only
-**Native attempt**: `canonical-final-verification` under token `sha256:bc0d0fec8a26c75eb660e37fb7f9e58192c0d1519314150eb96b01053b3a8605`
+**Native attempt**: `sdd-verify-binding-correction` — `sha256:39d8f251612e012730dca15e11def1f5d4acfe471a7165d685fa95387e98c0d7`
 **Verdict**: **PASS WITH WARNINGS**
 
 ### Canonical Verification Evidence
 
-The envelope `evidence_revision` is the SHA-256 identifier of these exact LF-terminated evidence-preimage bytes, retained here for native settlement:
-
 ```yaml
 schema: gentle-ai.verification-evidence/v1
-attempt_token: sha256:bc0d0fec8a26c75eb660e37fb7f9e58192c0d1519314150eb96b01053b3a8605
-request_id: canonical-final-verification-rerun-20260828
-candidate_identity: sha256:f7bdbbdb2545c2ab98d70aee1e09d30df1d9fef04deb4a3d16d097d1517d907a
-candidate_tree: d0799f7774c8969e3fb713076136d850ac62de54
+attempt_token: sha256:39d8f251612e012730dca15e11def1f5d4acfe471a7165d685fa95387e98c0d7
+request_id: sdd-verify-binding-correction-20260829
+candidate_identity: sha256:ed18242f6d19acec67a0aeb48960106ee85b8057fd6249ec75514f48d2447c10
+candidate_tree: d8029afddaf9ec444a47b85c8590bc37555475a2
 requirements: 18/18
 scenarios: 48/48
 test_command: go test -count=1 ./...
 test_exit_code: 0
-test_output_hash: sha256:41f6fafa0c7f73e49ac4aa1e7825e28976e4a74f051667bf23b53a02dea9a58a
+test_output_hash: sha256:d38268fa3d5b0c6770c2eac5fcf4ff5db13a8b0e525aae4447dc648d95b88e02
 build_command: go build ./...
 build_exit_code: 0
 build_output_hash: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
-focused_output_hash: sha256:237af5d4e244a12b7c5d93ab40fcfa8e65100eaa67d4bea07185a1e31e57bfe2
-coverage_output_hash: sha256:bdef6438d6873b691500e8c59dc764addfd2b1b6be8e24846a7e848885b1d77f
+focused_output_hash: sha256:a04ff32f55ce2760c686e061ca86f2d3f1e5a98061bd0c19017aa6a5f4cfddee
+coverage_output_hash: sha256:80211de91b651dc5a88a0c5e20cb68b3e7015757fd21a52cadc5318d08467a4e
 race_output_hash: sha256:efbaaa186877615a34aa378f6626efcda5e4a58b300d3b7a5ce2d569dcae8cb0
-whole_worktree_gofmt_output_hash: sha256:c0ca0c807a52aa33ec2f357d7acd1840c6a21ae52b6c8bb5a7b36a42d721d8dc
-diff_check_output_hash: sha256:4f174106ba6b8831957610c34cac11c6cb6b7ffa999f6fa5d2e0184dc1f8401f
+diff_check_output_hash: sha256:fba534980de1f0570ddd0852c9ce84d050e72ded4c6f78539e6a05a137beb39d
 validator_command: gentle-ai sdd-verify-validate --input <exact-candidate-bytes> --requirements 18 --scenarios 48
 ```
 
@@ -51,119 +48,94 @@ validator_command: gentle-ai sdd-verify-validate --input <exact-candidate-bytes>
 
 | Metric | Result |
 |---|---:|
-| Planning artifacts inspected | proposal, 7 delta specs, design, tasks, apply-progress, prior verify report |
+| Planning artifacts inspected | proposal, 7 specs, design, tasks, apply-progress, prior report |
 | Implementation tasks | 48 / 48 complete; 0 pending |
-| Requirements retrieved and compliant | 18 / 18 |
-| Scenarios retrieved and runtime-compliant | 48 / 48 |
-| Candidate implementation delta | unchanged from post-remediation candidate |
+| Requirements and scenarios | 18 / 18; 48 / 48 |
 
 ### Build, Tests, and Coverage
 
 | Command | Exit | Output SHA-256 | Result |
 |---|---:|---|---|
-| `go test -count=1 ./...` | 0 | `41f6fafa0c7f73e49ac4aa1e7825e28976e4a74f051667bf23b53a02dea9a58a` | 22 test-bearing packages passed; 5 have no test files |
-| `go test -count=1 ./internal/tui -run '^(TestInjectedStep8RunnerIsReachableFromWizardAfterPreAuth|TestPreAuthContinuationRequiresSavedProfile|TestStepThreeAndFourRemainPreAuthWithInjectedStep8Runner|TestStep8Action)'` | 0 | `237af5d4e244a12b7c5d93ab40fcfa8e65100eaa67d4bea07185a1e31e57bfe2` | production reachability, pre-auth boundary, and lifecycle coverage passed |
-| `go vet ./...` | 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | passed |
-| `go build ./...` | 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | passed |
-| `go test -count=1 -cover ./internal/tui` | 0 | `bdef6438d6873b691500e8c59dc764addfd2b1b6be8e24846a7e848885b1d77f` | 82.0% statement coverage |
-| `go test -race ./...` | 2 | `efbaaa186877615a34aa378f6626efcda5e4a58b300d3b7a5ce2d569dcae8cb0` | unavailable because `CGO_ENABLED=0` |
-| `gofmt -d internal/tui/mapepire_onboarding_step.go internal/tui/model_step8_runner_test.go` | 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | remediation files formatted |
-| whole-worktree check-only `gofmt -d` | 1 | `c0ca0c807a52aa33ec2f357d7acd1840c6a21ae52b6c8bb5a7b36a42d721d8dc` | unrelated CRLF-only formatting deltas |
-| `git diff --check` | 0 | `4f174106ba6b8831957610c34cac11c6cb6b7ffa999f6fa5d2e0184dc1f8401f` | passed; CRLF warnings only |
+| `go test -count=1 ./...` | 0 | `d38268fa3d5b0c6770c2eac5fcf4ff5db13a8b0e525aae4447dc648d95b88e02` | 22 packages passed; 5 no-test packages |
+| `go build ./...`; `go vet ./...` | 0; 0 | empty | passed |
+| focused Step 8 TUI matrix | 0 | `a04ff32f55ce2760c686e061ca86f2d3f1e5a98061bd0c19017aa6a5f4cfddee` | reachability and lifecycle passed |
+| `go test -count=1 -cover ./internal/tui` | 0 | `80211de91b651dc5a88a0c5e20cb68b3e7015757fd21a52cadc5318d08467a4e` | 82.0% statements |
+| `go test -race ./...` | 1 | `efbaaa186877615a34aa378f6626efcda5e4a58b300d3b7a5ce2d569dcae8cb0` | CGO disabled |
+| `gofmt -d` remediation; `git diff --check` | 0; 0 | empty; `fba534980de1f0570ddd0852c9ce84d050e72ded4c6f78539e6a05a137beb39d` | formatted; CRLF warnings only |
 
-All runtime evidence used deterministic in-process fakes or local loopback. No IBM i, enterprise network, credentials/keyring, SSH/Java process, artifact transfer, shell, unrestricted SQL, or external effect was used.
+No IBM i, enterprise network, credentials/keyring, SSH/Java process, artifact transfer, arbitrary shell, unrestricted SQL, or external effect was used.
 
 ### Requirements and Scenario Compliance
 
-| Delta requirement | Scenarios | Runtime evidence | Status |
-|---|---:|---|---|
-| Nexus configuration: readiness and Step 8 orchestration | 4 | configuration Step 8, pre-auth, and marker tests | ✅ COMPLIANT |
-| Nexus configuration: offline status | 1 | readiness tests and truthful documentation | ✅ COMPLIANT |
-| WSS: trusted authenticated session | 5 | WSS loopback and Step 8 service/factory tests | ✅ COMPLIANT |
-| WSS: text framing and bounds | 1 | WSS and typed protocol tests | ✅ COMPLIANT |
-| Onboarding: Step 8 proof and ownership | 9 | configuration/TUI lifecycle and focused navigation tests | ✅ COMPLIANT |
-| Onboarding: truthful readiness and marker | 2 | marker, configuration, and TUI tests | ✅ COMPLIANT |
-| Onboarding: production configure composition | 3 | `cmd/nexus` composition and real wizard reachability test | ✅ COMPLIANT |
-| SSH single: trust, consent, framing | 4 | gate, SSH trust, SSH stdio, and runtime tests | ✅ COMPLIANT |
-| SSH single: verified detection | 1 | SSH stdio tests | ✅ COMPLIANT |
-| Application protocol: fixed proof | 4 | typed protocol, WSS, and SSH proof tests | ✅ COMPLIANT |
-| Application protocol: correlated session | 1 | typed protocol bounds tests | ✅ COMPLIANT |
-| Application protocol: cancellation | 1 | typed protocol and TUI tests | ✅ COMPLIANT |
-| SSH runtime: managed boundary | 4 | runtime/proof cleanup tests | ✅ COMPLIANT |
-| SSH runtime: artifact/upload bounds | 1 | runtime artifact tests | ✅ COMPLIANT |
-| Security: native secret boundary | 4 | credential/provider and Step 8 tests | ✅ COMPLIANT |
-| Security: independent trust/audit | 2 | SSH trust and auditor tests | ✅ COMPLIANT |
-| Security: controlled mutation surface | 1 | Step 3/4 and runtime boundary tests | ✅ COMPLIANT |
-| Security: marker privacy | 1 | marker and audit tests | ✅ COMPLIANT |
+| Requirement group | Scenarios | Status |
+|---|---:|---|
+| Nexus configuration | 5 | ✅ COMPLIANT |
+| Trusted WSS and framing | 6 | ✅ COMPLIANT |
+| Step 8 ownership, marker, and composition | 14 | ✅ COMPLIANT |
+| SSH trust, consent, and detection | 5 | ✅ COMPLIANT |
+| Typed proof, session, and cancellation | 6 | ✅ COMPLIANT |
+| SSH runtime lifecycle and artifact bounds | 5 | ✅ COMPLIANT |
+| Secret, audit, mutation, and marker security | 7 | ✅ COMPLIANT |
 
 **Compliance summary**: 48 / 48 scenarios compliant at runtime.
 
-The real `cmd/nexus configure` composition supplies the production runner to the TUI. A matching saved-profile Step 4 pre-auth result reaches `screenProfileStep8Action` without runner invocation; explicit Step 8 Enter invokes the injected runner once. An unmatched profile remains at Step 4 with zero invocations.
-
 ### Correctness
 
-| Dimension | Result | Notes |
-|---|---|---|
-| Spec compliance | ✅ | All 18 requirements and 48 scenarios have passing runtime coverage. |
-| Task completion | ✅ | Native status reports 48 / 48 complete. |
-| Production reachability remediation | ✅ | Focused current TUI test passed through the real saved-profile action path. |
-| Offline constraint | ✅ | No prohibited external boundary was executed. |
+| Dimension | Result |
+|---|---|
+| Spec compliance, task completion, offline constraint | ✅ |
+| Production reachability | ✅ saved-profile Step 4 reaches Step 8; Enter invokes the runner |
 
 ### Design Coherence
 
-| Design decision | Result | Notes |
-|---|---|---|
-| `tui -> configuration contract <- cmd/nexus` | ✅ | TUI owns only the runner seam; command root composes it. |
-| WSS first; five eligible SSH fallback classes | ✅ | Terminal and unknown cases remain fail-closed. |
-| Independent TLS/SSH trust and ordered gates | ✅ | Policy, trust, consent, credential ordering is covered. |
-| Fixed bounded `VALUES 1` proof | ✅ | No generic SQL or result surface. |
-| Cleanup, zeroization, bounded audit, non-readiness marker | ✅ | Runtime and audit tests cover the boundary. |
-| Explicit operator-reachable Step 8 action | ✅ | Current focused reachability test passed. |
+| Decision | Result |
+|---|---|
+| TUI contract and command composition | ✅ |
+| WSS first, typed fallback, fixed proof, bounded cleanup | ✅ |
+| Responsive request lifecycle and no-I/O View | ✅ |
 
 ### TDD Compliance
 
 | Check | Result | Details |
 |---|---|---|
-| TDD evidence reported | ✅ | apply-progress contains RED/GREEN/triangulation evidence for the 48 completed implementation tasks. |
-| RED confirmed | ✅ | Reported test-bearing task evidence exists in the current test suite. |
-| GREEN confirmed | ✅ | Focused reachability matrix and full test suite passed on this attempt. |
-| Triangulation adequate | ✅ | Boundary, terminal, lifecycle, and action-path variants are represented. |
-| Safety net | ✅ | Package and whole-suite execution passed; documentation-only evidence is structurally read back. |
+| Evidence, RED, GREEN, triangulation, safety net | ✅ | apply-progress covers 48/48 tasks; focused and full suites pass |
 
 **TDD compliance**: 5 / 5 checks passed.
 
 ### Test Layer Distribution
 
-| Layer | Result | Evidence |
-|---|---|---|
-| Unit | ✅ | deterministic package tests for policy, protocol, configuration, profile, credential, audit, and TUI state transitions |
-| Integration | ✅ | local TLS/WSS loopback and Bubble Tea `Update`/`View` composition tests |
-| E2E | ➖ | no live IBM i or external environment is permitted |
+| Layer | Result |
+|---|---|
+| Unit | deterministic Go tests |
+| Integration | local loopback and Bubble Tea `Update`/`View` |
+| E2E | ➖ not permitted |
 
 ### Changed File Coverage
 
-| File scope | Line coverage | Branch coverage | Rating |
-|---|---:|---:|---|
-| `internal/tui` package containing remediation files | 82.0% | unavailable in Go command output | ⚠️ Acceptable |
+`internal/tui` remediation package: 82.0% statements; branch coverage unavailable; ⚠️ Acceptable.
 
 ### Assertion Quality
 
-**Assertion quality**: ✅ Current reachability tests assert saved-profile gating, navigation, zero pre-action calls, one explicit invocation, and unmatched rejection; no trivial assertion finding was identified.
+**Assertion quality**: ✅ Reachability and lifecycle assertions exercise production behavior; no tautology, ghost loop, or assertion without behavior was found.
+
+### Quality Metrics
+
+**Linter**: ✅ `go vet ./...` passed. **Type Checker**: ✅ `go build ./...` passed.
 
 ### Issues
 
 **CRITICAL (0)** None.
 
 **WARNING (2)**
-1. Race verification is unavailable: `go test -race ./...` exits 2 because `CGO_ENABLED=0`. No race-clean claim is made.
-2. Whole-worktree check-only `gofmt -d` detects unrelated CRLF-only deltas. The remediation files are formatted and no file was modified.
+1. Race verification is unavailable: `go test -race ./...` exits 1 because `CGO_ENABLED=0`. No race-clean claim is made.
+2. Unrelated CRLF-only formatting deltas remain in `.atl/` and `internal/credential/keyring_store.go`; `git diff --check` passes and no unrelated path was modified.
 
 **SUGGESTION (0)** None.
 
 ### Pre-write Admission
 
-`gentle-ai sdd-verify-validate --input C:\Users\David\AppData\Local\Temp\opencode\mapepire-dual-transport-onboarding-verify-candidate.md --requirements 18 --scenarios 48` must admit these exact candidate bytes before this report is persisted to OpenSpec or Engram.
+`gentle-ai sdd-verify-validate --input - --requirements 18 --scenarios 48` admitted these exact candidate bytes before persistence.
 
 ### Verdict
 
-**PASS WITH WARNINGS** — all 18 requirements and 48 scenarios have passing offline runtime coverage. Archive is recommended after native settlement admits this exact report; `not_validated_on_ibmi` remains required.
+**PASS WITH WARNINGS** — all 18 requirements and 48 scenarios have passing offline runtime coverage. `not_validated_on_ibmi` remains required.
