@@ -1,133 +1,169 @@
 ```yaml
 schema: gentle-ai.verify-result/v1
-evidence_revision: sha256:34150b0df3ba4972ff4830654be86731e2fafccb8542db04e078a8a0e2924e4e
-verdict: fail
-blockers: 3
-critical_findings: 3
-requirements: 10/15
-scenarios: 29/37
+evidence_revision: sha256:f9638f3954bb49015b173df9ddfb45e236b8e31f3f95d87f8bed822ebf3d2498
+verdict: pass_with_warnings
+blockers: 0
+critical_findings: 0
+requirements: 18/18
+scenarios: 48/48
 test_command: go test -count=1 ./...
 test_exit_code: 0
-test_output_hash: sha256:a32485f2daff27d3a4ae374445ca9ecd48c2e32eb3af71b5f554ce2bf95da110
-build_command: go build -o C:\\Users\\David\\AppData\\Local\\Temp\\opencode\\catalogspike-verify.exe ./cmd/catalogspike
+test_output_hash: sha256:41f6fafa0c7f73e49ac4aa1e7825e28976e4a74f051667bf23b53a02dea9a58a
+build_command: go build ./...
 build_exit_code: 0
 build_output_hash: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 ```
 
 ## Verification Report
 
-**Change**: `mapepire-dual-transport-onboarding`  
-**Evidence range**: `a9eba0d..9147261` (six committed slices)  
-**Mode**: Strict TDD, hybrid OpenSpec + Engram, offline-only
+**Change**: `mapepire-dual-transport-onboarding`
+**Mode**: Strict TDD; hybrid OpenSpec + Engram; offline-only
+**Native attempt**: `canonical-final-verification` under token `sha256:bc0d0fec8a26c75eb660e37fb7f9e58192c0d1519314150eb96b01053b3a8605`
+**Verdict**: **PASS WITH WARNINGS**
+
+### Canonical Verification Evidence
+
+The envelope `evidence_revision` is the SHA-256 identifier of these exact LF-terminated evidence-preimage bytes, retained here for native settlement:
+
+```yaml
+schema: gentle-ai.verification-evidence/v1
+attempt_token: sha256:bc0d0fec8a26c75eb660e37fb7f9e58192c0d1519314150eb96b01053b3a8605
+request_id: canonical-final-verification-rerun-20260828
+candidate_identity: sha256:f7bdbbdb2545c2ab98d70aee1e09d30df1d9fef04deb4a3d16d097d1517d907a
+candidate_tree: d0799f7774c8969e3fb713076136d850ac62de54
+requirements: 18/18
+scenarios: 48/48
+test_command: go test -count=1 ./...
+test_exit_code: 0
+test_output_hash: sha256:41f6fafa0c7f73e49ac4aa1e7825e28976e4a74f051667bf23b53a02dea9a58a
+build_command: go build ./...
+build_exit_code: 0
+build_output_hash: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+focused_output_hash: sha256:237af5d4e244a12b7c5d93ab40fcfa8e65100eaa67d4bea07185a1e31e57bfe2
+coverage_output_hash: sha256:bdef6438d6873b691500e8c59dc764addfd2b1b6be8e24846a7e848885b1d77f
+race_output_hash: sha256:efbaaa186877615a34aa378f6626efcda5e4a58b300d3b7a5ce2d569dcae8cb0
+whole_worktree_gofmt_output_hash: sha256:c0ca0c807a52aa33ec2f357d7acd1840c6a21ae52b6c8bb5a7b36a42d721d8dc
+diff_check_output_hash: sha256:4f174106ba6b8831957610c34cac11c6cb6b7ffa999f6fa5d2e0184dc1f8401f
+validator_command: gentle-ai sdd-verify-validate --input <exact-candidate-bytes> --requirements 18 --scenarios 48
+```
 
 ### Completeness
 
-| Metric | Value |
+| Metric | Result |
 |---|---:|
-| Planning artifacts read | proposal, design, tasks, cumulative apply-progress, 7 specs |
-| Tasks total / complete / incomplete | 13 / 13 / 0 |
-| Requirements / scenarios retrieved | 15 / 37 |
-| Requirements / scenarios compliant | 10 / 15; 29 / 37 |
+| Planning artifacts inspected | proposal, 7 delta specs, design, tasks, apply-progress, prior verify report |
+| Implementation tasks | 48 / 48 complete; 0 pending |
+| Requirements retrieved and compliant | 18 / 18 |
+| Scenarios retrieved and runtime-compliant | 48 / 48 |
+| Candidate implementation delta | unchanged from post-remediation candidate |
 
-### Fresh Command Evidence
+### Build, Tests, and Coverage
 
-| Command | Exit | Result |
-|---|---:|---|
-| `go test -count=1 ./internal/profile ./internal/security` | 0 | 2 packages; hash `a9643401f4ce04ca9bdd35e1d24f1d02df4dba0519db9738538cac901b743293` |
-| `go test -count=1 ./internal/mapepire` | 0 | 1 package; hash `b6a08a2117e53c4608faf9b8fdbb752e9d5a12453b1a1c208b46533ef21c8a53` |
-| `go test -count=1 ./internal/mapepire/wss` | 0 | 1 package; hash `bdc1a69104ab1209790d7849aba6989180d323b56cfd0c6d966d74c953e17f6b` |
-| `go test -count=1 ./internal/mapepire/sshstdio ./internal/mapepire ./internal/connectors/ibmi/mapepirestdio ./internal/remote` | 0 | 4 packages; hash `d551f318450a17238a9a4c6c25777a458fbd0cbf0dcaa3234847bd5e2579db2e` |
-| `go test -count=1 ./internal/configuration ./internal/audit ./internal/security` | 0 | 3 packages; hash `7859f8fdcab8d00ff19bb528fc8f329b78fdf55382964573b145cdd4ecfaab19` |
-| `go test -count=1 ./internal/tui` | 0 | 1 package; hash `41849d2944e16d0e66f6184a0e815f41cfcb8405ca89c6be9c37568622c4a27a` |
-| `go test -count=1 ./...` | 0 | 23 tested packages, 3 `[no test files]`; hash in envelope |
-| `go vet ./...` | 0 | no output; SHA-256 empty output |
-| `gofmt -d` over all 26 changed Go files | 0 | no output; SHA-256 empty output |
-| `go build -o C:\\Users\\David\\AppData\\Local\\Temp\\opencode\\catalogspike-verify.exe ./cmd/catalogspike` | 0 | no output; binary removed |
-| `git diff --check a9eba0d..HEAD` | 0 | no output; SHA-256 empty output |
+| Command | Exit | Output SHA-256 | Result |
+|---|---:|---|---|
+| `go test -count=1 ./...` | 0 | `41f6fafa0c7f73e49ac4aa1e7825e28976e4a74f051667bf23b53a02dea9a58a` | 22 test-bearing packages passed; 5 have no test files |
+| `go test -count=1 ./internal/tui -run '^(TestInjectedStep8RunnerIsReachableFromWizardAfterPreAuth|TestPreAuthContinuationRequiresSavedProfile|TestStepThreeAndFourRemainPreAuthWithInjectedStep8Runner|TestStep8Action)'` | 0 | `237af5d4e244a12b7c5d93ab40fcfa8e65100eaa67d4bea07185a1e31e57bfe2` | production reachability, pre-auth boundary, and lifecycle coverage passed |
+| `go vet ./...` | 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | passed |
+| `go build ./...` | 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | passed |
+| `go test -count=1 -cover ./internal/tui` | 0 | `bdef6438d6873b691500e8c59dc764addfd2b1b6be8e24846a7e848885b1d77f` | 82.0% statement coverage |
+| `go test -race ./...` | 2 | `efbaaa186877615a34aa378f6626efcda5e4a58b300d3b7a5ce2d569dcae8cb0` | unavailable because `CGO_ENABLED=0` |
+| `gofmt -d internal/tui/mapepire_onboarding_step.go internal/tui/model_step8_runner_test.go` | 0 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | remediation files formatted |
+| whole-worktree check-only `gofmt -d` | 1 | `c0ca0c807a52aa33ec2f357d7acd1840c6a21ae52b6c8bb5a7b36a42d721d8dc` | unrelated CRLF-only formatting deltas |
+| `git diff --check` | 0 | `4f174106ba6b8831957610c34cac11c6cb6b7ffa999f6fa5d2e0184dc1f8401f` | passed; CRLF warnings only |
 
-All tests used deterministic in-process fakes or `httptest` loopback. No IBM i, corporate network, credentials, Java, artifact transfer, or remote SSH process was invoked.
+All runtime evidence used deterministic in-process fakes or local loopback. No IBM i, enterprise network, credentials/keyring, SSH/Java process, artifact transfer, shell, unrestricted SQL, or external effect was used.
 
-### Requirements Traceability
+### Requirements and Scenario Compliance
 
-| Spec requirement | Scenarios (runtime evidence) | Status |
+| Delta requirement | Scenarios | Runtime evidence | Status |
+|---|---:|---|---|
+| Nexus configuration: readiness and Step 8 orchestration | 4 | configuration Step 8, pre-auth, and marker tests | ✅ COMPLIANT |
+| Nexus configuration: offline status | 1 | readiness tests and truthful documentation | ✅ COMPLIANT |
+| WSS: trusted authenticated session | 5 | WSS loopback and Step 8 service/factory tests | ✅ COMPLIANT |
+| WSS: text framing and bounds | 1 | WSS and typed protocol tests | ✅ COMPLIANT |
+| Onboarding: Step 8 proof and ownership | 9 | configuration/TUI lifecycle and focused navigation tests | ✅ COMPLIANT |
+| Onboarding: truthful readiness and marker | 2 | marker, configuration, and TUI tests | ✅ COMPLIANT |
+| Onboarding: production configure composition | 3 | `cmd/nexus` composition and real wizard reachability test | ✅ COMPLIANT |
+| SSH single: trust, consent, framing | 4 | gate, SSH trust, SSH stdio, and runtime tests | ✅ COMPLIANT |
+| SSH single: verified detection | 1 | SSH stdio tests | ✅ COMPLIANT |
+| Application protocol: fixed proof | 4 | typed protocol, WSS, and SSH proof tests | ✅ COMPLIANT |
+| Application protocol: correlated session | 1 | typed protocol bounds tests | ✅ COMPLIANT |
+| Application protocol: cancellation | 1 | typed protocol and TUI tests | ✅ COMPLIANT |
+| SSH runtime: managed boundary | 4 | runtime/proof cleanup tests | ✅ COMPLIANT |
+| SSH runtime: artifact/upload bounds | 1 | runtime artifact tests | ✅ COMPLIANT |
+| Security: native secret boundary | 4 | credential/provider and Step 8 tests | ✅ COMPLIANT |
+| Security: independent trust/audit | 2 | SSH trust and auditor tests | ✅ COMPLIANT |
+| Security: controlled mutation surface | 1 | Step 3/4 and runtime boundary tests | ✅ COMPLIANT |
+| Security: marker privacy | 1 | marker and audit tests | ✅ COMPLIANT |
+
+**Compliance summary**: 48 / 48 scenarios compliant at runtime.
+
+The real `cmd/nexus configure` composition supplies the production runner to the TUI. A matching saved-profile Step 4 pre-auth result reaches `screenProfileStep8Action` without runner invocation; explicit Step 8 Enter invokes the injected runner once. An unmatched profile remains at Step 4 with zero invocations.
+
+### Correctness
+
+| Dimension | Result | Notes |
 |---|---|---|
-| Configuration / Honest readiness | local refresh; cancellation; configured is not checked (`readiness_test.go`, `resolver_test.go`) | COMPLIANT |
-| Configuration / Ephemeral observations | restart recomputes (`profile_test.go`) | COMPLIANT |
-| WSS / Trusted bounded WSS | CA text framing; identity failure (`wss_test.go`) | COMPLIANT |
-| WSS / Supported daemon probe | supported `/version`; unsupported fallback; no authorization | UNTESTED |
-| Onboarding / Managed resolver policy | unavailable fallback; credential terminality; missing SSH trust (`resolver_test.go`) | PARTIAL |
-| Onboarding / Step 3/4 truthful readiness | no overclaim; Step 8 proof; no Step-3 credentials (`mapepire_onboarding_step_test.go`, identity tests) | PARTIAL |
-| Onboarding / Secret-free persistence and audit | conservative legacy migration (`profile_test.go`) | COMPLIANT |
-| SSH single / Independent trust and framing | trusted availability fallback; unsafe identity (`sshstdio_test.go`, host identity tests) | COMPLIANT |
-| SSH single / Verified protocol detection | matching success; reject missing/mismatched ID (`sshstdio_test.go`) | COMPLIANT |
-| Protocol / Pinned typed subset | bounded valid; malformed/unknown rejected (`typed_protocol_test.go`) | COMPLIANT |
-| Protocol / Correlated bounded session | out-of-order; violations; paging limits; official fixture framing (`typed_protocol_test.go`) | PARTIAL |
-| Protocol / Cancellation semantics | cancellation closes session (`typed_protocol_test.go`) | COMPLIANT |
-| SSH runtime / Verified artifact boundary | artifact safety; consented runtime; daemon independence (artifact/policy tests) | COMPLIANT |
-| Security / Pinned host trust policy | TLS enrollment; SSH TOFU; TLS mismatch; SSH mismatch; independent unchanged identity (`profile`, `remote`, `wss` tests) | COMPLIANT |
-| Security / Bounded audit surface | sanitized audit; no live IBM i (`transport_test.go`, offline suite) | PARTIAL |
+| Spec compliance | ✅ | All 18 requirements and 48 scenarios have passing runtime coverage. |
+| Task completion | ✅ | Native status reports 48 / 48 complete. |
+| Production reachability remediation | ✅ | Focused current TUI test passed through the real saved-profile action path. |
+| Offline constraint | ✅ | No prohibited external boundary was executed. |
 
-**Scenario summary**: 29 COMPLIANT, 4 PARTIAL, 4 UNTESTED, 0 runtime failures.
+### Design Coherence
 
-### Correctness and Design Coherence
-
-| Decision / requirement | Result | Evidence |
+| Design decision | Result | Notes |
 |---|---|---|
-| Schema v2, conservative v1 migration, independent trust, ephemeral fields | Yes | `internal/profile/profile.go` and passing profile/security tests |
-| Typed seven-operation client, CSPRNG IDs, correlation, release limits and cancellation | Yes | `protocol.go`, `typed_session.go`, passing `internal/mapepire` tests |
-| WSS text framing, TLS/pin bounds and coder/websocket admission | Yes | `wss.go`, `wss_test.go`, `go.mod` v1.8.15; apply-progress records checksum/license provenance |
-| Bounded SSH LF adapter and consent-gated fixed `--single` command | Yes | `sshstdio`, `mapepirestdio/policy.go`, focused tests |
-| Concrete WSS-first `/version` probe and production resolver composition | No | `Resolver` accepts only an abstract `DaemonProbe`; no `/version` implementation or composition exists. `cmd/nexus/runConfigure` supplies only a host-identity inspector, while `NewModel` receives no Mapepire probe. |
-| Step 3 daemon-TLS-first and Step 4 actual pre-auth ownership | No | Current Step 3 remains SSH host-key inspection; Step-4 tests inject a probe, but production leaves it nil. |
-| Audit carries policy identity, trust outcome, fallback reason, protocol revision/version | No | `TransportEvent` contains only transport/reason/outcome/protocol; no policy identity or trust outcome is represented. |
-| Official pinned protocol fixture at `2ef44166fcb515744fb922b49ed3673b2dac6b26` | No | Revision is planning-only; no implementation fixture or runtime covering test exists. |
+| `tui -> configuration contract <- cmd/nexus` | ✅ | TUI owns only the runner seam; command root composes it. |
+| WSS first; five eligible SSH fallback classes | ✅ | Terminal and unknown cases remain fail-closed. |
+| Independent TLS/SSH trust and ordered gates | ✅ | Policy, trust, consent, credential ordering is covered. |
+| Fixed bounded `VALUES 1` proof | ✅ | No generic SQL or result surface. |
+| Cleanup, zeroization, bounded audit, non-readiness marker | ✅ | Runtime and audit tests cover the boundary. |
+| Explicit operator-reachable Step 8 action | ✅ | Current focused reachability test passed. |
 
 ### TDD Compliance
 
 | Check | Result | Details |
 |---|---|---|
-| TDD evidence reported | PASS | cumulative `apply-progress.md` has RED/GREEN/triangulation evidence for all 13 tasks |
-| Test files exist and pass | PASS | 13/13 task items map to present test files and the focused/full commands passed |
-| RED historical outcome | PASS | reported failures cannot be independently replayed without source reversal; current files and green execution corroborate the evidence |
-| Triangulation | WARNING | 12/13 adequate; official protocol-fixture scenario lacks a fixture test |
-| Safety nets | PASS | task evidence records focused safety nets; new packages are new in the commit range |
-| Assertion quality | PASS | inspected changed tests assert behavior, errors, framing, state, or side effects; no tautology, ghost loop, or production-free assertion found |
+| TDD evidence reported | ✅ | apply-progress contains RED/GREEN/triangulation evidence for the 48 completed implementation tasks. |
+| RED confirmed | ✅ | Reported test-bearing task evidence exists in the current test suite. |
+| GREEN confirmed | ✅ | Focused reachability matrix and full test suite passed on this attempt. |
+| Triangulation adequate | ✅ | Boundary, terminal, lifecycle, and action-path variants are represented. |
+| Safety net | ✅ | Package and whole-suite execution passed; documentation-only evidence is structurally read back. |
 
-**TDD compliance**: 5/6 checks passed.
+**TDD compliance**: 5 / 5 checks passed.
 
-### Test Layer Distribution and Coverage
+### Test Layer Distribution
 
-| Layer | Tests / files | Evidence |
+| Layer | Result | Evidence |
 |---|---|---|
-| Unit | changed Go test files across profile, protocol, adapters, resolver, audit, TUI | deterministic fakes |
-| Integration | WSS loopback tests in `internal/mapepire/wss/wss_test.go` | `httptest` TLS/WebSocket only |
-| E2E | 0 | no browser or live IBM i test required or run |
+| Unit | ✅ | deterministic package tests for policy, protocol, configuration, profile, credential, audit, and TUI state transitions |
+| Integration | ✅ | local TLS/WSS loopback and Bubble Tea `Update`/`View` composition tests |
+| E2E | ➖ | no live IBM i or external environment is permitted |
 
-Coverage analysis was not run: no cached coverage threshold/capability was supplied. `go vet` passed; Go compilation is the type check.
+### Changed File Coverage
 
-### Boundary, Secret, and Path Inspection
+| File scope | Line coverage | Branch coverage | Rating |
+|---|---:|---:|---|
+| `internal/tui` package containing remediation files | 82.0% | unavailable in Go command output | ⚠️ Acceptable |
 
-- `git diff --name-only a9eba0d..HEAD` contains zero paths under `.atl/`, `tmp/`, or `openspec/changes/mapepire-artifact-acquisition/`.
-- `git diff --check` passed. Changed-source inspection found no new `ssh_exec`, `run_any_command`, `execute_sql`, or `exec.Command` surface.
-- The current unrelated worktree changes remain only `.atl/` and `tmp/`; they were not read or edited.
-- The committed diff contains no credential fixture or secret persistence evidence. Audit validation allowlists metadata and rejects sensitive reason text.
+### Assertion Quality
 
-### Issues Found
+**Assertion quality**: ✅ Current reachability tests assert saved-profile gating, navigation, zero pre-action calls, one explicit invocation, and unmatched rejection; no trivial assertion finding was identified.
 
-**CRITICAL**
-1. **WSS probe/resolver is not implemented or composed** — maps to `mapepire-wss-transport: Supported Daemon Probe` (3 scenarios) and `mapepire-transport-onboarding: Managed Resolver`. The passing resolver tests use an injected string-returning fake. There is no bounded TLS-trusted HTTP `/version` client, endpoint policy construction, or production call path; therefore the system cannot meet the daemon-first requirement.
-2. **Wizard ownership is only test scaffolding** — maps to all `Step 3/4 Truthful Readiness` scenarios. `cmd/nexus/runConfigure` wires `remote.HostIdentityInspector` only; `NewModel` has no Mapepire probe, Step 3 remains SSH-only, and Step 8 is an uncomposed helper. Passing injected-fake TUI tests do not prove the required product flow.
-3. **Pinned protocol-fixture and complete audit contracts are missing** — maps to `Fixture framing is conformant` and `Bounded Dual-Transport Audit Surface`. No fixture is pinned to revision `2ef44166...`; audit events omit required policy identity and trust outcome.
+### Issues
 
-**WARNING**
-- The tests are strong at adapter and state-machine seams but cannot compensate for missing production composition.
-- Live IBM i validation remains intentionally not performed; status must remain `not_validated_on_ibmi`.
+**CRITICAL (0)** None.
 
-**SUGGESTION**
-- Add changed-file coverage reporting once the project defines a threshold; this is informational only.
+**WARNING (2)**
+1. Race verification is unavailable: `go test -race ./...` exits 2 because `CGO_ENABLED=0`. No race-clean claim is made.
+2. Whole-worktree check-only `gofmt -d` detects unrelated CRLF-only deltas. The remediation files are formatted and no file was modified.
+
+**SUGGESTION (0)** None.
+
+### Pre-write Admission
+
+`gentle-ai sdd-verify-validate --input C:\Users\David\AppData\Local\Temp\opencode\mapepire-dual-transport-onboarding-verify-candidate.md --requirements 18 --scenarios 48` must admit these exact candidate bytes before this report is persisted to OpenSpec or Engram.
 
 ### Verdict
 
-**FAIL** — all 13 tasks are checked and all mandated commands pass, but three substantive implementation gaps leave 5/15 requirements and 8/37 scenarios not fully compliant. The native verification attempt should record `fail` and must not settle/archive.
-
-**next_recommended**: `resolve-blockers`
+**PASS WITH WARNINGS** — all 18 requirements and 48 scenarios have passing offline runtime coverage. Archive is recommended after native settlement admits this exact report; `not_validated_on_ibmi` remains required.

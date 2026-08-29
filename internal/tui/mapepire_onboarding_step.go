@@ -49,7 +49,17 @@ func (m Model) updateProfileMapepireStep(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.mapepireProbe == nil && m.mapepireFactory != nil {
 			m.mapepireProbe = m.mapepireFactory(m.connectionDraft.host, m.connectionDraft.port)
 		}
-		if m.mapepireProbe == nil || m.mapepireResolution.AuthenticationPending {
+		if m.mapepireResolution.AuthenticationPending {
+			for _, p := range m.profiles {
+				if p.Name == m.profileDraftName {
+					m.step8Action = step8Action{request: configuration.Step8Request{Profile: p}}
+					m.screen = screenProfileStep8Action
+					return m, nil
+				}
+			}
+			return m, nil
+		}
+		if m.mapepireProbe == nil {
 			return m, nil
 		}
 		return m, func() tea.Msg {

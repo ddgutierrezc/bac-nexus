@@ -76,6 +76,9 @@ All: no IBM i; rollback named files.
 ## Phase 9 — Evidence
 - [x] 9.1 `internal/audit/step8_test.go`: prohibited fields/cleanup/no marker.
 - [x] 9.2 `docs/IBM_I_PROFILE_WIZARD.md`: loopback/fakes, no-live status.
-- [ ] 9.3 `sdd-verify`: offline matrix only.
 
-Exact checkbox totals: **49 total = 48 completed + 1 pending**. No generic SQL/shell/download/retry or protected-artifact changes.
+## Post-implementation verification gate
+
+Pending: run `sdd-verify` for the offline matrix only after implementation completion. This is an independent verification gate, not an implementation checkbox task.
+
+Exact implementation checkbox totals: **48 total = 48 completed + 0 pending**. No generic SQL/shell/download/retry or protected-artifact changes.

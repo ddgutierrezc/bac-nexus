@@ -26,6 +26,12 @@
 - Final checks: `go test -count=1 ./...`, `go vet ./...`, `go build ./...`, check-only `gofmt -d internal/audit/step8_test.go`, and `git diff --check` all exited `0`.
 - Completion state: **49 total = 48 completed + 1 pending**. Exact Phase 9 candidate: **102 additions + 30 deletions = 132 changed lines**, below the 300-line limit. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. `not_validated_on_ibmi` remains required; `verify-report.md` remains untouched and no independent SDD verification was run.
 
+## Planning correction: independent verification gate
+
+- Historical `49 total = 48 completed + 1 pending` snapshots describe the previous circular plan and remain historical evidence.
+- The canonical implementation count is now **48 total = 48 completed + 0 pending**. Former task 9.3 is a pending independent post-implementation `sdd-verify` gate, not an implementation checkbox task.
+- This artifact-only correction did not run SDD verification. The orchestrator acquired its bounded native attempt before delegation and settled it as `complete`; the executor did not mutate authority. `verify-report.md` remains untouched.
+
 ## Work Unit
 
 - Slice: 1
@@ -899,3 +905,13 @@
 - Final validation: `go test -count=1 ./internal/tui` exit `0` (`ok bac-nexus/internal/tui 8.692s`); production-wiring injection command exit `0` across `cmd/nexus`, `internal/configuration`, and `internal/tui`; `go test -count=1 ./...` exit `0` (22 test-bearing packages and 5 no-test packages); `go vet ./...` exit `0`; check-only `gofmt -d` produced no output.
 - Exact Phase 8 candidate at this receipt: **272 additions + 6 deletions = 278 changed lines**, including source, tests, task/progress receipts; under the 380-line limit and excluding unrelated protected worktree state. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. No commit, stage, push, PR, `.atl`, `tmp`, or protected keyring-store edit occurred during implementation.
 - Completion state: **49 total = 46 completed + 3 pending**. Next recommended action: apply Phase 9 only; do not claim final verification or archive readiness.
+
+## Bounded Remediation: `step8-production-action-reachability`
+
+- Binding: remediate failed verification evidence `sha256:4eb6f2701577730cb326b4d5d1ff5291f118e141cfa385b2c9412eae3cf6a95b` under the orchestrator-supplied token `sha256:2114860bbc5893675ba23e3b197e433ff5e1d37a7f160205650508e67df60ae8` (maximum 200 changed lines). The executor did not acquire, settle, reset, finish, or otherwise mutate native authority.
+- RED: `go test -count=1 ./internal/tui -run '^TestInjectedStep8RunnerIsReachableFromWizardAfterPreAuth$'` — exit `1`; Step 4 remained screen `7` instead of reaching `screenProfileStep8Action`.
+- GREEN: the same command — exit `0`; a saved, loaded profile matching the wizard draft arms Step 8 without invoking the runner, then the explicit Step 8 Enter command invokes it once.
+- Triangulation: an unmatched/unsaved draft remains on Step 4 with no action command and zero runner calls. Existing lifecycle tests retain cancellation, retry generation, stale-result rejection, responsive no-I/O View, and Step 3/4 pre-auth safety.
+- Work Unit Evidence: focused TUI navigation/lifecycle command and cmd production-composition command both exit `0`; deterministic in-process `Update`/`View` is the runtime harness, with no IBM i, network, credential/keyring, SSH, Java, artifact, transfer, shell, or SQL action. Rollback only `internal/tui/mapepire_onboarding_step.go`, `internal/tui/model_step8_runner_test.go`, and this receipt.
+- Final checks: `go test -count=1 ./...`, `go vet ./...`, `go build ./...`, check-only `gofmt -d` on the two owned Go files, and `git diff --check` all exit `0`.
+- No implementation task changed: **48 total = 48 completed + 0 pending**. `verify-report.md` remains the truthful FAIL report; independent `sdd-verify` is required next, never archive.
