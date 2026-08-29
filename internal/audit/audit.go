@@ -91,6 +91,44 @@ type Event struct {
 	Reason      string
 }
 
+// TransportEvent is a bounded, metadata-only dual-transport outcome.
+type TransportEvent struct{ Transport, Reason, Outcome, Protocol, PolicyID, TrustOutcome, Version string }
+
+func ValidateTransportEvent(e TransportEvent) error {
+	if e.Transport != "wss" && e.Transport != "ssh" {
+		return ErrConnectorRejected
+	}
+	if e.Outcome != "selected" && e.Outcome != "failed" {
+		return ErrResultRejected
+	}
+	if e.Reason != "" && e.Reason != "availability" && e.Reason != "policy" && e.Reason != "unsupported" && e.Reason != "identity" && e.Reason != "trust" && e.Reason != "credentials" && e.Reason != "authorization" && e.Reason != "protocol" && e.Reason != "consent" {
+		return ErrReasonRejected
+	}
+	if len(e.Protocol) > 32 {
+		return ErrReasonOversized
+	}
+	if e.PolicyID != "" && e.PolicyID != "verified-readonly" {
+		return ErrPolicyRejected
+	}
+	if e.TrustOutcome != "" && e.TrustOutcome != "verified" && e.TrustOutcome != "untrusted" && e.TrustOutcome != "blocked" {
+		return ErrReasonRejected
+	}
+	if len(e.Version) > 64 {
+		return ErrReasonOversized
+	}
+	return nil
+}
+func (r *Recorder) RecordTransport(ctx context.Context, e TransportEvent) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := ValidateTransportEvent(e); err != nil {
+		return err
+	}
+	r.transportEvents = append(r.transportEvents, e)
+	return nil
+}
+
 // maxReasonBytes caps the reason length so a malformed caller cannot
 // inflate audit volume or smuggle content past the allowlist
 // substring filter.
@@ -105,7 +143,8 @@ type Auditor interface {
 // Recorder is an in-memory test/dev Auditor. It stores every accepted
 // event in submission order and exposes a defensive copy.
 type Recorder struct {
-	events []Event
+	events          []Event
+	transportEvents []TransportEvent
 }
 
 // NewRecorder returns an empty Recorder.
@@ -129,6 +168,12 @@ func (r *Recorder) Record(ctx context.Context, event Event) error {
 func (r *Recorder) Events() []Event {
 	out := make([]Event, len(r.events))
 	copy(out, r.events)
+	return out
+}
+
+func (r *Recorder) TransportEvents() []TransportEvent {
+	out := make([]TransportEvent, len(r.transportEvents))
+	copy(out, r.transportEvents)
 	return out
 }
 

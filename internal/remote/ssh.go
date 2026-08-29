@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
+	"bac-nexus/internal/mapepire"
+	"bac-nexus/internal/mapepire/sshstdio"
 	"bac-nexus/internal/profile"
 	"bac-nexus/internal/source"
 
@@ -386,6 +388,9 @@ func (c *Client) Close() error {
 
 func (c *Client) SFTP() *sftp.Client { return c.sftp }
 
+// RemoteFiles exposes only the bounded artifact upload surface to consumers.
+func (c *Client) RemoteFiles() mapepirestdio.RemoteFiles { return c }
+
 func (c *Client) WorkingDirectory() (string, error) { return c.sftp.Getwd() }
 func (c *Client) MkdirAll(path string) error        { return c.sftp.MkdirAll(path) }
 func (c *Client) Chmod(path string, mode os.FileMode) error {
@@ -406,6 +411,62 @@ type Channel interface {
 	io.Reader
 	io.Writer
 	io.Closer
+}
+
+type FixedProofMetadata struct {
+	Rows     int
+	Revision string
+}
+
+type FixedProofFailure string
+
+const (
+	FixedProofUnknownFailure  FixedProofFailure = "unknown"
+	FixedProofProtocolFailure FixedProofFailure = "protocol"
+	FixedProofFramingFailure  FixedProofFailure = "framing"
+	FixedProofLimitFailure    FixedProofFailure = "limit"
+)
+
+var ErrFixedProofSession = errors.New("Mapepire fixed proof session unavailable")
+
+type FixedProofStage string
+
+const (
+	FixedProofLaunchStage  FixedProofStage = "launch"
+	FixedProofSessionStage FixedProofStage = "session"
+	FixedProofRunStage     FixedProofStage = "proof"
+)
+
+type FixedProofError struct {
+	Stage FixedProofStage
+	Err   error
+}
+
+func (e *FixedProofError) Error() string { return "Mapepire fixed proof failed" }
+func (e *FixedProofError) Unwrap() error { return e.Err }
+
+func FixedProofStageFor(err error) FixedProofStage {
+	var proofErr *FixedProofError
+	if errors.As(err, &proofErr) {
+		return proofErr.Stage
+	}
+	if errors.Is(err, ErrFixedProofSession) {
+		return FixedProofSessionStage
+	}
+	return ""
+}
+
+func ClassifyFixedProofError(err error) FixedProofFailure {
+	if errors.Is(err, mapepire.ErrLimitExceeded) || errors.Is(err, sshstdio.ErrFrameLimit) {
+		return FixedProofLimitFailure
+	}
+	if errors.Is(err, sshstdio.ErrInvalidFrame) {
+		return FixedProofFramingFailure
+	}
+	if errors.Is(err, mapepire.ErrProtocolViolation) {
+		return FixedProofProtocolFailure
+	}
+	return FixedProofUnknownFailure
 }
 
 type sessionChannel struct {
@@ -451,6 +512,31 @@ func (c *Client) StartMapepire(ctx context.Context, policy mapepirestdio.LaunchP
 		_ = channel.Close()
 	}()
 	return channel, nil
+}
+
+// StartMapepireTransport exposes only the typed transport boundary to callers.
+func (c *Client) StartMapepireTransport(ctx context.Context, policy mapepirestdio.LaunchPolicy) (mapepire.MessageTransport, error) {
+	channel, err := c.StartMapepire(ctx, policy)
+	if err != nil {
+		return nil, err
+	}
+	return sshstdio.New(channel), nil
+}
+
+// FixedMapepireProof exposes only the release-owned typed proof lifecycle.
+func (c *Client) FixedMapepireProof(ctx context.Context, policy mapepirestdio.LaunchPolicy, username string, password []byte) (FixedProofMetadata, error) {
+	transport, err := c.StartMapepireTransport(ctx, policy)
+	if err != nil {
+		return FixedProofMetadata{}, &FixedProofError{Stage: FixedProofLaunchStage, Err: err}
+	}
+	if transport == nil {
+		return FixedProofMetadata{}, &FixedProofError{Stage: FixedProofSessionStage, Err: ErrFixedProofSession}
+	}
+	proof, err := mapepire.NewMessageSession(transport).FixedProof(ctx, username, password)
+	if err != nil {
+		return FixedProofMetadata{}, &FixedProofError{Stage: FixedProofRunStage, Err: err}
+	}
+	return FixedProofMetadata{Rows: proof.Rows, Revision: proof.Revision}, nil
 }
 
 func (c *Client) CopyToUTF8(ctx context.Context, qsysPath, temporary string) error {

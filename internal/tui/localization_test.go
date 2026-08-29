@@ -109,7 +109,7 @@ func TestEnglishRuntimeCoversWizardAndLegacyScreensWithoutSpanishLeakage(t *test
 			updated, _ := m.Update(profileStepAcceptedMsg{name: "dev"})
 			return updated.(Model)
 		}},
-		{"step-3", "Verify a known", func() Model {
+		{"step-3", "INSPECT IDENTITY", func() Model {
 			m := base()
 			m.beginProfileStep()
 			updated, _ := m.Update(profileStepAcceptedMsg{name: "dev"})

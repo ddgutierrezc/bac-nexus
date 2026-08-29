@@ -20,10 +20,12 @@ type ReadinessCheck struct {
 }
 
 type ReadinessReport struct {
-	ProductStatus    ProductStatus
-	ValidationStatus ValidationStatus
-	Checks           []ReadinessCheck
-	RemoteContacted  bool
+	ProductStatus         ProductStatus
+	ValidationStatus      ValidationStatus
+	Checks                []ReadinessCheck
+	RemoteContacted       bool
+	Transport             Transport
+	AuthenticationPending bool
 }
 
 func CheckLocalReadiness() ReadinessReport {

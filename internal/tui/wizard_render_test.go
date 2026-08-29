@@ -248,7 +248,6 @@ func TestWizardDescriptionSpacingIsSharedAndCompact(t *testing.T) {
 			}{
 				{"step-1", "Nombre del perfil", "Usa 1–64", "", "Usa 1–64 caracteres ASCII; inicia con letra o número. Luego usa solo letras, números, guion (-) o guion bajo (_). Sin espacios, puntos, tildes ni otros símbolos. Ej: CRI400F, CRI400FDev, CRI400FProd", "Nombre  [", func() Model { return newProfileStepTestModel(&profileStoreStub{}, size.width, size.height) }},
 				{"step-2", "Conexión con IBM i", "Indica cómo", "", "Indica cómo localizar el IBM i y qué usuario utilizará Nexus. Nexus todavía no se conectará al servidor en este paso.", "Host", func() Model { return newProfileConnectionTestModel(t, &profileStoreStub{}, size.width, size.height) }},
-				{"step-3", "Identidad del servidor", "¿Cómo quieres", "Elige cómo", "¿Cómo quieres comprobar que este IBM i es el servidor correcto? Elige cómo Nexus debe establecer la confianza SSH de este perfil. Esta decisión solo se registra localmente en el asistente; no conecta con el servidor ni guarda credenciales o perfiles todavía.", "Verificar un fingerprint", func() Model { return newProfileIdentityTestModel(t, size.width, size.height) }},
 			} {
 				t.Run(fmt.Sprintf("%s/%dx%d/no-color=%t", tt.name, size.width, size.height, noColor), func(t *testing.T) {
 					m := tt.model()
@@ -321,16 +320,16 @@ func TestWizardDescriptionSpacingIsSharedAndCompact(t *testing.T) {
 }
 
 func TestWizardPanelsRenderContentDrivenHeightAndActionGrouping(t *testing.T) {
-	panels := make([]runtimePanel, 0, 3)
-	actions := make([]runtimeAction, 0, 3)
+	panels := make([]runtimePanel, 0, 2)
+	actions := make([]runtimeAction, 0, 2)
 	for _, wizard := range runtimeWizardCases(t, 120, 40, true) {
 		model, panel := runtimeViewAtPanelTop(t, wizard.model)
 		panel.height = runtimePanelHeight(t, model, panel)
 		panels = append(panels, panel)
 		actions = append(actions, runtimeActionAtPanelBottom(t, model, panel, wizard.leftAction))
 	}
-	if panels[0].height >= panels[2].height {
-		t.Fatalf("rendered panel heights were equalized: step1=%d step3=%d", panels[0].height, panels[2].height)
+	if panels[0].height >= panels[1].height {
+		t.Fatalf("rendered panel heights were equalized: step1=%d step2=%d", panels[0].height, panels[1].height)
 	}
 	for i, action := range actions {
 		if !strings.Contains(action.line, action.left) || !strings.Contains(action.line, "[ CONTINUAR ]") || !strings.Contains(action.line, action.left+"    [ CONTINUAR ]") {
@@ -396,12 +395,9 @@ func runtimeWizardCases(t *testing.T, width, height int, noColor bool) []runtime
 	t.Helper()
 	step1 := newProfileStepTestModel(&profileStoreStub{}, width, height)
 	step2 := newProfileConnectionTestModel(t, &profileStoreStub{}, width, height)
-	step3 := newProfileIdentityTestModel(t, width, height)
-	step3.identityDecision = profileIdentityKnownFingerprint
 	cases := []runtimeWizardCase{
 		{name: "step-1", leftAction: "< CANCELAR >", tabsToLeftAction: 1, model: step1},
 		{name: "step-2", leftAction: "< VOLVER >", tabsToLeftAction: 3, model: step2},
-		{name: "step-3", leftAction: "< VOLVER >", tabsToLeftAction: 2, model: step3},
 	}
 	for i := range cases {
 		cases[i].model.noColor = noColor

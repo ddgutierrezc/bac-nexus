@@ -34,9 +34,20 @@ var SingleModeJavaArguments = []string{
 type LaunchPolicy struct {
 	JavaHome  string
 	RemoteJAR string
+	Consented bool
 }
 
 func VerifyServerJAR(filePath string) error { return verifyServerJAR(filePath, ServerSHA256) }
+
+func ValidateJavaHome(javaHome string) error {
+	if javaHome == "" {
+		javaHome = DefaultJavaHome
+	}
+	if !strings.HasPrefix(javaHome, "/QOpenSys/QIBM/ProdData/JavaVM/") || strings.Contains(javaHome, "..") {
+		return errors.New("unsafe IBM i Java home")
+	}
+	return nil
+}
 
 func verifyServerJAR(filePath, expected string) error {
 	file, _, err := openVerifiedLocalJAR(filePath, expected)
@@ -47,12 +58,15 @@ func verifyServerJAR(filePath, expected string) error {
 }
 
 func BuildCommand(policy LaunchPolicy) (string, error) {
+	if !policy.Consented {
+		return "", errors.New("Mapepire SSH fallback requires explicit consent")
+	}
 	javaHome := policy.JavaHome
+	if err := ValidateJavaHome(javaHome); err != nil {
+		return "", err
+	}
 	if javaHome == "" {
 		javaHome = DefaultJavaHome
-	}
-	if !strings.HasPrefix(javaHome, "/QOpenSys/QIBM/ProdData/JavaVM/") || strings.Contains(javaHome, "..") {
-		return "", errors.New("unsafe IBM i Java home")
 	}
 	if !strings.HasPrefix(policy.RemoteJAR, "/") || strings.Contains(policy.RemoteJAR, "..") {
 		return "", errors.New("unsafe remote Mapepire path")

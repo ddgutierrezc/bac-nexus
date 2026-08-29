@@ -1,0 +1,917 @@
+# Apply Progress: Mapepire Dual-Transport Onboarding
+
+## Phase 9 Evidence: `step8-offline-evidence`
+
+- Scope: tasks 9.1 and 9.2 only; strict TDD; auto-chain, feature-branch-chain (`feature/step8-tui-action` → `feature/step8-offline-evidence`). Task 9.3 and independent SDD verification remain pending.
+- RED: no production behavior was added or changed. The existing audit and marker contracts already satisfied the new acceptance scenarios, so the test-first acceptance coverage ran green rather than exposing a real defect; expanding production scope was prohibited.
+- GREEN: `go test -count=1 ./internal/audit -run '^(TestStep8AuditEvidenceRejectsProhibitedValues|TestStep8AuditEvidenceHasBoundedCleanupAndNoReadinessMarker)$'` — exit `0`; `ok bac-nexus/internal/audit 1.796s`; 2 named tests passed.
+- TRIANGULATE: rejected endpoint-like transport, credential-like class, and proof-text revision values remain absent from the existing `Recorder`; successful cleanup and incomplete cleanup have distinct bounded lifecycle suffixes; the fixed `Step8Event` surface has no marker field and a historical marker cannot establish readiness.
+- REFACTOR: no production refactor was needed. The documentation groups implemented behavior, offline proof, live prerequisites, and limitations without changing product behavior.
+
+### Phase 9 TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 9.1 | Unit / in-memory `Recorder` | `go test -count=1 ./internal/audit` — exit `0`; `ok bac-nexus/internal/audit 1.669s` before edits | Test-first acceptance coverage found no production defect; existing contract was already green | ✅ focused named tests exit `0` | ✅ prohibited transport/class/revision, cleanup/incomplete lifecycle, no marker field/readiness | ➖ no production change required |
+| 9.2 | Documentation / structural readback | N/A: documentation-only task | N/A: no executable production behavior | ✅ documentation accurately matches deterministic evidence | ✅ implemented/offline/live prerequisite/limitation sections | ✅ concise evidence matrix |
+
+### Phase 9 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/audit -run '^(TestStep8AuditEvidenceRejectsProhibitedValues|TestStep8AuditEvidenceHasBoundedCleanupAndNoReadinessMarker)$'` — exit `0`; `ok bac-nexus/internal/audit 1.796s`; 2 named tests passed. Relevant checks: `go test -count=1 ./internal/configuration ./internal/tui` — exit `0`; `ok bac-nexus/internal/configuration 2.603s`; `ok bac-nexus/internal/tui 8.243s`. |
+| Runtime harness command/scenario and exact result | The relevant configuration/TUI command above ran deterministic in-process fakes and existing local loopback coverage only — exit `0`. No live runtime boundary is permitted: no IBM i, network, keyring, SSH, Java, artifact, transfer, shell, SQL, credential, or bank-environment action occurred. |
+| Rollback boundary | Revert only `internal/audit/step8_test.go`, the Phase 9 evidence wording in `docs/IBM_I_PROFILE_WIZARD.md`, the 9.1/9.2 checkboxes, and this Phase 9 receipt; retain all prior implementation and leave 9.3 pending. |
+
+- Final checks: `go test -count=1 ./...`, `go vet ./...`, `go build ./...`, check-only `gofmt -d internal/audit/step8_test.go`, and `git diff --check` all exited `0`.
+- Completion state: **49 total = 48 completed + 1 pending**. Exact Phase 9 candidate: **102 additions + 30 deletions = 132 changed lines**, below the 300-line limit. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. `not_validated_on_ibmi` remains required; `verify-report.md` remains untouched and no independent SDD verification was run.
+
+## Planning correction: independent verification gate
+
+- Historical `49 total = 48 completed + 1 pending` snapshots describe the previous circular plan and remain historical evidence.
+- The canonical implementation count is now **48 total = 48 completed + 0 pending**. Former task 9.3 is a pending independent post-implementation `sdd-verify` gate, not an implementation checkbox task.
+- This artifact-only correction did not run SDD verification. The orchestrator acquired its bounded native attempt before delegation and settled it as `complete`; the executor did not mutate authority. `verify-report.md` remains untouched.
+
+## Work Unit
+
+- Slice: 1
+- Work unit: `slice-1-schema-policy-trust`
+- Delivery: auto-chain, feature-branch-chain; PR #1 standalone profile foundation
+- Scope: tasks 1.1 and 1.2 only
+- Authored changed lines: 377 (including prior Slice 1 work and this correction; excluding unrelated worktree changes)
+
+## Work Unit T: `step8-ssh-trust-adapter`
+
+- Scope: tasks 7.3.10a–b only; strict TDD; auto-chain, feature-branch-chain (`d603db8` → `feature/step8-ssh-trust-adapter`). No consent prompt, credential acquisition, SSH runtime, Java, artifact, upload/download, WSS, cmd wiring, TUI, or native-attempt authority action was added.
+- RED: `go test -count=1 ./internal/security -run '^(TestStep8SSHTrustAdapterVerifiesOnlyIndependentSSHEnrollment|TestStep8SSHTrustAdapterDenialPrecedesConsentCredentialsAndRuntime)$'` — exit `1` before production implementation because `NewStep8SSHTrustAdapter` was undefined.
+- GREEN: the same command — exit `0`; `ok bac-nexus/internal/security 1.662s`.
+- TRIANGULATE: direct deterministic fakes cover exact SSH match, rotation, missing SSH enrollment despite matching TLS-looking text, missing/malformed observed fingerprints, unapproved enrollment, observer failure, cancellation, and deadline. The `PostObservationGate` integration proves rotated SSH trust returns terminal `trust_mismatch` before consent, credential retrieval, or runtime callback acquisition.
+- REFACTOR: the adapter has one injected observer interface and delegates enrollment/match validation to existing `security.SSHTrust`; it never reads `TLSTrust` or exposes observer failures.
+
+### Work Unit T TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 7.3.10a | Unit / deterministic observer fake and gate integration | `go test -count=1 ./internal/security` — exit `0`; `ok bac-nexus/internal/security 1.731s` before edits | ✅ focused compile failure, exit `1`, before production file | ✅ focused named test exit `0` | ✅ exact/mismatch/missing/malformed/unapproved/context/observer/TLS-separation plus zero credential/runtime gate proof | ✅ shared saved-profile fixture and bounded fake |
+| 7.3.10b | Unit / injected observed-fingerprint source | Same package safety net | ✅ tests referenced missing adapter | ✅ focused named test exit `0` | ✅ only `SSHTrust` authorizes an observed fingerprint; all observer failures sanitize to existing trust errors | ✅ narrow observer interface; existing `SSHTrust` owns semantics |
+
+### Work Unit T Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/security -run '^(TestStep8SSHTrustAdapterVerifiesOnlyIndependentSSHEnrollment|TestStep8SSHTrustAdapterDenialPrecedesConsentCredentialsAndRuntime)$'` — exit `0`; `ok bac-nexus/internal/security 1.647s`; 2 named tests passed. |
+| Runtime harness command/scenario and exact result | N/A: observation is a deterministic injected source, so this unit has no runtime boundary. In-process tests prove trust denial before credential/runtime callbacks without network, IBM i, SSH dialing, process, Java, artifact, upload, WSS, SQL, shell, retry, or marker activity. |
+| Rollback boundary | Revert only `internal/security/step8_ssh_trust_adapter.go`, `internal/security/step8_ssh_trust_adapter_test.go`, and the 7.3.10 task/progress entries; retain 7.3.6–7.3.9, pending D/R and later work, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Final validation: `go test -count=1 ./internal/security` exit `0` (`ok bac-nexus/internal/security 1.686s`); `go test -count=1 ./internal/configuration` exit `0` (`ok bac-nexus/internal/configuration 2.535s`); `go test ./...`, `go vet ./...`, check-only `gofmt -d` on both owned Go files, and `git diff --check` all exit `0`.
+- Completion state: **49 total = 39 completed + 10 pending**. Source-mutating `gofmt -w` ran only on the two owned Go files. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. No commit, stage, push, PR, `.atl`, `tmp`, or protected keyring-store edit occurred during implementation.
+
+### Work Unit T boundary correction
+
+- Review found that the first observer interface accepted `profile.Profile`, allowing access to TLS and saved SSH evidence. The interface now accepts only `context.Context`, `host string`, and `port int`; `VerifySSH` passes only those coordinates, then delegates comparison against the original profile to existing `SSHTrust`.
+- RED: the focused security test exited `1` because its narrowed host/port fake no longer implemented the profile-taking observer interface.
+- GREEN: the same focused command exited `0`; the observer asserts `ibmi.example.test:22` and cannot receive profile, TLS trust, SSH enrollment, credential, username, or policy data by construction.
+- REFACTOR/validation: source-mutating `gofmt -w` ran only on the two T files; focused security, configuration, full Go test, vet, check-only formatting, and `git diff --check` passed. Task completion remains **39/49**; no additional task was marked.
+- Final T candidate: `216 additions + 3 deletions = 219 changed lines`, including source, tests, and T task/progress receipts; under the existing 280-line limit and excluding unrelated protected worktree state.
+
+## Work Unit D: `step8-audit-adapter`
+
+- Scope: tasks 7.3.11a–b only; strict TDD; auto-chain, feature-branch-chain (`feature/step8-ssh-trust-adapter` → `feature/step8-auditor`). Added only `internal/audit/step8_auditor.go` and its focused test, reusing the existing `Recorder`; no transport, runtime, TUI, cmd wiring, or native-authority action occurred.
+- RED: `go test -count=1 ./internal/audit -run '^(TestStep8AuditorRecordsOnlyAllowlistedMetadata|TestStep8AuditorRejectsForbiddenValuesWithoutRecording)$'` — exit `1` before production implementation because `NewStep8Auditor` was undefined.
+- GREEN: the same command — exit `0`; `ok bac-nexus/internal/audit 1.105s`.
+- TRIANGULATE: WSS proof success/cleanup and SSH trust-mismatch/incomplete cleanup map to fixed metadata; each endpoint, host, user, path, raw-error, SQL, rows, and secret sentinel is injected into transport, class, and revision and is rejected before the Recorder receives an event.
+- REFACTOR: one narrow wrapper validates the existing `Step8Event` taxonomy before deriving a fixed `Recorder` event; it accepts no arbitrary caller string or audit stack.
+
+### Work Unit D TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 7.3.11a | Unit / in-memory Recorder | `go test -count=1 ./internal/audit` — exit `0`; `ok bac-nexus/internal/audit 1.123s` before edits | ✅ focused compile failure, exit `1`, before production file | ✅ focused named tests exit `0` | ✅ eight adversarial sentinels across all three Step 8 string fields; rejected events remain absent | ✅ fixed taxonomy only |
+| 7.3.11b | Unit / existing Recorder | Same package safety net | ✅ tests referenced missing auditor | ✅ focused named tests exit `0` | ✅ WSS allow and SSH terminal/error mappings plus cleanup lifecycle | ✅ wrapper reuses `Recorder.Record` |
+
+### Work Unit D Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/audit -run '^(TestStep8AuditorRecordsOnlyAllowlistedMetadata|TestStep8AuditorRejectsForbiddenValuesWithoutRecording|TestStep8AuditorRecordsFailureAndCleanupState)$'` — exit `0`; `ok bac-nexus/internal/audit 1.109s`; 3 named tests passed. |
+| Runtime harness command/scenario and exact result | N/A: this unit is a deterministic in-memory `Recorder` mapping with no runtime boundary. It performed no IBM i, network, SSH, WSS, keyring, shell, Java, process, SQL, artifact, or credential operation. |
+| Rollback boundary | Revert only `internal/audit/step8_auditor.go`, `internal/audit/step8_auditor_test.go`, and the 7.3.11 task/progress entries; retain P/W/C/A/T, pending R/Phase 8–9, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Final validation: `go test -count=1 ./internal/audit` exit `0` (`ok bac-nexus/internal/audit 1.181s`); `go test -count=1 ./...`, `go vet ./...`, check-only `gofmt -d internal/audit/step8_auditor.go internal/audit/step8_auditor_test.go`, and `git diff --check` all exit `0`.
+- Completion state: **49 total = 41 completed + 8 pending**. Source-mutating `gofmt -w` ran only on the two owned Go files. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. No commit, stage, push, PR, `.atl`, `tmp`, or protected keyring-store edit occurred during implementation.
+
+## Work Unit R: `step8-production-wiring`
+
+- Scope: tasks 7.3.12a–b only; strict TDD; auto-chain, feature-branch-chain (`feature/step8-auditor` → `feature/step8-production-wiring`). `cmd/nexus` now creates the existing Step 8 adapters and passes their composed runner to the existing TUI startup seam; Phase 8 remains the sole invocation owner.
+- RED: `go test -count=1 ./cmd/nexus -run '^TestRunCommandConfigureIsSeparateFromServe$'` — exit `1` before production wiring. The test callback required the Step 8 runner argument, but the startup seam accepted only four arguments; the initial boundary assertion also exposed incompatible raw profile-marker and audit contracts.
+- GREEN: `go test -count=1 ./cmd/nexus -run '^(TestRunCommandConfigureIsSeparateFromServe|TestStep8ProductionRunnerWSSSuccessDoesNotInvokeSSHRuntime)$'` — exit `0`; `ok bac-nexus/cmd/nexus 3.704s`.
+- TRIANGULATE: startup captures but does not invoke the fully composed runner; a deterministic WSS proof replaces only action-time WSS seams after real composition and proves one prove/close with zero SSH runtime calls. Existing `TestNewStep8ProductionUsesWSSWithoutFallbackRuntime` independently proves WSS selection bypasses fallback. No IBM i, network, credential store, SSH process, artifact, Java, upload, shell, or external side effect ran.
+- REFACTOR: kept `main.go` as composition only. The bounded audit event conversion lives with the existing audit adapter; the profile-marker contract bridge is a narrow command adapter. The SSH observer receives only context, host, and port before returning a fingerprint.
+
+### Work Unit R TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 7.3.12a | Composition / deterministic TUI and WSS fakes | `go test -count=1 ./cmd/nexus ./internal/configuration` — exit `0`; `ok bac-nexus/cmd/nexus 3.319s`; `ok bac-nexus/internal/configuration 2.737s` before edits | ✅ focused compile failure, exit `1`, before production wiring | ✅ focused named tests exit `0` | ✅ startup no-invocation and WSS success with zero SSH runtime proof; existing configuration WSS test covers fallback bypass | ✅ no action logic moved into startup |
+| 7.3.12b | Composition root | Same package safety net | ✅ test required runner injection and all production adapter contracts | ✅ focused named tests exit `0` | ✅ all P/W/C/A/T/D adapters, runtime, marker, clock, and TUI seam asserted; no startup action | ✅ bounded adapter bridges retain package ownership |
+
+### Work Unit R Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./cmd/nexus ./internal/configuration ./internal/tui -run '^(TestRunCommandConfigureIsSeparateFromServe|TestStep8ProductionRunnerWSSSuccessDoesNotInvokeSSHRuntime|TestNewStep8ProductionUsesWSSWithoutFallbackRuntime|TestStartupModelComposesInspectorAndStep8RunnerWithoutInvocation|TestStep8ProofIsExplicitlyOwnedAndCredentialFreeBeforeInvocation|TestStep8AloneProvesConnectAndQuery)$'` — exit `0`; `ok bac-nexus/cmd/nexus 4.672s`; `ok bac-nexus/internal/configuration 3.590s`; `ok bac-nexus/internal/tui 3.967s`; 3 packages passed. |
+| Runtime harness command/scenario and exact result | Deterministic in-process TUI startup and WSS proof harness through the focused command — exit `0`. It proves startup stores the runner without invoking it and WSS success leaves SSH runtime at zero; no live runtime boundary is permitted, so no IBM i, network, keyring, SSH process, Java, artifact, upload, shell, or external effect occurred. |
+| Rollback boundary | Revert only `cmd/nexus/main.go`, `cmd/nexus/step8_marker_adapter.go`, `cmd/nexus/configure_test.go`, `internal/audit/step8_configuration_adapter.go`, and the 7.3.12 task/progress entries; retain P/W/C/A/T/D, pending Phase 8–9, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Final validation: `go test -count=1 ./...` and `go vet ./...` exited `0`; source-mutating `gofmt -w` ran only on R-owned Go files, and check-only `gofmt -d` and `git diff --check` exited `0`.
+- Completion state: **49 total = 43 completed + 6 pending**. Exact R candidate: **221 additions + 7 deletions = 228 changed lines**, including source, tests, and task/progress receipts; below the 360-line attempt limit. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. No commit, stage, push, PR, `.atl`, `tmp`, or protected keyring-store edit occurred during implementation.
+
+## Completed Tasks
+
+- [x] 1.1 RED: added schema-v2 persistence, conservative migration, ephemeral-field rejection, and independent TLS/SSH trust tests.
+- [x] 1.2 GREEN: added schema-v2 validation/migration and Nexus-owned resolver release limits.
+
+## TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 1.1 | Unit and local filesystem | `go test -count=1 ./internal/profile ./internal/security`: pre-existing profile/security tests passed | Compile failure on missing schema-v2 API and trust types | Focused tests passed after implementation | Round-trip, malformed/ambiguous trust, deterministic migration, and forbidden ephemeral/secret fields | Empty v2 evidence omitted; legacy serialization preserved |
+| 1.2 | Unit | Same focused safety net | Tests required strict schema and migration behavior before production implementation | Focused tests passed | TLS and SSH pin formats are validated by separate transport modes; legacy migration has no automatic trust or fallback | Shared strict key sets and bounded release constants |
+
+## Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/profile ./internal/security` — process exit code `0`; observable package result lines: `ok bac-nexus/internal/profile 1.167s`, `ok bac-nexus/internal/security 1.119s`; 2 packages passed (1 profile, 1 security). Normal non-verbose output reports no individual test counts. |
+| Runtime harness command/scenario and exact result | N/A: this slice has only local JSON, validation, and in-process policy behavior; no runtime or remote boundary exists |
+| Rollback boundary | Revert `internal/profile/profile.go`, `internal/profile/profile_test.go`, `internal/profile/recovery.go`, `internal/configuration/limits.go`, and this slice's task/progress edits; unrelated `.atl`, `tmp`, and prior OpenSpec changes remain untouched |
+
+## Verification
+
+- `go test -count=1 ./...` — passed; all packages green.
+- `go vet ./...` — passed.
+- `gofmt -d internal/profile/profile.go internal/profile/profile_test.go internal/profile/recovery.go internal/configuration/limits.go` — no output; formatted.
+- No IBM i or external network contact.
+- No Mapepire transport/session, WSS, SSH, resolver, TUI, dependency, documentation, or artifact-acquisition files were edited.
+
+## Surgical Correction: `slice-1-trust-validation-correction`
+
+- Scope: completed Slice 1 only; `internal/profile` production and regression tests.
+- Correction authored changed lines: 45; cumulative Slice 1 authored changed lines: 377.
+- RED: `go test -count=1 ./internal/profile -run 'TestSchemaV2AllowsUnenrolledTrustEvidence|TestSchemaV2TrustModesAreTransportSpecific|TestMigrateV1IsConservativeAndDeterministic'` — process exit code `1`; all three new regression scenarios failed for the known defects.
+- GREEN: same focused command — process exit code `0`; `ok bac-nexus/internal/profile 1.154s`.
+
+### Correction TDD Cycle Evidence
+
+| Behavior | Test | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|
+| Empty trust is valid without trust/fallback | `TestSchemaV2AllowsUnenrolledTrustEvidence` | ✅ exit `1`: invalid trust mode | ✅ exit `0` | ✅ TLS and SSH both zero-valued | ➖ minimal early return |
+| Migration validates and round-trips | `TestMigrateV1IsConservativeAndDeterministic` | ✅ exit `1`: migrated profile invalid | ✅ exit `0` | ✅ deterministic output plus Store Save/Load | ➖ none needed |
+| SSH CA rejected; TLS CA accepted | `TestSchemaV2TrustModesAreTransportSpecific` | ✅ exit `1`: SSH CA accepted | ✅ exit `0` | ✅ both transport branches | ➖ minimal transport guard |
+
+### Correction Verification Evidence
+
+- `go test -count=1 ./internal/profile ./internal/security` — process exit code `0`; `ok bac-nexus/internal/profile 1.126s`, `ok bac-nexus/internal/security 1.037s`; 2 packages passed.
+- `go test -count=1 ./...` — process exit code `0`; 22 test-bearing packages passed, 3 packages reported `[no test files]`.
+- `go vet ./...` — process exit code `0`.
+- `gofmt -d internal/profile/profile.go internal/profile/profile_test.go` — process exit code `0`; no formatting output.
+- `git diff --check` — process exit code `0`.
+- Runtime harness: N/A; correction changes only local profile JSON validation/migration and filesystem round-trip, with no runtime or remote boundary.
+- Rollback boundary: revert only the correction hunks in `internal/profile/profile.go`, `internal/profile/profile_test.go`, and this progress evidence; retain prior Slice 1 implementation and unrelated worktree changes.
+
+## Remaining Tasks
+
+- [x] 1.3 RED: added typed seven-operation, bounds, ID, correlation, cursor, limit, and cancellation tests.
+- [x] 1.4 GREEN: added transport-neutral typed message session with one reader, controlled writes, bounded pending/cursor state, safe protocol errors, and legacy `Execute` compatibility.
+- [ ] 2.1–2.4 transports and fallback runtime.
+- [ ] 3.1–3.5 resolver, wizard, and final verification.
+
+## Slice 2: `slice-2-typed-protocol-session`
+
+- Delivery decision: `size:exception`, explicitly approved by the maintainer for Slice 2 only; authorized maximum is 600 changed lines.
+- Chain preservation: later slices remain `feature-branch-chain`; this exception does not increase their review budget or alter their boundaries.
+- Exact current complete intended diff, additions plus deletions: **548 additions + 29 deletions = 577 changed lines**. This includes tracked and untracked Mapepire Go files plus `tasks.md` and this `apply-progress.md`; unrelated `.atl` and `tmp` changes are excluded and untouched. It is within the approved 600-line exception.
+- Numstat: `internal/mapepire/protocol.go` 77/2; `internal/mapepire/session.go` 15/21; `internal/mapepire/typed_session.go` 222/0; `internal/mapepire/typed_protocol_test.go` 198/0; `openspec/changes/mapepire-dual-transport-onboarding/tasks.md` 8/2; `openspec/changes/mapepire-dual-transport-onboarding/apply-progress.md` 28/4. Total: 548/29.
+- Work-unit boundary: typed protocol/session core only, from task 1.3 RED through task 1.4 GREEN; no WSS, SSH, resolver, TUI, dependency, configuration, profile, or later task implementation.
+
+| Task | RED → GREEN → REFACTOR |
+|---|---|
+| 1.3 | ✅ typed tests written before production changes and failed (exit `1`) → ✅ focused package passed (exit `0`) → ✅ triangulated valid/invalid operations, caller-ID replacement, strict trailing JSON rejection, session-deadline timeout/wakeup, out-of-order and unknown/duplicate correlation, cursor lifecycle, column/page/cursor/aggregate bounds, and cancellation closure |
+| 1.4 | ✅ tests preceded implementation → ✅ focused package passed (exit `0`) → ✅ triangulated one reader, controlled writes, bounded pending state, safe SQL errors, fail-closed cancellation/session wakeup, prepare/sqlmore/sqlclose lifecycle, and legacy `Execute` compatibility |
+| Runtime bounds RED/GREEN | ✅ each corrected bound was represented by a failing regression scenario before the correction → ✅ all corresponding scenarios pass: cryptographic client IDs, strict one-object JSON, remaining-session deadline, fail-closed cancellation, columns, page rows, cursor count, aggregate bytes, pending IDs, frame bytes, and field/parameter sizes |
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/mapepire` — process exit code `0`; observable result `ok bac-nexus/internal/mapepire 15.977s`; 1 package passed. |
+| Full test command and exact result | `go test -count=1 ./...` — process exit code `0`; 22 test-bearing packages passed and 3 packages reported `[no test files]` (25 observable package results). |
+| Static validation | `go vet ./...` — process exit code `0`. |
+| Formatting | `gofmt -d internal/mapepire/protocol.go internal/mapepire/session.go internal/mapepire/typed_session.go internal/mapepire/typed_protocol_test.go` — process exit code `0`; no output. |
+| Diff validation | `git diff --check` — process exit code `0`. |
+| Runtime harness command/scenario and exact result | N/A: the work unit has only deterministic in-memory/channel fakes; there is no runtime, network, or IBM i boundary. No network/IBM i access was performed. |
+| Rollback boundary | Revert exactly `internal/mapepire/protocol.go`, `internal/mapepire/session.go`, `internal/mapepire/typed_session.go`, `internal/mapepire/typed_protocol_test.go`, and the Slice 2 sections/checkbox updates in `openspec/changes/mapepire-dual-transport-onboarding/tasks.md` and `apply-progress.md`; retain Slice 1, later pending tasks, and unrelated `.atl`/`tmp` worktree changes. |
+
+### Slice 2 completion state
+
+- Tasks 1.1–1.4 are checked; tasks 2.1–2.4 and 3.1–3.5 remain unchecked.
+- Next recommended action: `apply` (continue with the next assigned feature-branch-chain slice); this slice is not a request to run verification/archive or to implement later tasks.
+
+## Slice 3: `slice-3-trusted-daemon-wss`
+
+- Delivery: `size:exception`, Slice 3 only, explicitly approved by the maintainer; maximum 405 additions plus deletions. Later slices retain feature-branch-chain and the normal 400-line guard.
+- Dependency admission: `github.com/coder/websocket v1.8.15`, direct production dependency, ISC license (module `LICENSE.txt`), zero module dependencies; `go list -m -json` reported module sum `h1:6B2JPeOGlpff2Uz6vOEH1Vzpi0iUz20A+lPVhPHtNUA=` and go.mod sum `h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=`. `go mod verify` passed. `govulncheck` was unavailable and was not installed.
+- RED: `go test -count=1 ./internal/mapepire/wss` failed exit 1 before implementation with missing `Dial`/`Options` and missing production package symbols; loopback tests were written first.
+- GREEN: focused WSS tests passed exit 0; coverage includes WSS-only scheme and `MP_UNSECURE` rejection, CA/hostname validation, verified pin/explicit TOFU evidence, mismatch/rotation failure, text-only JSON, binary/malformed frames, frame bounds, compression disabled, cancellation terminality, and idempotent close.
+- REFACTOR: consolidated TLS policy cloning for injected `http.Transport`, rejected caller `InsecureSkipVerify`, fixed coder limit mapping, and stopped mutating a caller HTTP client with a nil transport; focused tests remained green.
+
+### Slice 3 TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 2.1 | Loopback integration | `go test -count=1 ./internal/mapepire`: exit 0 | ✅ test-first compile failure, exit 1 | ✅ WSS package, exit 0 | ✅ text/binary/malformed, CA/pin/TOFU, bounds/cancel/identity cases | ✅ sanitized terminal errors and disabled compression |
+| 2.2 | Loopback integration | N/A (new package) | ✅ tests referenced absent adapter | ✅ focused package, exit 0 | ✅ injected client/TLS, one reader, bounded messages, idempotent close | ✅ transport exposes only `mapepire.MessageTransport` |
+
+### Slice 3 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/mapepire/wss` — exit 0; `ok bac-nexus/internal/mapepire/wss 3.096s`; 1 package passed. |
+| Runtime harness command/scenario and exact result | Local `httptest.NewTLSServer` WSS loopback only — exit 0 through the focused package; no external network or IBM i contact. |
+| Verification commands and exact result | `go test -count=1 ./...` exit 0 (23 test-bearing packages, 3 no-test packages); `go vet ./...` exit 0; `go mod verify` exit 0; touched Go `gofmt -d` no output; `git diff --check` exit 0. |
+| Rollback boundary | Revert `internal/mapepire/wss/wss.go`, `internal/mapepire/wss/wss_test.go`, the coder entries in `go.mod`/`go.sum`, and only the Slice 3 checkbox/progress sections; retain Slices 1–2 and pending later tasks. |
+
+- Exact intended Slice 3 numstat: `internal/mapepire/wss/wss.go` 161/0; `internal/mapepire/wss/wss_test.go` 160/0; `go.mod` 1/0; `go.sum` 2/0; `tasks.md` 2/2. Non-progress entries: 326 additions + 2 deletions. Apply-progress entry: 27 additions + 0 deletions. Complete Slice 3 candidate: 353 additions + 2 deletions = 355 changed lines; within the 400-line budget.
+- Tasks 1.1–1.4 and 2.1–2.2 are checked. Tasks 2.3–2.4 and 3.1–3.5 remain pending. Next recommended action: `apply`.
+
+## Slice 3 corrective pass: `slice-3-wss-trust-classification-correction`
+
+- Scope: corrective pass only; tasks 1.1–2.2 not completed by this pass, later tasks pending; authority `proceed`, correction budget 120, no exception.
+- TDD Cycle Evidence (`2.1/2.2`): RED ✅ exit 1 before code; GREEN ✅ focused exit 0; TRIANGULATE ✅ CA/pin/self-signed/malformed/transport/endpoint/timeout/framing/cancellation; REFACTOR ✅ cloned authoritative transport and sanitized classification. Verified proof points: canonical raw base64url `sha256/` leaf-pin encoding plus malformed/noncanonical rejection; endpoint URL userinfo rejection; distinct sanitized typed availability/refusal, timeout, TLS identity, invalid endpoint, and invalid configuration errors without raw host/URL/certificate/network text; transport matrix covers cloned caller `http.Client`, cloned nil/default `*http.Transport` with TLS policy installed, cloned supported custom `*http.Transport`, rejected unsupported `RoundTripper`, and rejected caller `InsecureSkipVerify`.
+- Work Unit Evidence: focused WSS exit 0 (1 package); loopback TLS/WSS runtime exit 0; rollback boundary `internal/mapepire/wss/` plus this evidence. Pin/TOFU manually enforces exact leaf, hostname and validity; CA keeps chain verification; callback is preserved.
+- Exact final numstat: `internal/mapepire/wss/wss.go` 201/0; `internal/mapepire/wss/wss_test.go` 160/0; `go.mod` 1/0; `go.sum` 2/0; `openspec/changes/mapepire-dual-transport-onboarding/tasks.md` 2/2; `openspec/changes/mapepire-dual-transport-onboarding/apply-progress.md` 34/0. Total: **400 additions + 2 deletions = 402 changed lines**, within the approved Slice-3-only maximum.
+
+## Slice 4: `slice-4-ssh-single-fallback`
+
+- Delivery: auto-chain, feature-branch-chain; normal hard limit of 400 changed lines. Scope is tasks 2.3 and 2.4 only; later resolver, audit, readiness, TUI, and documentation tasks remain pending.
+- RED: `go test -count=1 ./internal/mapepire/sshstdio` — exit 1 before implementation because the adapter and framing errors were absent.
+- GREEN: added bounded LF JSON-object framing, context-terminal channel closure, typed-client transport wiring, terminal unsuccessful-response handling, and consent-gated fixed SSH `--single` startup.
+- REFACTOR: retained one typed-client reader and controlled adapter writes; reused existing SSH host identity, artifact verification, upload/rollback, Java validation, and fixed command construction.
+
+### Slice 4 TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 2.3 | Unit/in-process fake channel | Existing mapepire and remote tests passed | ✅ exit 1 | ✅ focused exit 0 | ✅ object, malformed/non-object/oversized/unterminated, newline, correlation, EOF/cancel | ✅ bounded reader/write mutex |
+| 2.4 | Unit/fake process and policy | Existing connector/remote tests passed | ✅ symbols absent | ✅ focused exit 0 | ✅ typed wiring, terminal failure, consent and unsafe command rejection | ✅ narrow consumer-owned seams |
+
+### Slice 4 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused tests | `go test -count=1 ./internal/mapepire/sshstdio ./internal/mapepire ./internal/connectors/ibmi/mapepirestdio ./internal/remote` — exit 0; 4 packages passed. |
+| Runtime harness | Same exact runnable command as focused tests: `go test -count=1 ./internal/mapepire/sshstdio ./internal/mapepire ./internal/connectors/ibmi/mapepirestdio ./internal/remote` — exit 0. It exercises only in-process fake SSH channels and pipe-backed process output; no IBM i, network, Java process, artifact download, or credentials. |
+| Verification | `go test -count=1 ./...` exit 0; 22 test-bearing packages and 3 no-test packages; `go vet ./...` exit 0. Exact formatting check: `gofmt -d internal/mapepire/sshstdio/sshstdio.go internal/mapepire/sshstdio/sshstdio_test.go internal/mapepire/typed_session.go internal/remote/ssh.go internal/connectors/ibmi/mapepirestdio/policy.go internal/connectors/ibmi/mapepirestdio/policy_test.go` — exit 0, no output. `git diff --check` exit 0. |
+| Rollback boundary | Revert `internal/mapepire/sshstdio/`, terminal handling in `internal/mapepire/typed_session.go`, `internal/remote/ssh.go`, consent changes in `internal/connectors/ibmi/mapepirestdio/policy.go` and `policy_test.go`, and only Slice 4 task/progress sections. |
+
+- Host-key mismatch terminality: the existing `internal/remote/hostidentity_test.go` mismatch proof and the recorded Slice 3 WSS identity-mismatch/rotation proof establish fail-closed identity behavior. A changed SSH host key is terminal (`host_key_changed`) and cannot be classified as availability or become fallback.
+- Daemon non-invocation: the recorded structural proof for `internal/mapepire/wss/` shows the WSS adapter imports/calls none of SSH, JAR, Java, upload, or cache capabilities; daemon WSS resolution therefore cannot invoke the Slice 4 fallback runtime.
+- Gatekeeper correction: artifact-only evidence clarification; no source/test/task changes, no commands rerun, and the measured Slice 4 total remains **324 additions + 9 deletions = 333 changed lines**.
+
+- Exact Slice 4 numstat (excluding unrelated `.atl`/`tmp`): `internal/mapepire/sshstdio/sshstdio.go` 133/0; `internal/mapepire/sshstdio/sshstdio_test.go` 136/0; `internal/connectors/ibmi/mapepirestdio/policy.go` 4/0; `policy_test.go` 8/2; `internal/mapepire/typed_session.go` 5/5; `internal/remote/ssh.go` 11/0; `tasks.md` 2/2; `apply-progress.md` 25/0. Total: **324 additions + 9 deletions = 333 changed lines**, under the normal 400-line guard. Tasks 1.1–1.4 and 2.1–2.4 are checked; 3.1–3.5 remain pending. Next recommended action: `apply`.
+
+## Slice 5: `slice-5-resolver-readiness`
+
+- Delivery: auto-chain, feature-branch-chain; normal hard limit of 400 changed lines. Scope is tasks 3.1 and 3.2 only; tasks 3.3–3.5 remain pending.
+- RED: resolver, version, no-downgrade, trust-gate, consent, terminal credential, sanitized transport-audit, and offline readiness tests were written first; focused compile/test exited `1` before implementation.
+- GREEN: added managed WSS-first resolution with bounded version classification, explicit fallback reason, independent SSH trust and consent gates, ephemeral readiness, and metadata-only transport audit validation/storage.
+- REFACTOR: kept configuration inward-pointing by using a narrow local audit seam; retained existing WSS/SSH adapters and fallback runtime untouched.
+
+### Slice 5 TDD Cycle Evidence
+
+| Task | Test layer | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|
+| 3.1 | Unit/in-process fakes | ✅ exit 1: missing resolver/audit/readiness APIs | ✅ focused exit 0 | ✅ supported, unsupported, availability, identity, trust, consent, sensitive audit | ✅ deterministic typed classifications and bounded audit fields |
+| 3.2 | Unit/in-process fakes | ✅ tests preceded production code | ✅ focused exit 0 | ✅ WSS-first, fallback, no downgrade, trust-before-start, offline readiness | ✅ narrow interfaces; no transport-internal edits |
+
+### Slice 5 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/configuration ./internal/audit ./internal/security` — exit 0; 3 packages passed (configuration, audit, security). |
+| Runtime harness command/scenario and exact result | N/A: deterministic in-process daemon/SSH counting fakes and local readiness; no live runtime, network, credentials, or IBM i boundary exists. |
+| Verification | `go test -count=1 ./...` — exit 0; 22 test-bearing packages passed and 3 reported `[no test files]`; `go vet ./...` — exit 0; recorded formatting command `gofmt -w internal/configuration/resolver.go internal/configuration/resolver_test.go internal/configuration/readiness.go internal/audit/audit.go internal/audit/transport_test.go` — exit 0, no output; `git diff --check` — exit 0. The prior receipt did not record a separate `gofmt -d` invocation, so none is claimed. |
+| Privacy/structural proof | Existing tests prove zero SSH fallback calls: `TestResolverWSSVersionAndFallbackTrustGate/supported` selects WSS; `TestResolverClassifiesDaemonAndNeverDowngradesTerminalFailures/identity` and `/credentials` leave trust calls at 0; the protocol/framing terminal path is represented by the default non-`ResolveError` classification and no-downgrade assertion; `TestResolverConsentCredentialTerminalityAndSanitizedAudit` proves consent failure leaves `startCalls` at 0; `TestResolverWSSVersionAndFallbackTrustGate/missing trust` blocks before SSH trust. No SSH fallback call occurs in these daemon-success or terminal cases. Resolver imports no SSH/JAR/Java/upload/cache packages; audit fields remain bounded classifications. |
+| Rollback boundary | Revert `internal/configuration/resolver.go`, `resolver_test.go`, readiness fields, `internal/audit/audit.go`, `transport_test.go`, and only Slice 5 task/progress sections; retain Slices 1–4 and unrelated `.atl`/`tmp`. |
+
+- Exact Slice 5 authored numstat: `internal/configuration/resolver.go` 187/0; `resolver_test.go` 112/0; `internal/configuration/readiness.go` 6/4; `internal/audit/audit.go` 37/1; `transport_test.go` 20/0; `tasks.md` 2/2; `apply-progress.md` 27/0. Total: **391 additions + 7 deletions = 398 changed lines**, under the normal 400-line guard. Unrelated `.atl` and `tmp` changes are excluded.
+- Tasks 1.1–2.4 and 3.1–3.2 are checked; tasks 3.3–3.5 remain pending. Next recommended action: `apply`.
+
+## Slice 6: `slice-6-tui-docs-final-checks`
+
+- Delivery: auto-chain, feature-branch-chain; normal 400-line guard; tasks 3.3–3.5 only.
+- Exact intended source/docs numstat: **231 additions + 18 deletions = 249 changed lines**, excluding pre-existing unrelated `.atl/` and `tmp/` worktree changes. Files: `internal/tui/mapepire_onboarding_step.go` 83/0; `internal/tui/mapepire_onboarding_step_test.go` 102/0; `internal/tui/model.go` 17/1; `internal/tui/profile_identity_step.go` 4/0; `internal/tui/wizard_viewport.go` 6/1; localization catalogs/registry 3/0; `docs/IBM_I_PROFILE_WIZARD.md` 16/16. Task/progress artifact updates add 30/3, for **261 additions + 21 deletions = 282 total**, within the 400-line guard.
+
+### Slice 6 TDD Cycle Evidence
+
+| Task | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|
+| 3.3 | `go test -count=1 ./internal/tui` exit 1: missing Step 4/proof seams | Same command exit 0; 1 package passed | Exact pending copy, pre-auth probe count, no client installation, Step 8 connect/query counts, responsive NO_COLOR frames | Reused wizard shell/viewport and narrow injected interfaces |
+| 3.4 | Covered by 3.3 RED before composition | TUI composition and approved docs complete | Step numbering, navigation, shared panel/footer/actions, focus, feedback, scrolling and all requested sizes pass existing plus new runtime tests | No resolver/transport/runtime internals changed |
+| 3.5 | N/A: verification task; threat matrix is explicitly N/A | All final commands exit 0 | Offline deterministic fakes only; no live IBM i or credentials | Formatting and diff checks clean |
+
+### Slice 6 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/tui` — exit 0; 1 package passed (`ok bac-nexus/internal/tui 8.329s`). Localization was also covered in the focused edit run: 2 packages passed. |
+| Runtime harness command/scenario and exact result | Deterministic TUI `Update`/`View` harness with counting pre-auth and proof fakes; Step 4 at 120x40, 80x24, 40x16 with NO_COLOR and Step 8 connect/query proof — exit 0. No live runtime boundary, network, IBM i, credentials, Java, artifact, or SSH process was used. |
+| Final commands | Prior final verification recorded `go test -count=1 ./...`, `go vet ./...`, `go build ./cmd/catalogspike`, and `git diff --check` as exit 0. Corrected formatting evidence and its exact command are recorded in the gatekeeper retry below; no command is newly claimed. |
+| Zero-runtime proof | Step 4 counting probe is the only pre-auth call; it never installs a proof client. Daemon success and unavailable paths perform zero SSH/JAR/Java/upload/cache calls by construction and tests. Existing `.atl/` modifications and `tmp/ssh-test/compose.yaml` were pre-existing and untouched; no superseded-change path is present in the diff. |
+| Rollback boundary | Revert `internal/tui/mapepire_onboarding_step.go`, its test, the Step 4 routing/viewport hunks in `internal/tui/model.go` and `wizard_viewport.go`, the three localization additions, and the documentation/task/progress Slice 6 sections; retain Slices 1–5 and unrelated `.atl`/`tmp` worktree state. |
+
+- Tasks 1.1–3.5 are checked: **13/13 complete**.
+- No threat-matrix RED tests apply: every listed row is explicitly N/A.
+- Next recommended action: `verify`.
+
+## Slice 6 gatekeeper corrective retry
+
+- Scope: artifact-only correction; no source, tests, `tasks.md`, or runtime commands were rerun.
+- Exact already-run formatting command: `gofmt -d internal/tui/model.go internal/tui/wizard_viewport.go internal/tui/mapepire_onboarding_step.go internal/tui/mapepire_onboarding_step_test.go internal/localization/localization.go` — exit `0`, no output.
+- Complete touched Go-file list for Slice 6: `internal/tui/model.go`, `internal/tui/wizard_viewport.go`, `internal/tui/mapepire_onboarding_step.go`, `internal/tui/mapepire_onboarding_step_test.go`, `internal/tui/profile_identity_step.go`, and `internal/localization/localization.go`. `internal/tui/profile_identity_step.go` was formatted by the separately already-run command `gofmt -w internal/tui/profile_identity_step.go internal/tui/mapepire_onboarding_step_test.go` — no new formatting result is claimed here.
+- Step 4 guide correction: it is local/pre-auth readiness only. It performs no JAR discovery/acquisition, Java, SSH process, artifact upload/cache, credentials, authentication, query, or fallback runtime. Daemon unavailability with policy-permitted fallback shows exactly `[OK] Mapepire detected — authentication pending` and defers all SSH fallback execution to Step 8.
+- Preserved behavior: managed WSS `:8076` is preferred; fallback is fixed SSH `--single`; TLS and SSH trust are independent; no silent downgrade; Step 8 owns credentials, transport selection/fallback, authenticated `connect`, and optional bounded read-only query proof.
+- No semantic tests, builds, vet, or runtime harnesses were rerun during this correction. Structural readback was limited to this artifact and `docs/IBM_I_PROFILE_WIZARD.md`.
+- Corrected Slice 6 intended numstat, including this correction: **286 additions + 34 deletions = 320 changed lines**, excluding pre-existing unrelated `.atl/` and `tmp/` worktree changes; the 400-line guard remains satisfied.
+- Next recommended action remains `verify` after gatekeeper acceptance.
+
+## Bounded unmanaged remediation: `mapepire-dual-transport-verification`
+
+- Scope: one native-authorized correction for failed evidence revision `sha256:6f4da1cf3a97fc9898530b894112d9cbfab54d275e0f82badf3a455e7aff7004`; no task checkboxes changed and the failed report remains immutable.
+- RED: `go test -count=1 ./internal/configuration ./internal/audit ./internal/mapepire` — exit 1: missing managed probe and audit contract fields.
+- GREEN: same focused command plus `./internal/tui` — exit 0; 4 packages passed, including loopback TLS `/version`, pinned fixture validation, audit allowlists, and production TUI default probe composition.
+- REFACTOR: retained narrow probe/factory seams, bounded HTTPS body/deadline, TLS hostname/pin checks, typed resolution, and metadata-only audit fields; no fallback/runtime imports were added to the daemon probe.
+- Corrections: concrete managed WSS `:8076` endpoint and HTTPS `/version` probe; TUI production default pre-auth probe factory; pinned fixture `2ef44166fcb515744fb922b49ed3673b2dac6b26`; audit `PolicyID`, `TrustOutcome`, and `Version` bounds.
+- Work Unit Evidence: focused command exit 0 (4 packages); runtime harness exit 0 through `httptest.NewTLSServer` `/version` and deterministic TUI tests; rollback boundary is the remediation hunks in `internal/configuration/daemon.go`, `internal/configuration/{resolver.go,resolver_test.go}`, `internal/mapepire/{testdata,typed_protocol_test.go}`, `internal/mapepire/wss/http.go`, `internal/audit/{audit.go,transport_test.go}`, and `internal/tui/{model.go,mapepire_onboarding_step.go}`.
+- Final checks: `go test -count=1 ./...`, `go vet ./...`, touched-file `gofmt -d`, external-temp `go build ./cmd/catalogspike` (removed), and `git diff --check` all exited 0. No IBM i, corporate network, credentials, Java, artifact transfer, or remote SSH process was used.
+
+### Gatekeeper corrective retry evidence
+
+- Provider bindings are intentionally distinct: failed report artifact hash `sha256:6f4da1cf3a97fc9898530b894112d9cbfab54d275e0f82badf3a455e7aff7004`; native remediation-state reference `sha256:34150b0df3ba4972ff4830654be86731e2fafccb8542db04e078a8a0e2924e4e`. The provider acquire/settle binding uses the former. Native status has empty lineage and RDD is disabled; no lineage, generation, or fix-batch envelope is invented.
+- Production composition cases: `TestProductionModelComposesIndependentTLSAndSSHReadiness` proves independent Step 3 seams and render purity; `TestMapepireStep4IsPreAuthAndUsesExactPendingCopy` and `TestMapepireStep4UnavailableDoesNotInvokeFallbackRuntime` prove explicit Step 4 effect/no fallback; `TestStep8ProofIsExplicitlyOwnedAndCredentialFreeBeforeInvocation` and `TestStep8AloneProvesConnectAndQuery` prove the owned Step 8 connect/query seam.
+- Daemon/resolver cases: `TestManagedDaemonProbeReadsVersionWithoutCredentials`, `TestManagedDaemonProbeUsesBoundedHTTPSVersionEndpoint`, `TestResolverWSSVersionAndFallbackTrustGate`, and `TestResolverClassifiesDaemonAndNeverDowngradesTerminalFailures` cover managed `:8076`, `/version`, trust gates, terminality, and zero fallback calls.
+- Protocol/audit cases: `TestPinnedProtocolFixtureRevisionIsValid` decodes fixture `protocol-2ef44166fcb515744fb922b49ed3673b2dac6b26.json`; `TestTransportAuditCarriesBoundedPolicyAndTrustMetadata` covers allowlisted `PolicyID=verified-readonly`, `TrustOutcome` values `verified|untrusted|blocked`, and `Version` length bounds. Sensitive endpoint, host, path, URL, credentials, raw errors, certificates, SQL, source, payload, and user fields are excluded.
+- Exact touched Go format check: `gofmt -d internal/audit/audit.go internal/audit/transport_test.go internal/configuration/daemon.go internal/configuration/resolver.go internal/configuration/resolver_test.go internal/mapepire/typed_protocol_test.go internal/mapepire/wss/http.go internal/tui/model.go internal/tui/mapepire_onboarding_step.go internal/tui/mapepire_onboarding_step_test.go internal/tui/profile_identity_step.go` — exit 0, no output. Build used external temporary output `C:\Users\David\AppData\Local\Temp\opencode\catalogspike-remediation.exe`, then removed.
+- Exact final remediation numstat: **282 additions + 5 deletions = 287 changed lines**, excluding pre-existing `.atl/`, `tmp/`, and immutable failed report. The 400-line limit remains satisfied.
+- Failed `verify-report.md` remains unchanged. Next action exactly: settle this same attempt with provider-required `--remediates-evidence-revision sha256:6f4da1cf3a97fc9898530b894112d9cbfab54d275e0f82badf3a455e7aff7004`, then launch FRESH independent `sdd-verify`; never archive directly.
+
+## Slice 1 Foundation: `step8-foundation`
+- Scope: production tasks 4.1–4.3 only; strict TDD; all three complete; remaining 15 production tasks pending.
+- RED: `go test -count=1 ./internal/configuration ./internal/profile ./internal/credential` exit 1 before implementation: missing Step8 symbols.
+- GREEN: same command exit 0; 3 packages passed. REFACTOR: typed mappings, narrow contracts, v3 prompt/keyring migration, fixed proof metadata, bounded marker.
+- Tests: `TestStep8DecisionReasonsAreExhaustiveAndFailClosed` covers all decisions/reasons and unknowns; `TestStep8ResultClassesMapOnlyKnownValues` covers every public terminal class and distinct trust/credentials/downgrade classes; `TestStep8ResultInvariantsFailClosed` covers eligible/terminal invariants.
+- Security tests: `TestStep8SavedProfileAndCredentialContract` covers saved-profile gate, prompt/keyring, invalid mode, `MigrateToV3`, and exact `ibmi/<profile>`; `TestStep8CredentialFailuresAndProofMetadataFailClosed` covers prompt/keyring unavailable/denied/not-found, no string guessing, fixed `values-1-v1`, one-row metadata, and no SQL/text/row fields.
+- Marker: `TestStep8MarkerIsBoundedAndInvalidated` proves bounded `{schemaVersion,atUnixMs,outcome,proofRevision}`, unchanged validity, endpoint/policy/trust invalidation, and never-readiness behavior.
+- Work Unit Evidence: focused command exit 0, 3 packages; runtime harness N/A because this foundation has no runtime boundary; no IBM i/network/secret/process was used.
+- Full `go test -count=1 ./...` exit 0: 23 test-bearing packages, 3 no-test; `go vet ./...` exit 0; `gofmt -d internal/configuration/step8.go internal/configuration/step8_test.go internal/profile/profile.go internal/credential/key.go` exit 0/no output; intended-path `git diff --check` exit 0.
+- Structural readback: `internal/configuration/{step8.go,step8_test.go}`, `internal/profile/profile.go`, and `internal/credential/key.go` import no WSS/SSH/remote/JAR/Java/upload/runtime/Bubble Tea/TUI/audit/generic SQL/secret persistence.
+- Security: schema-v3 saved profile only; prompt/keyring only; legacy vault requires explicit migration; unknowns fail closed; marker never readiness/bypass; fixed proof exposes metadata only.
+- Exact intended candidate: **371 additions + 13 deletions = 384 changed lines**, excluding unrelated `.atl`/`tmp`; strictly below 400 after this receipt edit. Rollback: revert the four foundation files and this Slice 1 receipt/task evidence.
+- Immutable verify hash remains `sha256:6f4da1cf3a97fc9898530b894112d9cbfab54d275e0f82badf3a455e7aff7004`; next: `apply` Slice 2 authenticated WSS; no-code-change confirmation.
+
+## Slice 2: `slice-2-authenticated-wss`
+
+- Scope: production tasks 5.1–5.3 only; strict TDD; auto-chain, feature-branch-chain; normal 400-line ceiling. SSH fallback, production composition, TUI, audit, and final verification remain out of scope.
+- RED: `go test -count=1 ./internal/mapepire -run 'TestFixedProof'` — exit 1 before implementation: missing authenticated proof API, credential fields, and fixed-proof constants. `go test -count=1 ./internal/mapepire/wss -run 'TestAuthenticatedFactory'` — exit 1 before implementation: missing WSS factory and session API.
+- GREEN: `go test -count=1 ./internal/mapepire -run 'TestFixedProof'` — exit 0; fixed proof authenticates first, sends exactly `VALUES 1`, returns metadata only, and cancellation closes the transport. `go test -count=1 ./internal/mapepire/wss -run 'TestAuthenticatedFactory'` — exit 0; loopback TLS/WSS factory/session proves credential-only connect and close lifecycle.
+- REFACTOR: application and password fields are valid only on `connect`; the WSS factory opens without credentials; fixed proof uses the release-owned SQL/revision and never returns SQL, parameters, rows, or bytes. Existing trusted WSS framing, TLS identity, bounds, cancellation, and idempotent close remain reused.
+
+### Slice 2 TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 5.1 | Loopback WSS and typed-session tests | Existing `configuration`, `mapepire`, and `wss` tests passed | ✅ focused compile/test exit 1 before new APIs | ✅ focused tests exit 0 | ✅ supported proof and cancelled proof paths | ✅ explicit factory-open/authenticate/prove separation |
+| 5.2 | Typed protocol plus WSS loopback | N/A for new session file; existing package safety net passed | ✅ tests referenced absent factory/session and auth request | ✅ focused tests exit 0 | ✅ custom application, credential-only connect, fixed proof, close | ✅ narrow `Factory`/`Session` boundary |
+| 5.3 | Loopback runtime and structural package scan | Existing WSS bounds/cancellation tests passed | ✅ cancellation and terminal behavior were represented before implementation | ✅ focused and full suites exit 0 | ✅ cancellation, frame/limit terminality, idempotent close, metadata-only result | ✅ no SSH/remote/artifact imports or calls in WSS package |
+
+### Slice 2 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/configuration ./internal/mapepire ./internal/mapepire/wss` — exit 0; 3 packages passed. |
+| Runtime harness command/scenario and exact result | Same focused command exercises `httptest.NewTLSServer` WSS loopback through `Factory.Open` and `Session.Prove` — exit 0; no IBM i, corporate network, Java, SSH process, artifact, or real credential was used. |
+| Full validation | `go test -count=1 ./...` — exit 0; 23 test-bearing packages passed and 3 reported `[no test files]`; `go vet ./...` — exit 0. |
+| Formatting and diff | `gofmt -d internal/mapepire/protocol.go internal/mapepire/typed_session.go internal/mapepire/typed_protocol_test.go internal/mapepire/wss/session.go internal/mapepire/wss/wss_test.go internal/mapepire/wss/wss.go internal/mapepire/wss/http.go` — exit 0, no output; `git diff --check` — exit 0. |
+| Security / cleanup proof | Auth fields are rejected on every non-connect operation; proof request has no credentials; successful proof sends `sqlclose` then `exit`; cancellation and all transport terminal paths close the WSS session. Structural scan found no SSH fallback, remote, artifact, Java, or upload imports/calls in `internal/mapepire/wss`. |
+| Changed-line budget | Intended Slice 2 files plus task/progress evidence: **under 400 additions+deletions**; unrelated pre-existing `.atl/`, `tmp/`, and `internal/credential/keyring_store.go` changes excluded and untouched. |
+| Rollback boundary | Revert `internal/mapepire/protocol.go`, `internal/mapepire/typed_session.go`, `internal/mapepire/typed_protocol_test.go`, `internal/mapepire/wss/session.go`, `internal/mapepire/wss/wss_test.go`, and only the Slice 2 task/progress sections; retain Slice 1 and unrelated worktree changes. |
+
+- Exact intended Slice 2 candidate: **267 additions + 18 deletions = 285 changed lines**, including source, tests, and task/progress evidence; unrelated pre-existing `.atl/`, `tmp/`, and `internal/credential/keyring_store.go` changes are excluded.
+
+### Slice 2 completion state
+
+- Tasks 1.1–1.4, 5.1–5.3 are checked for this apply history; later SSH, composition, TUI, audit, and final verification tasks remain pending in the current OpenSpec plan.
+- No native attempt authority was acquired or settled by this executor. No commit, push, PR, staging, `.atl/`, or `tmp/` edit was performed.
+- Next recommended action: `apply` the next assigned slice; this receipt does not claim final verification or archive readiness.
+
+## Slice 6A: `step8-ssh-gates`
+
+- Scope: production tasks 6.1–6.2 only; strict TDD; auto-chain, feature-branch-chain. No SSH client/runtime, artifact, Java, upload, launch, proof, composition, TUI, audit, or documentation behavior was added.
+- Safety net: `go test -count=1 ./internal/configuration ./internal/security` — exit `0`; 2 packages passed before production edits.
+- RED: `go test -count=1 ./internal/configuration -run 'TestPostObservationGate'` — exit `1` before production implementation; compiler reported missing `PostObservationGate` and `Observation` symbols.
+- Additional RED: `go test -count=1 ./internal/configuration -run 'TestPostObservationGateZeroesCredentialOnTerminalRetrievalFailure'` — exit `1`; a returned credential remained non-zero after terminal retrieval failure.
+- GREEN: both focused named commands exited `0` after adding the post-observation gate and credential zeroization.
+- REFACTOR: extracted exact observation-terminal mapping and one credential-zeroization helper; focused named tests remained green.
+
+### Slice 6A TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 6.1 | Unit/counting fakes | `./internal/configuration ./internal/security` exit `0` | ✅ missing gate/observation symbols, exit `1` | ✅ named gate tests exit `0` | ✅ eligible, WSS, every terminal/unknown observation, invalid profile, policy, trust, consent, credential paths and zero calls | ✅ shared deterministic fakes |
+| 6.2 | Unit/counting fakes | Same safety net | ✅ credential-error zeroization failure, exit `1` | ✅ named gate tests exit `0` | ✅ ordered policy → trust → consent → credential, terminal classes, credential zeroization | ✅ terminal mapper and zeroization helper |
+
+### Slice 6A Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/configuration ./internal/security` — exit `0`; `ok bac-nexus/internal/configuration 2.570s`, `ok bac-nexus/internal/security 1.090s`; 2 packages passed. |
+| Runtime harness command/scenario and exact result | The focused command exercised deterministic in-process counting policy/trust/credential fakes — exit `0`; no remote/runtime boundary exists in 6A, and no IBM i, network, SSH, process, Java, artifact, upload, or credential store was contacted. |
+| Full/static/format/diff validation | `go test -count=1 ./...` exit `0`: 22 test-bearing packages passed and 3 reported `[no test files]`; `go vet ./...` exit `0`; `gofmt -w` then `gofmt -d internal/configuration/step8.go internal/configuration/step8_test.go` exit `0` with no output; `git diff --check` exit `0`. |
+| Order and zero-call/security proof | Tests prove saved request/profile and observation validation before all gates; only the five eligible reasons can reach policy; policy and SSH trust precede consent, which precedes `CredentialProvider.Get`; invalid/WSS/terminal/unknown observations make zero gate calls; policy/trust/consent blocks prevent credential retrieval; credential terminality ends at the gate. Credential buffers are zeroed on success and retrieval failure. |
+| Structural proof | `step8.go` and `step8_test.go` import no `remote`, SSH framing, artifact, Java, upload, launch, process, shell, SQL, or download package and contain no remote/runtime calls. The only artifact/Java/upload/launch occurrences are pre-existing typed `ResultClass` constants from Foundation. |
+| Cleanup/process evidence | No runtime resource or process can be acquired in this slice; credential bytes are zeroed before `Apply` returns on both success and retrieval failure. |
+| Rollback boundary | Revert only `internal/configuration/step8.go`, `internal/configuration/step8_test.go`, and the 6A checkbox/progress edits; retain all earlier history, pending 6B–9 work, and unrelated `.atl`, `tmp`, and credential-store worktree changes. |
+
+- Exact Slice 6A authored numstat: `internal/configuration/step8.go` 118/0; `internal/configuration/step8_test.go` 169/0; `tasks.md` 3/3; `apply-progress.md` 32/0. Total: **322 additions + 3 deletions = 325 changed lines**, under the 400-line hard budget.
+- Completion state: tasks 6.1–6.2 are checked; cumulative task total is **31 total = 16 completed + 15 pending**. No native runtime authority was acquired, settled, reset, or changed; no commit, stage, push, PR, `.atl`, or `tmp` edit occurred.
+- Next recommended action: apply Slice 6B runtime only on `feature/step8-ssh-runtime`; it must add the runtime seam separately and preserve this gate's ordering/terminal contract.
+
+## Slice 6B: `step8-ssh-runtime`
+
+- Scope: production tasks 6.3–6.4 only; strict TDD; auto-chain, feature-branch-chain. It consumes only a successful 6A `ssh_eligible` admission and does not repeat eligibility, policy, trust, consent, or credential ordering.
+- RED: `go test -count=1 ./internal/configuration -run 'TestSSHRuntimeFactory'` — exit `1` before production implementation: `SSHRuntimeFactory`, `SSHRuntimeClient`, and `SSHRuntimeOperationTimeout` were undefined.
+- GREEN: the same focused command — exit `0`; artifact rejection occurs before the injected production-owned `remote.Dial` seam, the runtime uses a bounded 15-second operation context, Java and upload failures map to exact terminal classes, and an acquired client closes once.
+- REFACTOR: extracted `mapepirestdio.ValidateJavaHome` from the existing fixed command policy and exposed only `remote.Client.RemoteFiles()` to the artifact uploader; no launch, process, proof, SQL, shell, or download API was added.
+
+### Slice 6B TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 6.3 | Unit/counting SSH/artifact/Java/upload fakes | `go test -count=1 ./internal/configuration ./internal/remote ./internal/connectors/ibmi/mapepirestdio` — exit `0`, 3 packages | ✅ focused compile failure, exit `1` | ✅ focused command, exit `0` | ✅ six unsafe artifact states; Java and upload failures; dial deadline/timeout; close count | ✅ narrow fakes over production runtime seam |
+| 6.4 | Unit/counting fakes | Same safety net | ✅ factory, client, timeout, and seams absent | ✅ focused command, exit `0` | ✅ local verification before dial, bounded context propagation, typed artifact/java/upload/timeout classes, deterministic rollback | ✅ reused existing `VerifyServerJAR`, `EnsureServerJAR`, and remote close ownership |
+
+### Slice 6B Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/configuration ./internal/remote ./internal/connectors/ibmi/mapepirestdio` — exit `0`; 3 packages passed. |
+| Runtime harness command/scenario and exact result | `go test -count=1 ./internal/configuration -run 'TestSSHRuntimeFactory'` — exit `0`; deterministic counting SSH/artifact/Java/upload fakes prove unpinned/corrupt/partial/changed/latest/unverified local artifact rejection before dial, bounded operation contexts, Java/upload terminal classes, and close-on-partial-failure. No IBM i, corporate network, actual SSH/Java process, credential store, or download. |
+| Full/static/format/diff validation | `go test -count=1 ./...` — exit `0`: 22 test-bearing packages passed and 4 reported `[no test files]`; `go vet ./...` — exit `0`; final `gofmt -w` then `gofmt -d internal/configuration/ssh_runtime.go internal/configuration/ssh_runtime_test.go internal/remote/ssh.go internal/connectors/ibmi/mapepirestdio/policy.go` — exit `0`, no output; `git diff --check` — exit `0`. |
+| Artifact-before-mutation / typed classifications | `VerifyServerJAR` runs before `Dial`; rejected unsafe artifacts return `artifact_failure` with zero dials. Dial timeout maps to `operation_timeout`; Java failure maps to `java_failure`; bounded uploader failure maps to `upload_failure`; close failure is `cleanup_failure`. Existing `EnsureServerJAR` retains checksum, 64 MiB, exclusive temporary upload, remote verification, and rollback semantics. |
+| Cleanup/process evidence | Any client acquired after local verification is closed exactly once on Java/upload failure; credentials are zeroed on return. This slice starts no process/channel, launches no `--single`, runs no proof/SQL, and exposes no generic shell/SFTP/download surface. |
+| Rollback boundary | Revert `internal/configuration/ssh_runtime.go`, `internal/configuration/ssh_runtime_test.go`, the narrow `RemoteFiles` adapter in `internal/remote/ssh.go`, `ValidateJavaHome` extraction in `internal/connectors/ibmi/mapepirestdio/policy.go`, and only the 6B task/progress edits. Retain 6A gates, all prior history, pending 6C–9 work, and unrelated `.atl`, `tmp`, and credential-store worktree changes. |
+
+- Exact Slice 6B authored numstat: `internal/configuration/ssh_runtime.go` 126/0; `internal/configuration/ssh_runtime_test.go` 101/0; `internal/connectors/ibmi/mapepirestdio/policy.go` 13/3; `internal/remote/ssh.go` 3/0; `tasks.md` 3/3; `apply-progress.md` 29/0. Total: **275 additions + 6 deletions = 281 changed lines**, under the 400-line hard budget. It excludes unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` changes.
+- Completion state: tasks 6.3–6.4 are checked; cumulative task total is **31 total = 18 completed + 13 pending**. No native runtime authority was acquired, settled, reset, or changed; no commit, stage, push, PR, `.atl`, or `tmp` edit occurred.
+- Next recommended action: apply Slice 6C proof only on `feature/step8-ssh-proof`; keep this runtime factory free of launch, process channel, typed SSH session, `VALUES 1`, SQL, proof cleanup, or retry behavior.
+
+## Slice 6C: `step8-ssh-proof`
+
+- Scope: production tasks 6.5–6.6 only; strict TDD; auto-chain, feature-branch-chain. It consumes the admitted 6A result and acquired 6B runtime without repeating gates or changing acquisition/rollback behavior.
+- RED: `go test -count=1 ./internal/configuration -run 'TestSSHRuntimeProve'` — exit `1` before production implementation: `SSHRuntime.Prove` was undefined.
+- GREEN: the same named command — exit `0`; the admitted runtime can invoke only the private verified upload handle through `remote.FixedMapepireProof`, which calls the existing fixed `StartMapepireTransport` → `StartMapepire` → `BuildCommand` path.
+- REFACTOR: retained a configuration-facing remote proof result and typed remote failure stage rather than importing Mapepire into configuration or exposing a channel, command, path, SQL, shell, SFTP, download, or retry API.
+
+### Slice 6C TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 6.5 | Unit / deterministic typed-session fake | `go test -count=1 ./internal/configuration ./internal/mapepire ./internal/mapepire/sshstdio` — exit `0`; 3 packages passed before edits | ✅ named test compile failure, exit `1` | ✅ named test exit `0` | ✅ connect precedes fixed `VALUES 1`; credentials occur only on connect; metadata contains only row count/revision; artifact, launch, session, proof, cancellation, limit, protocol, and unknown classifications are asserted | ✅ kept fixed request and error contracts narrow |
+| 6.6 | Unit / deterministic typed-session fake | Same safety net | ✅ absent `SSHRuntime.Prove` API before implementation | ✅ focused 3-package command exit `0` | ✅ remote fixed proof routes through fixed single-mode launcher and typed session; no caller command/path/SQL input | ✅ private verified remote-artifact handle and typed remote stage |
+
+### Slice 6C Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/configuration ./internal/mapepire ./internal/mapepire/sshstdio` — exit `0`; `ok bac-nexus/internal/configuration 2.618s`, `ok bac-nexus/internal/mapepire 15.981s`, `ok bac-nexus/internal/mapepire/sshstdio 0.859s`; 3 packages passed. |
+| Runtime harness command/scenario and exact result | The focused command exercises `TestSSHRuntimeProveUsesOnlyFixedSingleSessionAndMetadata` with a deterministic typed-session fake: connect → `VALUES 1` → `sqlclose` → `exit`; exit `0`. No IBM i, corporate network, actual SSH/Java process, credential store, or download was used. |
+| Full/static/format/diff validation | `go test -count=1 ./...` — exit `0`: 22 test-bearing packages passed and 4 reported `[no test files]`; `go vet ./...` — exit `0`; final `gofmt -w` then `gofmt -d internal/configuration/ssh_runtime.go internal/configuration/ssh_runtime_test.go internal/configuration/ssh_proof_test.go internal/remote/ssh.go` — exit `0`, no output; `git diff --check` — exit `0`. |
+| Fixed-proof and terminal proof | The test asserts launch policy is constructed from the runtime's private verified remote handle with consent; requests are exactly connect, `prepare_sql_execute` with `VALUES 1`/one row, `sqlclose`, and exit. It rejects credential fields after connect and returns only `{Rows, ProofRevision}`. Existing 6B unsafe-artifact test covers `artifact_failure`; 6C covers exact launch/session/proof and typed cancellation/limit/protocol/unknown terminal mapping. |
+| Structural proof | `SSHRuntime` keeps the uploaded path private; `Prove` has no command, path, endpoint, SQL, shell, SFTP, download, or retry parameter. `remote.FixedMapepireProof` reaches only `StartMapepireTransport` → `StartMapepire` → existing `BuildCommand`, whose sole command is the closed allowlisted `--single` form. No alternate transport is invoked. |
+| Cleanup/process evidence | The typed client's fixed proof continues to close cursor then exit and closes its transport. This slice introduces no new process cleanup choreography or credential-zero-after-settlement integration; those exhaustive traces remain 6D. |
+| Rollback boundary | Revert `internal/configuration/ssh_runtime.go`, `ssh_runtime_test.go`, `ssh_proof_test.go`, the `internal/remote/ssh.go` fixed-proof adapter, and only the 6C task/progress edits; retain 6A gates, 6B acquisition/rollback, later 6D–9 work, and unrelated `.atl`, `tmp`, and credential-store state. |
+
+- Exact Slice 6C authored numstat: `internal/configuration/ssh_runtime.go` 55/3; `ssh_runtime_test.go` 4/0; `ssh_proof_test.go` 168/0; `internal/remote/ssh.go` 72/0; `tasks.md` 3/3; `apply-progress.md` 30/0. Total: **332 additions + 6 deletions = 338 changed lines**, under the 400-line hard budget. Unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` changes are excluded and untouched.
+- Completion state: tasks 6.5–6.6 are checked; cumulative task total is **31 total = 20 completed + 11 pending**. No native runtime authority was acquired, settled, reset, or changed; no commit, stage, push, PR, `.atl`, or `tmp` edit occurred.
+- Next recommended action: apply Slice 6D cleanup only on `feature/step8-ssh-cleanup`; do not add composition, TUI, audit/docs, or final verification.
+
+## Slice 6D: `step8-ssh-cleanup`
+
+- Scope: production tasks 6.7–6.8 only; strict TDD; auto-chain, feature-branch-chain. Preserves the committed 6A admission gates, 6B acquisition/rollback, and 6C fixed proof. No composition, TUI, audit/docs, final verify, artifact capability, generic remote API, native runtime authority, `.atl`, `tmp`, or credential-store changes.
+- RED: `go test -count=1 ./internal/configuration -run '^TestSSHRuntimeProveSettlesClientBeforeZeroingCredentials$'` — exit `1`; success, proof-failure, and cancellation paths returned `Cleanup:false`, and the cleanup-failure path settled no client. `go test -count=1 ./internal/configuration -run '^TestSSHRuntimeFactoryKeepsPrimaryFailureAndAssignsUniqueTraceIDs$'` — exit `1`; cleanup failure incorrectly replaced the Java primary classification with `cleanup_failure`.
+- GREEN: `go test -count=1 ./internal/configuration -run '^(TestSSHRuntimeProveSettlesClientBeforeZeroingCredentials|TestSSHRuntimeFactoryKeepsPrimaryFailureAndAssignsUniqueTraceIDs)$'` — exit `0`; every proven runtime client settles exactly once, credentials are zeroed after settlement on success/failure/cancellation, cleanup status remains sanitized, primary failure remains typed, and factory-acquired trace IDs are distinct.
+- REFACTOR: `SSHRuntime` owns a private atomic trace ID and mutex-guarded settlement. `Prove` introduces a bounded 60-second proof context and uses deferred settlement before credential zeroization; it exposes neither trace IDs nor cleanup errors in `Step8Result`.
+
+### Slice 6D TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 6.7 | Unit / deterministic acquire-settle fakes | `go test -count=1 ./internal/configuration ./internal/remote ./internal/mapepire/sshstdio ./internal/connectors/ibmi/mapepirestdio` — exit `0`; 4 packages | ✅ both named lifecycle/mapping tests failed before production changes (exit `1`) | ✅ named lifecycle tests exit `0` | ✅ success, proof failure, cancellation, cleanup failure, and distinct acquired-runtime traces | ✅ closed consumer-facing interface retained; no generic primitive added |
+| 6.8 | Unit / bounded fake typed channel | Same safety net | ✅ cleanup/zeroization behavior failed before implementation | ✅ named lifecycle tests exit `0` | ✅ client settles once even after a second `Close`; cleanup failure preserves the primary class and exposes only sanitized cleanup state | ✅ deferred LIFO order is proof/session cleanup → SSH client settlement → zero credential buffer |
+
+### Slice 6D Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/configuration ./internal/remote ./internal/mapepire/sshstdio ./internal/connectors/ibmi/mapepirestdio` — exit `0`; 4 packages passed. |
+| Runtime harness command/scenario and exact result | `go test -count=1 ./internal/configuration -run '^(TestSSHRuntimeProveSettlesClientBeforeZeroingCredentials|TestSSHRuntimeFactoryKeepsPrimaryFailureAndAssignsUniqueTraceIDs)$'` — exit `0`; deterministic counting client plus bounded fake typed channel prove proof/session cleanup precedes client settlement, exact-once settlement, cancellation, typed primary result preservation, and credential zeroization. No IBM i, corporate network, actual SSH/Java process, real credential store, or download. |
+| Full/static/format/diff validation | `go test -count=1 ./...` — exit `0`: 22 test-bearing packages passed and 4 reported `[no test files]`; `go vet ./...` — exit `0`; final `gofmt -w` then `gofmt -d internal/configuration/ssh_runtime.go internal/configuration/ssh_runtime_test.go internal/configuration/ssh_proof_test.go` — exit `0`, no output; `git diff --check` — exit `0`. |
+| Terminal, rejection, and no-downgrade proof | Existing exhaustive `IsTerminalResult`/Step 8 mapping tests cover every defined public terminal class and unknown fail-closed behavior. The 6D lifecycle matrix covers proof timeout/cancellation/limit/protocol/framing/launch/session/proof paths through the fixed proof boundary. `SSHRuntimeClient` remains exactly `Close`, bounded `RemoteFiles`, and `FixedMapepireProof`; it accepts no shell, command, SQL, download, retry, or alternate-transport input. |
+| Rollback boundary | Revert only `internal/configuration/ssh_runtime.go`, `internal/configuration/ssh_runtime_test.go`, `internal/configuration/ssh_proof_test.go`, and the 6D checkbox/progress additions; retain committed 6A–6C behavior, Phase 7+ pending work, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Exact Slice 6D authored numstat: `internal/configuration/ssh_runtime.go` 47/16; `ssh_runtime_test.go` 39/2; `ssh_proof_test.go` 51/1; `tasks.md` 3/3; `apply-progress.md` 28/0. Total: **168 additions + 22 deletions = 190 changed lines**, under the 400-line hard budget and excluding unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` changes.
+- Completion state: tasks 6.7–6.8 are checked; cumulative task total is **31 total = 22 completed + 9 pending**. No native runtime authority was acquired, settled, reset, or changed; no commit, stage, push, PR, `.atl`, or `tmp` edit occurred.
+- Next recommended action: apply Phase 7 composition only on `feature/step8-compose`.
+
+## Phase 7A: `step8-orchestrator-wss`
+
+- Scope: task 7.1 only; strict TDD; auto-chain, feature-branch-chain. The service owns saved-profile validation, marker clearing, credential-free pre-auth observation, WSS proof, cleanup, zeroization, sanitized audit/marker; it emits SSH eligibility only and never invokes fallback.
+- RED: `go test -count=1 ./internal/configuration -run '^TestStep8Service'` — exit `1` before production code: missing `Step8WSSSession`, `Step8AuditEvent`, and service contracts.
+- GREEN: same command — exit `0`; 1 package passed. The deterministic application-service harness proves `clear → observe → credential → open → prove → close → zero → audit → marker` on valid WSS success.
+- REFACTOR: narrow configuration-owned WSS, marker, and audit interfaces retain adapter trust/wire ownership and expose no endpoint, SQL, rows, secret, raw error, SSH, artifact, Java, upload, process, or fallback surface.
+
+### Phase 7A TDD Cycle Evidence
+
+| Task | Test layer | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|
+| 7.1 | Deterministic application-service fake session | ✅ exit `1`, missing service symbols | ✅ exit `0` | ✅ valid WSS, terminal historical-marker, invalid profile, proof-failure/marker suppression | ✅ narrow typed interfaces |
+
+### Phase 7A Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/configuration ./internal/mapepire ./internal/mapepire/wss` — exit `0`; 3 packages passed. |
+| Runtime harness command/scenario and exact result | `go test -count=1 ./internal/configuration -run '^TestStep8Service'` — exit `0`; counting service fakes prove WSS order, cleanup-before-zeroization-before-audit, marker write only after valid proof, and terminal marker non-readiness. No IBM i/network/SSH/process/credential store. |
+| Rollback boundary | Revert `internal/configuration/step8_service.go`, `internal/configuration/step8_service_test.go`, and only this task/progress evidence; retain 6A–6D and unrelated `.atl`, `tmp`, and keyring-store state. |
+
+- Final checks: `go test -count=1 ./...` exited `0` with 22 test-bearing packages passed and 4 packages reporting `[no test files]`; `go vet ./...` exited `0`. Source normalization used `gofmt -w "internal/configuration/step8_service.go" "internal/configuration/step8_service_test.go"`; check-only validation used `gofmt -d "internal/configuration/step8_service.go" "internal/configuration/step8_service_test.go"` and exited `0` with no output. `git diff --check` exited `0`.
+- Zero-fallback proof: the service has no SSH/artifact/Java/upload/process/fallback dependency or interface; the WSS-success trace contains only WSS operations. Terminal/unknown observations return before credential retrieval; eligible observations return the typed `ssh_eligible` continuation without execution.
+- Exact authored numstat: **364 additions + 2 deletions = 366 changed lines**, excluding unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. Task aggregate: **31 total = 23 completed + 8 pending**.
+- No native authority was acquired, settled, reset, or changed; no commit, stage, push, or PR occurred. Next recommended action: apply 7B only on `feature/step8-orchestrator-ssh`.
+
+## Phase 7B: `step8-orchestrator-ssh`
+
+- Scope: task 7.2 only; strict TDD; auto-chain, feature-branch-chain. Extends the existing application-owned WSS-first service through the existing 6A admission gate and 6B–6D runtime/proof/cleanup boundary. No `cmd/nexus` wiring, TUI, audit schema/docs, live IBM i, generic remote surface, native authority, `.atl`, `tmp`, or credential-store change.
+- RED: `go test -count=1 ./internal/configuration -run '^(TestStep8ServiceFallsBackForExactlyFiveEligibleReasonsWithGateCredential|TestStep8ServiceNeverFallsBackForWSSOrTerminalObservations)$'` — exit `1` before production changes because `Step8Service` lacked `Gate` and `SSH` fields. `go test -count=1 ./internal/configuration -run '^TestSSHRuntimeFactoryRetainsGateCredentialUntilProofSettlement$'` then exited `1` because runtime acquisition zeroized the credential before fixed proof.
+- GREEN: the same named command — exit `0`; the five eligible observations enter the SSH path and configured WSS/terminal/unknown observations make zero gate/runtime calls.
+- REFACTOR: `PostObservationGate.ApplyWithCredential` retains the one opaque credential reference inside configuration through SSH runtime settlement. The service owns no command/path/SQL/download input and invokes only the pre-existing fixed runtime proof.
+
+### Phase 7B TDD Cycle Evidence
+
+| Task | Test layer | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|
+| 7.2 | Deterministic application-service SSH/process/artifact/Java/upload boundary fakes | ✅ exit `1`: missing `Step8Service.Gate` and `.SSH`; runtime initially zeroized before proof | ✅ named commands exit `0` | ✅ all five exact eligible reasons; WSS/identity/protocol/malformed/downgrade/cancel/operation/limit/credential/authentication/authorization/framing/cleanup/proof timeout and unknown terminal observations make zero fallback calls; primary proof failure survives cleanup failure | ✅ one gate callback keeps a single credential reference through `Open` and fixed proof; existing 6B–6D runtime stays closed-surface |
+
+### Phase 7B Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/configuration ./internal/remote ./internal/connectors/ibmi/mapepirestdio` — exit `0`; 3 packages passed: configuration, remote, and mapepirestdio. |
+| Runtime harness command/scenario and exact result | `go test -count=1 ./internal/configuration -run '^(TestStep8ServiceFallsBackForExactlyFiveEligibleReasonsWithGateCredential|TestStep8ServiceNeverFallsBackForWSSOrTerminalObservations|TestStep8ServiceFallbackKeepsPrimaryFailureAndSuppressesMarker)$'` — exit `0`; deterministic counting gate/SSH runtime/client fakes prove the exact five-class fallback set, policy → SSH trust → consent → one credential → runtime → fixed proof order, pointer-identical credential use for dial/proof, LIFO settlement before zeroization, marker only after proof plus cleanup, and zero fallback calls otherwise. No IBM i, corporate network, actual SSH/Java process, credential store, or download was used. |
+| Rollback boundary | Revert only `internal/configuration/step8.go`, `internal/configuration/step8_service.go`, `internal/configuration/step8_service_test.go`, and this 7.2 task/progress evidence; retain 6A–6D, 7.1, pending 7.3–9, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Validation: `go test -count=1 ./...` exit `0` (22 test-bearing packages passed; 4 reported `[no test files]`); `go vet ./...` exit `0`; final `gofmt -w` then `gofmt -d internal/configuration/step8.go internal/configuration/step8_service.go internal/configuration/step8_service_test.go` exit `0` with no output; `git diff --check` exit `0`.
+- Structural/call-order proof: `DecisionForReason` has exactly five SSH-eligible constants; unknown/mismatched observations fail closed. The service reaches SSH only from `DecisionSSHEligible`, then delegates policy/trust/consent/credential to 6A, `SSHRuntimeFactory.Open` to 6B, and fixed `SSHRuntime.Prove` to 6C/6D. The service accepts no shell, command, path, SQL, download, retry, alternate transport, source, row, raw error, or secret result. Success writes the marker only after valid metadata and cleanup; failures audit only allowlisted class/revision/cleanup metadata and do not establish a marker. Cleanup failure preserves the primary result class with `Cleanup:false`.
+- Exact Phase 7B authored numstat: **301 additions + 6 deletions = 307 changed lines**. The complete current intended diff is **302 additions + 7 deletions = 309 changed lines** because it also retains the pre-authorized tasks-only correction; both exclude unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. Task aggregate: **31 total = 24 completed + 7 pending**.
+- No native authority was acquired, settled, reset, or changed; no commit, stage, push, or PR occurred. Next recommended action: apply 7C only on `feature/step8-compose`.
+
+## Phase 7C.1: `step8-marker-audit-adapters`
+
+- Scope: task 7.3.1 only; strict TDD; auto-chain, feature-branch-chain. Adds profile-owned historical marker persistence and audit-owned sanitized-event recording only. No credential/trust prompt, transport/runtime/factory, TUI, root, live IBM i, native authority, `.atl`, `tmp`, or keyring-store change.
+- RED: `go test -count=1 ./internal/profile ./internal/audit` — exit `1` before production code because `Step8MarkerStore`, `Step8Marker`, `Step8Event`, and `NewStep8Recorder` were undefined.
+- GREEN: same command — exit `0`; 2 packages passed. Profile temporary-store tests prove secret-free bounded JSON, invalid/cancelled write refusal, and profile-bound invalidation by clear. Audit in-memory sink tests prove only allowlisted transport/class/revision/cleanup metadata is retained; endpoint, credentials, paths, SQL, rows, raw errors, arbitrary keys, and unbounded values have no field and are rejected.
+- REFACTOR: marker JSON is constrained to the four historical fields and stored beside the validated saved profile using the existing private profile-store root/temp/atomic replacement helpers. Audit accepts fixed classifications only; validation errors are deterministic and do not echo rejected values.
+
+### Phase 7C.1 TDD Cycle Evidence
+
+| Task | RED | GREEN | REFACTOR |
+|---|---|---|---|
+| 7.3.1 | ✅ focused package compile failure, exit `1`, before production files | ✅ focused package command exit `0` | ✅ local profile-store atomic helpers and audit's closed event surface retained |
+
+### Phase 7C.1 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/profile ./internal/audit` — exit `0`; `ok bac-nexus/internal/profile 1.129s`, `ok bac-nexus/internal/audit 1.064s`; 2 packages passed. |
+| Runtime harness command/scenario and exact result | Same focused command — exit `0`; `t.TempDir()` profile store plus in-memory audit recorder prove bounded persistence, invalidation/clear, cancellation refusal, redaction, and no failure marker. No runtime boundary exists; no IBM i, network, credentials, process, or download was used. |
+| Full/static/format/diff validation | `go test -count=1 ./...` exit `0`: 22 test-bearing packages passed and 4 reported `[no test files]`; `go vet ./...` exit `0`; final `gofmt -w` then exact-path `gofmt -d internal/profile/step8_marker.go internal/profile/step8_marker_test.go internal/audit/step8.go internal/audit/step8_test.go` exit `0` with no output; `git diff --check` exit `0`. |
+| Marker/audit security and cleanup evidence | Marker permits only schema/timestamp/`proof_success`/`values-1-v1`; invalid, failed, or cancelled writes return typed sanitized errors and persist nothing. `Clear` removes historical evidence before fresh proof; markers are never read as readiness. Audit permits only WSS/SSH, fixed result classes, fixed proof revision, and cleanup boolean; no arbitrary metadata surface exists. |
+| Structural proof | New adapters import only standard-library/profile-store code and expose no credential, transport, runtime, TUI, root, SQL, endpoint, path, source, or arbitrary metadata API. |
+| Rollback boundary | Revert only `internal/profile/step8_marker.go`, `internal/profile/step8_marker_test.go`, `internal/audit/step8.go`, `internal/audit/step8_test.go`, and this 7.3.1 task/progress evidence; retain 1.x–7.2, pending 7.3.2–9, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Exact Phase 7C.1 authored numstat: four new Go files `225/0`, progress `27/0`, tasks `2/2`: **254 additions + 2 deletions = 256 changed lines**, excluding unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` worktree changes.
+- Completion state: **35 total = 25 completed + 10 pending**. No native authority was acquired, settled, reset, or changed; no commit, stage, push, or PR occurred. Next recommended action: apply 7.3.2 only on `feature/step8-compose-security`.
+
+### Post-settlement receipt addendum
+
+- Historical pre-settlement statements above remain true for the original executor. Afterward, native attempt 28 passed with evidence revision `sha256:673f6835694ce59abc6f2446ea94232b6cdc9193568cf095e3f8e59f3c500bec`; it remediates failed evidence `sha256:0375585840b9995f02639af79bb8b0f236446b67797748f19845f8cabaf48069`.
+- Native authority records 31 charged lines and objective completion. A maintainer-authorized documented `sdd-attempt finish` compatibility recovery settled attempt 28 because compact `settle` omitted its required runtime-revision input.
+- **Risks:** no CRITICAL risk exists in 7.3.1. Generic `Clear` is adapter capability only; concrete endpoint/policy/trust-change trigger integration is intentionally deferred to later production factories/composition and must be verified there. A historical marker never establishes readiness.
+- **Skill resolution:** injected and loaded: `C:\Users\David\.config\opencode\skills\sdd-apply\SKILL.md`, `C:\Users\David\.config\opencode\skills\go-testing\SKILL.md`, `C:\Users\David\.config\opencode\skills\work-unit-commits\SKILL.md`, and `C:\Users\David\.claude\skills\chained-pr\SKILL.md`.
+- Task aggregate remains **25/35**; next route remains **7.3.2** on `feature/step8-compose-security`.
+
+## Phase 7C.2: `step8-prompt-ssh-trust-adapters`
+
+- Scope: task 7.3.2 only; strict TDD; auto-chain, feature-branch-chain. Adds narrow prompt credential and independent SSH trust adapters only. No factory, TUI, root, transport/runtime, marker/audit, live IBM i, native authority, `.atl`, `tmp`, or keyring-store change.
+- RED: `go test -count=1 ./internal/credential ./internal/security` — exit `1` before production code: prompt-provider and SSH-trust adapter symbols were undefined.
+- GREEN: same focused command — exit `0`; 2 packages passed. Prompt denial, cancellation, empty input, unavailable callback, and wrong mode return only `credentials_unavailable`, no bytes, and no secret in errors. Accepted callback bytes are copied only to the existing opaque boundary and the callback buffer is zeroized.
+- SSH trust verifies only `Profile.SSHTrust` exact SSH TOFU/pin evidence. Missing, mismatch, unapproved/unknown mode, invalid input, and cancellation produce typed sanitized `ssh_trust_blocked` failures; TLS evidence is not read or reused. The gate maps trust block to terminal `trust_mismatch` before credential or runtime callback execution.
+
+### Phase 7C.2 TDD Cycle Evidence
+
+| Task | RED | GREEN | REFACTOR |
+|---|---|---|---|
+| 7.3.2 | ✅ focused package compile failure, exit `1`, before production files | ✅ focused package command exit `0` | ✅ retained one prompt callback/opaque handoff and one exact SSH verification method; no persistence, logging, enrollment, or remote surface |
+
+### Phase 7C.2 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/credential ./internal/security` — exit `0`; `ok bac-nexus/internal/credential 0.967s`, `ok bac-nexus/internal/security 1.487s`; 2 packages passed. |
+| Runtime harness command/scenario and exact result | Same focused command — exit `0`; deterministic injected prompt callback and in-process SSH trust/profile inputs prove denial/cancellation/empty/non-leakage, exact SSH match, TLS/SSH separation, and gate zero credential/runtime callbacks on mismatch. No runtime boundary exists; no IBM i, network, credential store, SSH process, Java, artifact, upload, or download was used. |
+| Full/static/format/diff validation | `go test -count=1 ./...` exit `0`: 22 test-bearing packages passed and 4 reported `[no test files]`; `go vet ./...` exit `0`; final `gofmt -w` then exact-path `gofmt -d internal/credential/prompt_provider.go internal/credential/prompt_provider_test.go internal/security/ssh_trust.go internal/security/ssh_trust_test.go` exit `0` with no output; `git diff --check` exit `0`. |
+| Structural/security proof | Production adapter imports are only standard library plus `internal/profile`; no transport, remote, runtime, TUI, root, persistence, logging, enrollment, or arbitrary trust API exists. `PromptProvider.Get` accepts only context/profile key/mode; `SSHTrust.VerifySSH` accepts only context/profile and returns a bounded error. |
+| Rollback boundary | Revert only `internal/credential/prompt_provider.go`, `internal/credential/prompt_provider_test.go`, `internal/security/ssh_trust.go`, `internal/security/ssh_trust_test.go`, and this 7.3.2 task/progress evidence; retain 1.1–7.3.1 including the settled receipt correction, pending 7.3.3–9, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Exact Phase 7C.2 authored numstat: source/tests `283/0`, tasks `2/2`, progress `26/0`: **311 additions + 2 deletions = 313 changed lines**, under the 400-line hard budget and excluding unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` changes.
+- Completion state: **35 total = 26 completed + 9 pending**. No native authority was acquired, settled, reset, finished, or changed; no commit, stage, push, or PR occurred. Next recommended action: apply 7.3.3 only on `feature/step8-compose-factories`.
+
+### Post-settlement receipt addendum
+
+- Native authority: attempt 30 passed; 30 charged lines; evidence `sha256:4a85009caf8078c3ab0e029c703b83ee5a4d490f85170284511627d0d1672890`; objective complete.
+- **Risks:** no CRITICAL risk exists in 7.3.2. Production factory integration remains deferred to 7.3.3 and must preserve trust-before-credential/runtime ordering. The prompt adapter depends on its injected UI callback to avoid secret retention outside the opaque copied/zeroizable result. SSH trust remains independent and cannot be satisfied by TLS/WSS evidence.
+- **Skill resolution:** injected and loaded: `C:\Users\David\.config\opencode\skills\sdd-apply\SKILL.md`, `C:\Users\David\.config\opencode\skills\go-testing\SKILL.md`, `C:\Users\David\.config\opencode\skills\work-unit-commits\SKILL.md`, and `C:\Users\David\.claude\skills\chained-pr\SKILL.md`.
+- Task aggregate remains **26/35**; next route remains **7.3.3** on `feature/step8-compose-factories`.
+
+#### Attempt 31 receipt restoration
+- Native authority: attempt 31 passed with 7 charged lines; evidence `sha256:4dd7a49b2ab77dc3ccdf8e97af8208e203733c1f50b55e133ae740fc33814108`.
+- Diagnosis: Phase 7C.2 receipt records settled authority, explicit risks, skill resolution, 26/35, and 7.3.3 continuation.
+- This restoration's own settlement remains in the native runtime ledger and is not recursively mirrored into this receipt.
+- Native authority is canonical for the correction-attempt lifecycle.
+
+## Phase 7C.3: `step8-production-factories`
+
+- Scope: task 7.3.3 only; strict TDD; auto-chain, feature-branch-chain (`feature/step8-compose-security` → `feature/step8-compose-factories`). `cmd/nexus` and TUI remain out of scope.
+- RED: `go test -count=1 ./internal/configuration -run '^TestNewStep8Production'` — exit `1` before production code: `NewStep8Production` and `Step8ProductionDependencies` were undefined.
+- GREEN: the same command — exit `0`; the factory composes the existing Step 8 WSS-first service, typed SSH gate, runtime/proof/cleanup boundary, marker, and audit seams without adding a generic remote surface.
+- TRIANGULATE: the focused package test covers all five eligible observations, WSS proof with zero SSH runtime calls, and identity/protocol/malformed/downgrade/cancelled/operation-timeout/limit/credential/unknown terminal observations with zero gate or SSH calls.
+- REFACTOR: retained one dependency struct and delegated all routing, ordering, zeroization, cleanup, fixed `VALUES 1`, and sanitization behavior to the established application-owned boundaries.
+
+### Phase 7C.3 TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 7.3.3 | Unit / deterministic counting WSS, gate, and SSH-runtime fakes | `go test -count=1 ./internal/configuration` — exit `0` before edits | ✅ test-first compile failure, exit `1` | ✅ named factory tests exit `0` | ✅ WSS success, five eligible reasons, and terminal/unknown no-downgrade cases | ✅ single narrow composition struct; existing boundaries retain behavior |
+
+### Phase 7C.3 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/configuration` — exit `0`; `ok bac-nexus/internal/configuration 2.583s`; 1 package passed. |
+| Runtime harness command/scenario and exact result | `go test -count=1 ./internal/configuration -run '^TestNewStep8Production'` — exit `0`; deterministic counting seams prove WSS success makes zero SSH runtime calls and the exact five eligible observations traverse the existing gate and fixed runtime. No IBM i, network, real credential/keyring, SSH/Java process, artifact download/upload, or persistent temporary resource was used. |
+| Rollback boundary | Revert only `internal/configuration/step8_production.go`, `internal/configuration/step8_production_test.go`, and this 7.3.3 task/progress evidence; retain 1.1–7.3.2, pending 7.3.4–9, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Final validation: `go test -count=1 ./...` exit `0` (22 test-bearing packages passed; 4 `[no test files]`); `go vet ./...` exit `0`; `gofmt -d internal/configuration/step8_production.go internal/configuration/step8_production_test.go` exit `0` with no output; `git diff --check` exit `0`.
+- Cleanup/process evidence: the composition starts no process itself. WSS success cannot invoke the supplied SSH runtime; SSH eligibility delegates to the existing gate and fixed runtime, which retain trust-before-consent-before-credential ordering, credential zeroization after settlement, and cleanup ownership.
+- Exact Phase 7C.3 authored numstat: `159 additions + 2 deletions = 161 changed lines`; excludes unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state.
+- Evidence revision: `sha256:4322055e3e670f6081b02448266e25ca0218be3de7ce36c0495df06e9de53597` (canonical SHA-256 manifest of the production source, test, and task-state files).
+- Completion state: **35 total = 27 completed + 8 pending**. No native authority mutation, commit, stage, push, PR, `.atl`, or `tmp` edit occurred. Next recommended action: apply 7.3.4 only on `feature/step8-compose-tui-seam`.
+
+## Phase 7C.4: `step8-tui-runner-seam`
+
+- Scope: task 7.3.4 only; strict TDD; auto-chain, feature-branch-chain (`feature/step8-compose-factories` → `feature/step8-compose-tui-seam`). `cmd/nexus`, Step 8 actions, lifecycle handling, transport, credentials, and production factories remain out of scope.
+- The TUI model now retains only `configuration.Step8Runner` through `NewModelWithStep8Runner`. The constructor, `Init`, existing `Update`, and `View` do not invoke it. The model retains no credential bytes, provider, session/client/process/artifact handle, or transport runtime.
+- Step 3 completion navigation and Step 4 pre-auth observation continue to use the existing identity and managed-daemon primitives. The runner counter remains zero through construction, initialization, resizing, rendering, Step 3 navigation, Step 4 observation, and 120x40, 80x24 NO_COLOR, and 40x16 rendering.
+
+### Phase 7C.4 TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 7.3.4 | Unit / deterministic Bubble Tea `Update` and `View` | `go test -count=1 ./internal/tui` — exit `0`; `ok bac-nexus/internal/tui 8.178s` before edits | ✅ `go test -count=1 ./internal/tui -run '^(TestNewModelWithStep8RunnerStoresOnlyTheRunnerSeam|TestStepThreeAndFourRemainPreAuthWithInjectedStep8Runner)$'` — exit `1`; `NewModelWithStep8Runner` was undefined | ✅ same named command — exit `0`; `ok bac-nexus/internal/tui 2.989s` | ✅ constructor/Init/window-update/View plus completed Step 3 navigation and Step 4 pre-auth observation at 120x40, 80x24 NO_COLOR, and 40x16; all runner counts are zero | ✅ replaced the legacy model client field with the sole `Step8Runner` seam; no action lifecycle or rendering behavior added |
+
+### Phase 7C.4 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/tui -run '^(TestNewModelWithStep8RunnerStoresOnlyTheRunnerSeam|TestStepThreeAndFourRemainPreAuthWithInjectedStep8Runner)$'` — exit `0`; `ok bac-nexus/internal/tui 2.989s`; 2 named tests passed (the second covers 3 viewport scenarios). |
+| Runtime harness command/scenario and exact result | The same deterministic in-process Bubble Tea harness — exit `0`; directly exercised `Model.Update` and `Model.View` for construction/Init/resize and Steps 3–4 pre-auth navigation/observation with a counting `Step8Runner` and fixed pre-auth probe. No runtime boundary exists yet because tasks 8.1–8.3 own invocation; no IBM i, network, credential/keyring, SSH/Java process, artifact transfer, upload, or persistent temporary resource was used. |
+| Rollback boundary | Revert only `internal/tui/model.go`, `internal/tui/model_step8_runner_test.go`, the adjusted package-local pre-auth assertion in `internal/tui/mapepire_onboarding_step_test.go`, and the 7.3.4 task/progress entries; retain 1.1–7.3.3, pending 7.3.5–9, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Verification: `go test -count=1 ./internal/tui` exit `0` (`ok bac-nexus/internal/tui 8.815s`); `go test -count=1 ./...` exit `0` (22 test-bearing packages passed; 4 `[no test files]`); `go vet ./...` exit `0`; `go build ./...` exit `0`; check-only `gofmt -d` on all three touched Go files produced no output; `git diff --check` exit `0`.
+- Reused primitives: existing `Model.Update` dispatcher, Step 3 identity navigation, Step 4 `preAuthProbe`, wizard viewport, shell, focus, feedback, responsive rendering, and NO_COLOR behavior. Existing package render-matrix coverage remained green; no golden or copy change occurred.
+- Cleanup/process evidence: no Step 8 runner invocation occurs, the slice starts no process and creates no resources, and no cleanup is required. Existing unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` worktree changes remained untouched.
+- Exact Phase 7C.4 authored numstat: `internal/tui/model.go` `10/1`; `internal/tui/model_step8_runner_test.go` `95/0`; `internal/tui/mapepire_onboarding_step_test.go` `2/2`; `tasks.md` `2/2`; `apply-progress.md` `26/0`: **135 additions + 5 deletions = 140 changed lines**, under the 400-line budget. Evidence revision: `sha256:50396110d6260bf277b067d559a4b1c0eed008bd158dd59183b2e701a99890ee`, a canonical SHA-256 manifest of the three TUI files and task state listed above.
+- Completion state: **35 total = 28 completed + 7 pending**. No native authority mutation, commit, stage, push, PR, `.atl`, or `tmp` edit occurred. Next recommended action: apply 7.3.5 only on `feature/step8-compose`.
+
+## Phase 7C.5: `step8-tui-startup-and-cmd-wiring`
+
+- Scope: maintainer-authorized minimum correction for task 7.3.5 only; strict TDD; auto-chain, feature-branch-chain (`feature/step8-compose-tui-seam` → `feature/step8-compose`). It remediates the failed cmd-only evidence `sha256:63b9306fc676f2e703def7a3fddaff896dbf0da1c1852a5e9a289a155ac0a389` by adding the one authorized startup seam in `internal/tui/model.go` and wiring the application-owned runner in `cmd/nexus/main.go`.
+- `runConfigure` now constructs `configuration.NewStep8Production(...)` through the wiring-only `newStep8Runner` factory and passes it with the existing `remote.HostIdentityInspector` through `runConfigureTUI` to `tui.RunWithHostIdentityInspectorAndStep8Runner`. The real model receives both boundaries; compatibility entrypoints continue to pass a nil runner.
+- Startup, model construction, `Init`, resize, and `View` retain the runner without invoking it. The runner has no credential, keyring, WSS, SSH, runtime, Java, artifact, upload/download, or IBM i effect before the future Phase 8 lifecycle owns its explicit invocation.
+
+### Phase 7C.5 TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 7.3.5 | Unit / deterministic TUI and cmd composition fakes | `go test -count=1 ./internal/tui ./cmd/nexus` — exit `0`; 2 packages passed before edits | ✅ `TestStartupModelComposesInspectorAndStep8RunnerWithoutInvocation` and `TestRunCommandConfigureIsSeparateFromServe` first failed to compile (missing startup seam, runner factory, and five-argument TUI wiring) | ✅ both named commands exited `0` after the minimum seam and cmd injection | ✅ TUI construction/Init/resize/View prove zero calls; real `runCommand configure` proves exact runner identity and zero calls; rejected arguments prove zero runner construction | ➖ None needed; the new helper only composes existing inspector and runner seams |
+
+### Phase 7C.5 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/tui ./cmd/nexus` — exit `0`; `ok bac-nexus/internal/tui 15.750s`, `ok bac-nexus/cmd/nexus 9.241s`; 2 packages passed. Named RED/GREEN commands covered the new TUI startup model and cmd wiring tests. |
+| Runtime harness command/scenario and exact result | `go test -count=1 ./internal/tui -run '^TestLegacyRuntimeReachabilityAcrossFullMatrix$'` — exit `0`; `ok bac-nexus/internal/tui 6.172s`. The deterministic in-process Bubble Tea `Update`/`View` matrix exercises 120x40, 80x24, and 40x16 with true-color and NO_COLOR. No terminal, network, credential/keyring, WSS/SSH, Java, process, artifact, transfer, or IBM i boundary is created because Phase 8 exclusively owns runner invocation. |
+| Rollback boundary | Revert only `internal/tui/model.go`, `internal/tui/model_startup_step8_runner_test.go`, `cmd/nexus/main.go`, `cmd/nexus/configure_test.go`, and the 7.3.5 task/progress entries. Retain 1.1–7.3.4, pending 8.1–9.3, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Final validation: `go test -count=1 ./...` exit `0` (22 test-bearing packages passed; 4 `[no test files]`); `go vet ./...` exit `0`; `go build ./...` exit `0`; check-only `gofmt -d internal/tui/model.go internal/tui/model_startup_step8_runner_test.go cmd/nexus/main.go cmd/nexus/configure_test.go` exit `0` with no output; `git diff --check` exit `0` before artifact persistence.
+- Cleanup/process evidence: no runner invocation occurs in the TUI startup or cmd composition tests; no process or external resource is created, so no cleanup action is required. The cmd root contains only factory construction and injection; it introduces no business routing, security, protocol, shell, SQL, retry, or transport behavior.
+- Exact correction candidate numstat: `cmd/nexus/configure_test.go` `45/1`; `cmd/nexus/main.go` `5/2`; `internal/tui/model.go` `13/1`; `internal/tui/model_startup_step8_runner_test.go` `39/0`; `tasks.md` `2/2`; `apply-progress.md` `25/0`: **129 additions + 6 deletions = 135 changed lines**, below the 400-line budget and excluding unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. Evidence revision: `sha256:a2e311add4ccdbae02ecad550f23fb62e392d7b9ca35448d1eb2ffed1d7f8262`, the canonical SHA-256 manifest of the four correction source/test files and updated task state, distinct from failed evidence `sha256:63b9306fc676f2e703def7a3fddaff896dbf0da1c1852a5e9a289a155ac0a389`.
+- Completion state: **35 total = 29 completed + 6 pending**. No native authority mutation, commit, stage, push, PR, `.atl`, or `tmp` edit occurred. Next recommended action: apply 8.1 only on `feature/step8-tui`.
+
+## Phase 7 Correction Addendum: `step8-post-replan-clean-baseline`
+
+- Native authority is canonical: acquired `proceed` token `sha256:106192306803ee205345eb2c5df70c3b0356e9a1465a3ce5f1ace5b978bc99c0`; one attempt, 200 correction-line maximum. This correction remediates failed evidence `sha256:aee0980e27e55838ffce38ed1f161f97261d163caa58bbc604bd4ec4bf46a886` and does not acquire, settle, reset, or otherwise mutate authority.
+- Fresh validation invalidated the prior cmd claim: `cmd/nexus` constructed `NewStep8Production(Step8ProductionDependencies{})`, whose required adapter dependencies were all nil and therefore non-operational. The invalid `cmd/nexus` factory/injection and its associated cmd tests were removed, restoring the last valid `RunWithHostIdentityInspector` configure path until P/W/C/A/T/D/R exist.
+- The valid TUI startup seam in `internal/tui/model.go` and `internal/tui/model_startup_step8_runner_test.go` is preserved unchanged. It retains an injected `Step8Runner` without invoking it; no Phase 8 action, lifecycle, cancellation, retry, stale-result, credential, transport, process, or remote behavior appears.
+- Task plan is preserved exactly at **49 total = 29 completed + 20 pending**. No P/W/C/A/T/D/R unit is marked complete; 7.3.12 remains the pending final production-wiring unit. The retained 7.3.5 startup seam does not claim operational cmd composition.
+
+### Correction TDD Cycle Evidence
+
+| Work unit | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|
+| `step8-post-replan-clean-baseline` | `go test -count=1 ./cmd/nexus ./internal/tui` — exit `0`; 2 packages | Temporary focused regression `TestConfigureDoesNotConstructEmptyStep8ProductionDependencies` — exit `1`, proving the invalid empty constructor was present | Restored the prior configure path, removed the temporary regression with the invalid cmd test hunk, then `go test -count=1 ./cmd/nexus ./internal/tui` — exit `0`; 2 packages | TUI counting-runner startup, model, `Init`, `Update`, `View`, responsive, and NO_COLOR matrix tests remain green with zero runner calls | No refactor: correction is a rollback to the last valid cmd composition |
+
+### Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./cmd/nexus ./internal/tui` — exit `0`; `ok bac-nexus/cmd/nexus 2.919s`, `ok bac-nexus/internal/tui 10.978s`; 2 packages passed. |
+| Runtime harness command/scenario and exact result | `go test -count=1 ./internal/tui -run '^(TestStartupModelComposesInspectorAndStep8RunnerWithoutInvocation|TestNewModelWithStep8RunnerStoresOnlyTheRunnerSeam|TestStepThreeAndFourRemainPreAuthWithInjectedStep8Runner|TestLegacyRuntimeReachabilityAcrossFullMatrix)$'` — exit `0`; `ok bac-nexus/internal/tui 12.256s`. Deterministic `Update`/`View` at 120x40, 80x24, and 40x16, including NO_COLOR, retained zero runner calls; no external or runtime boundary exists before Phase 8. |
+| Rollback boundary | Reapply only the removed uncommitted cmd hunks in `cmd/nexus/main.go` and `cmd/nexus/configure_test.go` to restore the invalid state; this correction leaves the valid TUI seam and all unrelated worktree changes intact. |
+
+- Verification: `go test -count=1 ./...` exit `0` (22 test-bearing packages passed; 4 `[no test files]`); `go vet ./...` exit `0`; `go build ./...` exit `0`; check-only `gofmt -d` on the four authorized Go files produced no output; `git diff --check` exit `0`.
+- Structural proof: `cmd/nexus` has zero `Step8ProductionDependencies{}`, `newStep8Runner`, and `RunWithHostIdentityInspectorAndStep8Runner` matches. `internal/tui` has zero `step8Runner.Run` matches; it retains only the startup/model seam. No IBM i, network, credentials, keyring, SSH, Java, artifact, process, temporary, `.atl`, or protected keyring-store resource was touched.
+- Correction-owned net source/test numstat is **0 additions + 0 deletions** because only invalid uncommitted hunks were removed. This addendum is the sole new authorized artifact content. Evidence revision: `sha256:edc49b7d8af9488f480a519a50c2b8b0804459ac01ddd35991d6253bacfe40eb`, calculated from the canonical authority, failed evidence, restored-path, preserved-seam, aggregate, and pending-wiring manifest; it is distinct from the failed evidence revision.
+- Risks: production dependency composition remains deliberately incomplete until P/W/C/A/T/D/R; `cmd/nexus configure` therefore must not invoke Step 8. The V1 trust, credential, and remote-runtime risks remain owned by their pending adapter units.
+- Skill resolution: paths-injected — `sdd-apply`, `bac-nexus-tui`, `go-testing`, and `work-unit-commits` were read before implementation.
+- Next route: apply P (`7.3.6a–b`) on `feature/step8-preauth`; do not begin Phase 8. No commit, stage, push, PR, branch, review, or authority mutation occurred.
+
+## Work Unit P: `step8-preauth`
+
+- Scope: tasks 7.3.6a–b only; strict TDD; auto-chain, feature-branch-chain (`feature/step8-compose` → `feature/step8-preauth`). The adapter composes the managed daemon `/version` probe at fixed port `8076` with saved-profile TLS evidence only. It has no credential, authenticated WSS, SSH policy/trust, SSH runtime, SQL, process, network side-effect test, or marker/readiness behavior.
+- RED: `go test -count=1 ./internal/configuration -run '^(TestManagedStep8PreAuthMapsDaemonOutcomes|TestManagedStep8PreAuthFailsClosedBeforeProbe)$'` exited `1` before production code because `ManagedStep8PreAuth` and `managedDaemonPort` were undefined.
+- GREEN: the same focused command exited `0` after the production adapter was added; `ok bac-nexus/internal/configuration 2.642s`.
+- TRIANGULATE: the table-driven unit tests cover supported and unsupported versions; availability and policy eligibility; identity/TLS-trust, protocol, credential, and unknown terminal cases; cancelled/expired contexts; invalid profiles; fixed `8076`; profile TLS evidence; and zero probe calls before terminal validation. A second RED exposed the expired-context mapping as `unsafe_downgrade`; it was corrected to terminal `operation_timeout`, then the focused command exited `0`.
+- REFACTOR: retained narrow `DaemonProbe` and factory seams; centralized only deterministic observation construction. No behavior change was required after the mapping was clean.
+
+### Work Unit P TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 7.3.6a | Unit / deterministic daemon-probe fake | `go test -count=1 ./internal/configuration` — exit `0`; `ok bac-nexus/internal/configuration 2.543s` before edits | ✅ focused compile failure, exit `1`, before production file | ✅ focused command exit `0` | ✅ supported, unsupported, availability, policy, identity, TLS trust, protocol, credential, unknown, cancellation, timeout, and invalid-profile paths | ✅ closed mapping helpers retain existing classes |
+| 7.3.6b | Unit / deterministic daemon-probe fake | Same package safety net | ✅ tests referenced absent adapter and fixed managed port | ✅ focused command exit `0` | ✅ profile host/TLS evidence binding plus zero-call terminal gates | ✅ narrow consumer-owned factory only |
+
+### Work Unit P Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/configuration -run '^(TestManagedStep8PreAuthMapsDaemonOutcomes|TestManagedStep8PreAuthFailsClosedBeforeProbe)$'` — exit `0`; `ok bac-nexus/internal/configuration 2.559s`; 2 named tests passed. |
+| Runtime harness command/scenario and exact result | N/A: this pure adapter has no external runtime boundary; deterministic `DaemonProbe` fakes prove mapping without network, IBM i, credentials, keyring, SSH/Java processes, or transfer side effects. |
+| Rollback boundary | Revert only `internal/configuration/step8_pre_auth.go`, `internal/configuration/step8_pre_auth_test.go`, and these 7.3.6 task/progress entries; retain prior completed units and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Final validation: `go test ./...` — exit `0`; 22 test-bearing packages passed and 4 reported `[no test files]`. `go vet ./...` — exit `0`. Source-mutating `gofmt -w internal/configuration/step8_pre_auth.go internal/configuration/step8_pre_auth_test.go` completed before validation; check-only `gofmt -d` on those files produced no output; `git diff --check` — exit `0`.
+- Completion state: **49 total = 31 completed + 18 pending**. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. No commit, stage, push, PR, `.atl`, `tmp`, or protected keyring-store edit occurred during implementation.
+- Next recommended action: apply W (`7.3.7a–b`) only on its immediate feature-branch-chain child; do not begin C/A/T/D/R, Phase 8, or final cmd wiring.
+
+## Work Unit W: `step8-wss-adapter`
+
+- Scope: tasks 7.3.7a–b only; strict TDD; auto-chain, feature-branch-chain (`0dc5e9f` → `feature/step8-wss-adapter`). The adapter binds only the saved profile host and independent TLS evidence to managed `wss://host:8076`, then exposes the existing typed fixed-proof session to `Step8Service`.
+- Architecture discovery: the requested `internal/connectors/ibmi/mapepirewss` package did not exist on this branch. It was added as the connector-owned narrow wrapper over the existing `internal/mapepire/wss` typed factory/session; `internal/configuration` imports only that approved connector package.
+- RED: `go test -count=1 ./internal/configuration -run '^(TestManagedStep8WSSBindsSavedProfileAndIndependentTLSTrust|TestManagedStep8WSSFailuresStayTerminalAndNeverReachSSH)$'` exited `1` before production implementation because `NewManagedStep8WSS`, its factory seam, and its session fake were undefined.
+- GREEN: the same focused command exited `0` after the adapter and connector wrapper were added; `ok bac-nexus/internal/configuration 2.531s`.
+- TRIANGULATE: profile binding asserts fixed `:8076`, the profile TLS pin, and no implicit TOFU; the table-driven terminal cases cover authentication, authorization, identity, trust, protocol, limits, cancellation, timeout, and unknown proof failures. Every case returns a terminal `Step8Result` and records zero SSH runtime calls.
+- REFACTOR: the connector wrapper maps only existing typed `ProofMetadata` at the configuration boundary; no new protocol, credential, query, retry, or fallback surface was introduced.
+
+### Work Unit W TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 7.3.7a | Unit / deterministic factory and session fakes | `go test -count=1 ./internal/configuration` — exit `0`; `ok bac-nexus/internal/configuration 2.348s` before edits | ✅ focused compile failure, exit `1`, before production files | ✅ focused command exit `0` | ✅ profile endpoint/TLS binding plus nine terminal proof-failure inputs and zero SSH calls | ✅ narrow typed factory/session seam |
+| 7.3.7b | Unit plus existing local WSS loopback | Same package safety net | ✅ tests referenced absent adapter, factory seam, and session type | ✅ focused configuration and WSS package tests exit `0` | ✅ fixed endpoint/TLS options, metadata-only session mapping, and loopback authenticated `VALUES 1` lifecycle | ✅ connector wrapper contains only metadata translation |
+
+### Work Unit W Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/configuration -run '^(TestManagedStep8WSSBindsSavedProfileAndIndependentTLSTrust|TestManagedStep8WSSFailuresStayTerminalAndNeverReachSSH)$'` — exit `0`; `ok bac-nexus/internal/configuration 2.531s`; 2 named tests passed. |
+| Runtime harness command/scenario and exact result | `go test -count=1 ./internal/mapepire/wss -run '^TestAuthenticatedFactoryKeepsCredentialsInConnectAndClosesProof$'` — exit `0`; `ok bac-nexus/internal/mapepire/wss 2.504s`. The existing bounded `httptest.NewTLSServer` WSS loopback proves authenticated typed `connect` then release-owned `VALUES 1`, cursor/session close, and no external network, IBM i, keyring, SSH, Java, artifact, or transfer side effect. |
+| Rollback boundary | Revert only `internal/configuration/step8_wss.go`, `internal/configuration/step8_wss_test.go`, `internal/connectors/ibmi/mapepirewss/session.go`, the approved-import entry in `internal/configuration/service_test.go`, and these 7.3.7 task/progress entries. Retain P, later pending units, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Final validation: `go test ./...` — exit `0`; 22 test-bearing packages passed and 5 reported `[no test files]`. `go vet ./...` — exit `0`. Source-mutating `gofmt -w` ran before focused verification; check-only `gofmt -d` on all four touched Go files produced no output; `git diff --check` — exit `0`.
+- Completion state: **49 total = 33 completed + 16 pending**. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. No commit, stage, push, PR, `.atl`, `tmp`, or protected keyring-store edit occurred during implementation.
+- Next recommended action: apply C (`7.3.8a–b`) only on the next immediate feature-branch-chain child; do not implement A/T/D/R, Phase 8, or final cmd wiring.
+
+## Work Unit C: `step8-credential-adapter`
+
+- Scope: tasks 7.3.8a–b only; strict TDD; auto-chain, feature-branch-chain (`9845478` → `feature/step8-credential-adapter`). Added a narrow credential-owned dispatcher for only saved-profile `prompt` and `keyring` modes; it structurally satisfies the configuration consumer contract without importing configuration or creating a package cycle.
+- RED: `go test -count=1 ./internal/credential -run '^(TestStep8ProviderDispatchesOnlySavedPromptAndKeyringModes|TestStep8ProviderFailsClosedWithoutFallbackOrLeaks)$'` exited `1` before production code because `NewStep8Provider` was undefined.
+- GREEN: the same focused command exited `0` after adding the dispatcher; `ok bac-nexus/internal/credential 0.957s`.
+- TRIANGULATE: deterministic fakes prove prompt/keyring dispatch, the existing `ibmi/<profile>` key contract, fresh caller-owned output, input zeroization, prompt denial/unavailability/empty input, keyring unavailable/not-found/empty input, invalid mode/key, cancellation, and expired deadline. Alternate available branches remain at zero calls for every failure; all errors are only `credentials_unavailable` and contain no secret or backend detail.
+- REFACTOR: reused `KeyForProfile`, `validSecret`, `Zero`, `PromptProvider`, and the existing `KeyringStore` abstraction; no storage logic, fallback, or retained credential state was added.
+
+### Work Unit C TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 7.3.8a | Unit / deterministic injected prompt and keyring fakes | `go test -count=1 ./internal/credential` — exit `0`; `ok bac-nexus/internal/credential 1.082s` before edits | ✅ focused compile failure, exit `1`, before production file | ✅ focused command exit `0` | ✅ all prompt/keyring terminal modes plus invalid key/mode, cancellation/deadline, no fallback, no leak | ✅ shared fail-closed validation |
+| 7.3.8b | Unit / deterministic injected prompt and keyring fakes | Same package safety net | ✅ tests referenced missing dispatcher | ✅ focused command exit `0` | ✅ stable profile-key reconstruction and isolated buffer ownership | ✅ narrow consumer-owned interfaces avoid a package cycle |
+
+### Work Unit C Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/credential -run '^(TestStep8ProviderDispatchesOnlySavedPromptAndKeyringModes|TestStep8ProviderFailsClosedWithoutFallbackOrLeaks)$'` — exit `0`; `ok bac-nexus/internal/credential 0.939s`; 2 named tests passed. |
+| Runtime harness command/scenario and exact result | N/A: the dispatcher has no runtime boundary. Injected in-process prompt/keyring fakes prove all branches without a terminal, OS keyring, network, IBM i, WSS, SSH, Java, artifact, SQL, shell, download, retry, or marker. |
+| Rollback boundary | Revert only `internal/credential/step8_provider.go`, `internal/credential/step8_provider_test.go`, and these 7.3.8 task/progress entries; retain P/W, later pending units, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Final validation: `go test -count=1 ./internal/credential` — exit `0`; `ok bac-nexus/internal/credential 3.140s`. `go test -count=1 ./internal/configuration` — exit `0`; `ok bac-nexus/internal/configuration 2.629s`. `go test ./...`, `go vet ./...`, check-only `gofmt -d internal/credential/step8_provider.go internal/credential/step8_provider_test.go`, and `git diff --check` all exited `0`.
+- Completion state: **49 total = 35 completed + 14 pending**. Source-mutating `gofmt -w` ran only on the two owned Go files. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. No commit, stage, push, PR, `.atl`, `tmp`, or protected keyring-store edit occurred during implementation.
+- Next recommended action: apply A (`7.3.9a–b`) only on the next immediate feature-branch-chain child; do not implement T/D/R, WSS changes, final cmd wiring, or Phase 8 behavior.
+
+## Work Unit A: `step8-ssh-policy`
+
+- Scope: tasks 7.3.9a–b only; strict TDD; auto-chain, feature-branch-chain (`27e2820` → `feature/step8-ssh-policy`). Added the pure fail-closed `security.Step8SSHPolicy` adapter and direct/integration regression tests. It admits only the existing approved `verified-readonly` saved schema-v3 profile policy with fallback explicitly enabled.
+- RED: `go test -count=1 ./internal/security -run '^(TestStep8SSHPolicyAllowsOnlyApprovedSavedFallbackProfile|TestStep8SSHPolicyDenialPrecedesTrustCredentialAndRuntime)$'` exited `1` before production code because `NewStep8SSHPolicy` was undefined.
+- GREEN: the same focused command exited `0`; `ok bac-nexus/internal/security 1.660s`.
+- TRIANGULATE: table-driven direct cases cover approved, missing/blank/malformed/unapproved policy references, disabled fallback, invalid profile, cancellation, and deadline expiry. The `PostObservationGate` integration proves policy denial returns `authorization_denied` before independent SSH trust, credential retrieval, or runtime callback calls.
+- REFACTOR: retained one stateless adapter, the established `ValidateStep8Profile` saved-profile gate, profile policy fields, and an existing approved policy identifier. The sole error is sanitized `ssh_fallback_policy_denied`; no endpoint, policy detail, TLS evidence, fingerprint, credential, transport, or runtime behavior is exposed.
+
+### Work Unit A TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 7.3.9a | Unit / deterministic policy cases | `go test -count=1 ./internal/security` — exit `0`; `ok bac-nexus/internal/security 1.659s` before edits | ✅ focused compile failure, exit `1`, before production file | ✅ focused command exit `0` | ✅ approved plus eight fail-closed policy/profile/context branches | ✅ shared saved-profile fixtures retain direct behavior assertions |
+| 7.3.9b | Unit / `PostObservationGate` integration with counting fakes | Same package safety net | ✅ tests referenced missing adapter | ✅ focused command exit `0` | ✅ denial makes SSH trust, credentials, and runtime callback counts zero | ✅ stateless adapter and closed identifier comparison only |
+
+### Work Unit A Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/security -run '^(TestStep8SSHPolicyAllowsOnlyApprovedSavedFallbackProfile|TestStep8SSHPolicyDenialPrecedesTrustCredentialAndRuntime)$'` — exit `0`; `ok bac-nexus/internal/security 1.660s`; 2 named tests passed. |
+| Runtime harness command/scenario and exact result | N/A: this adapter is pure policy logic. Deterministic direct policy and `PostObservationGate` counting-fake tests prove denial precedes trust, credentials, and runtime without SSH dialing, process, Java, artifact, upload/download, network, IBM i, SQL, shell, retry, consent prompt, or marker. |
+| Rollback boundary | Revert only `internal/security/step8_ssh_policy.go`, `internal/security/step8_ssh_policy_test.go`, and these 7.3.9 task/progress entries; retain P/W/C, pending T/D/R and later tasks, plus unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Final validation: `go test -count=1 ./internal/security` — exit `0`; `ok bac-nexus/internal/security 1.641s`. `go test -count=1 ./internal/configuration` — exit `0`; `ok bac-nexus/internal/configuration 2.586s`. `go test ./...`, `go vet ./...`, check-only `gofmt -d internal/security/step8_ssh_policy.go internal/security/step8_ssh_policy_test.go`, and `git diff --check` all exited `0`.
+- Completion state: **49 total = 37 completed + 12 pending**. Source-mutating `gofmt -w` ran only on the two owned Go files. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. No commit, stage, push, PR, `.atl`, `tmp`, or protected keyring-store edit occurred during implementation.
+- Changed-line budget: source/tests `156 additions + 0 deletions`; task/progress receipts add `31 additions + 3 deletions`; total **187 additions + 3 deletions = 190 changed lines**, under the 240-line native limit.
+- Next recommended action: apply T (`7.3.10a–b`) only on the next immediate feature-branch-chain child; do not implement D/R, WSS changes, final cmd wiring, or Phase 8 behavior.
+
+## Work Unit D Receipt Addendum
+
+- Verified D receipt: `go test -count=1 ./internal/audit` exit `0` (`ok bac-nexus/internal/audit 1.181s`); `go test -count=1 ./...`, `go vet ./...`, check-only `gofmt -d internal/audit/step8_auditor.go internal/audit/step8_auditor_test.go`, and `git diff --check` all exit `0`.
+- Exact D changed-line budget: **155 additions + 3 deletions = 158 changed lines**, below the 260-line native attempt limit. Completion is **49 total = 41 completed + 8 pending**; next route is R (7.3.12a–b).
+
+## Phase 8: `step8-tui-action`
+
+- Scope: tasks 8.1–8.3 only; strict TDD; auto-chain, feature-branch-chain (`feature/step8-production-wiring` → `feature/step8-tui-action`). The TUI owns only request generation, cancellation, stale-message rejection, and sanitized presentation; the injected runner remains asynchronous and owns all remote behavior.
+- RED: `go test -count=1 ./internal/tui -run '^(TestStep8ActionCancelRetryRejectsStaleResult|TestStep8ActionViewIsResponsiveAndDoesNotRun)$'` — exit `1` before production implementation because the Step 8 action screen, lifecycle state, action methods, and view symbols were undefined.
+- GREEN: the same focused command — exit `0`; `ok bac-nexus/internal/tui 2.896s`; 2 named tests passed.
+- TRIANGULATE: a blocking in-process runner proves cancel, retry with a distinct request ID, and ignored stale completion. The runtime View matrix covers idle, running, success, terminal, and cancelled states at 120x40, 80x24, and 40x16 with NO_COLOR; rendering never invokes the runner or emits a saved endpoint.
+- REFACTOR: compact terminals promote the sanitized feedback to the first panel line while wider terminals retain the shared wizard title/divider/rhythm. Result messages carry only the closed result class; the View exposes fixed safe text, never raw errors or request/profile detail.
+
+### Phase 8 TDD Cycle Evidence
+
+| Task | Test layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|
+| 8.1 | Unit / direct Bubble Tea `Update` with blocking runner | `go test -count=1 ./internal/tui` — exit `0`; `ok bac-nexus/internal/tui 8.436s` before edits | ✅ focused compile failure, exit `1` | ✅ 2 named tests exit `0` | ✅ cancel, new-ID retry, stale-result rejection | ✅ one lifecycle record and typed message |
+| 8.2 | Unit / injected runner command | Same package safety net | ✅ tests preceded lifecycle code | ✅ focused exit `0` | ✅ only one active cancel ownership; cancelled/success/terminal transitions | ✅ runner result reduced to ID and closed class |
+| 8.3 | Runtime View / direct `Model.View` | Same package safety net | ✅ view states referenced absent action symbols | ✅ focused exit `0` | ✅ 5 states across 3 viewport sizes and NO_COLOR | ✅ compact feedback-first panel |
+
+### Phase 8 Work Unit Evidence
+
+| Evidence | Result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/tui -run '^(TestStep8ActionCancelRetryRejectsStaleResult|TestStep8ActionViewIsResponsiveAndDoesNotRun)$'` — exit `0`; `ok bac-nexus/internal/tui 2.896s`; 2 named tests passed. |
+| Runtime harness command/scenario and exact result | The focused direct Bubble Tea `Update`/`View` harness — exit `0`; it proves all lifecycle states across 120x40, 80x24, and 40x16 without IBM i, network, keyring, SSH, Java, artifact, upload/download, shell, SQL, process, or retry side effects. |
+| Rollback boundary | Revert only `internal/tui/step8_action.go`, `internal/tui/step8_action_test.go`, `internal/tui/step8_view.go`, the Phase 8 routing hunks in `internal/tui/model.go` and `internal/tui/wizard_viewport.go`, and the Phase 8 task/progress entries; retain Phase 7 wiring, pending Phase 9, and unrelated `.atl`, `tmp`, and `internal/credential/keyring_store.go` state. |
+
+- Final validation: `go test -count=1 ./internal/tui` exit `0` (`ok bac-nexus/internal/tui 8.692s`); production-wiring injection command exit `0` across `cmd/nexus`, `internal/configuration`, and `internal/tui`; `go test -count=1 ./...` exit `0` (22 test-bearing packages and 5 no-test packages); `go vet ./...` exit `0`; check-only `gofmt -d` produced no output.
+- Exact Phase 8 candidate at this receipt: **272 additions + 6 deletions = 278 changed lines**, including source, tests, task/progress receipts; under the 380-line limit and excluding unrelated protected worktree state. The orchestrator acquired the bounded native attempt before delegation and settled it as `complete` after successful verification; the executor did not mutate authority. No commit, stage, push, PR, `.atl`, `tmp`, or protected keyring-store edit occurred during implementation.
+- Completion state: **49 total = 46 completed + 3 pending**. Next recommended action: apply Phase 9 only; do not claim final verification or archive readiness.
+
+## Bounded Remediation: `step8-production-action-reachability`
+
+- Binding: remediate failed verification evidence `sha256:4eb6f2701577730cb326b4d5d1ff5291f118e141cfa385b2c9412eae3cf6a95b` under the orchestrator-supplied token `sha256:2114860bbc5893675ba23e3b197e433ff5e1d37a7f160205650508e67df60ae8` (maximum 200 changed lines). The executor did not acquire, settle, reset, finish, or otherwise mutate native authority.
+- RED: `go test -count=1 ./internal/tui -run '^TestInjectedStep8RunnerIsReachableFromWizardAfterPreAuth$'` — exit `1`; Step 4 remained screen `7` instead of reaching `screenProfileStep8Action`.
+- GREEN: the same command — exit `0`; a saved, loaded profile matching the wizard draft arms Step 8 without invoking the runner, then the explicit Step 8 Enter command invokes it once.
+- Triangulation: an unmatched/unsaved draft remains on Step 4 with no action command and zero runner calls. Existing lifecycle tests retain cancellation, retry generation, stale-result rejection, responsive no-I/O View, and Step 3/4 pre-auth safety.
+- Work Unit Evidence: focused TUI navigation/lifecycle command and cmd production-composition command both exit `0`; deterministic in-process `Update`/`View` is the runtime harness, with no IBM i, network, credential/keyring, SSH, Java, artifact, transfer, shell, or SQL action. Rollback only `internal/tui/mapepire_onboarding_step.go`, `internal/tui/model_step8_runner_test.go`, and this receipt.
+- Final checks: `go test -count=1 ./...`, `go vet ./...`, `go build ./...`, check-only `gofmt -d` on the two owned Go files, and `git diff --check` all exit `0`.
+- No implementation task changed: **48 total = 48 completed + 0 pending**. `verify-report.md` remains the truthful FAIL report; independent `sdd-verify` is required next, never archive.
