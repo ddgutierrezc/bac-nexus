@@ -6,22 +6,14 @@ services:
       PGID: "1000"
       TZ: UTC
       USER_NAME: transporttest
-      USER_PASSWORD_FILE: /run/secrets/ssh_test_password
-      PASSWORD_ACCESS: "true"
+      PASSWORD_ACCESS: "false"
       SUDO_ACCESS: "false"
       LOG_STDOUT: "true"
     ports:
       - 127.0.0.1:${BAC_NEXUS_SSH_TEST_PORT:-2222}:2222
-    secrets:
-      - source: ssh_test_password
-        target: ssh_test_password
     healthcheck:
       test: ["CMD-SHELL", "nc -z 127.0.0.1 2222"]
       interval: 1s
       timeout: 2s
       retries: 20
       start_period: 5s
-
-secrets:
-  ssh_test_password:
-    file: ${BAC_NEXUS_SSH_TEST_PASSWORD_FILE:?set BAC_NEXUS_SSH_TEST_PASSWORD_FILE}

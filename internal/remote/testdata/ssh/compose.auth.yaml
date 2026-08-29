@@ -1,0 +1,12 @@
+services:
+  ssh:
+    environment:
+      PASSWORD_ACCESS: "true"
+      USER_PASSWORD_FILE: /run/secrets/ssh_test_password
+    secrets:
+      - source: ssh_test_password
+        target: ssh_test_password
+
+secrets:
+  ssh_test_password:
+    file: ${BAC_NEXUS_SSH_TEST_PASSWORD_FILE:?set BAC_NEXUS_SSH_TEST_PASSWORD_FILE}
