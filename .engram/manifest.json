@@ -24,6 +24,14 @@
       "sessions": 1,
       "memories": 110,
       "prompts": 18
+    },
+    {
+      "id": "91efbd20",
+      "created_by": "David",
+      "created_at": "2026-08-29T18:07:59Z",
+      "sessions": 16,
+      "memories": 319,
+      "prompts": 48
     }
   ]
 }
