@@ -15,35 +15,55 @@ import (
 )
 
 const (
-	sshHarnessEnableEnv       = "BAC_NEXUS_SSH_INTEGRATION"
-	sshHarnessHostEnv         = "BAC_NEXUS_SSH_TEST_HOST"
-	sshHarnessPortEnv         = "BAC_NEXUS_SSH_TEST_PORT"
-	sshHarnessUserEnv         = "BAC_NEXUS_SSH_TEST_USER"
-	sshHarnessPasswordFileEnv = "BAC_NEXUS_SSH_TEST_PASSWORD_FILE"
-	sshHarnessDefaultHost     = "127.0.0.1"
-	sshHarnessDefaultPort     = 2222
-	sshHarnessDefaultUser     = "transporttest"
-	sshHarnessMaxPasswordSize = 1024
-	sshHarnessTimeout         = 10 * time.Second
+	sshHarnessIdentityEnableEnv = "BAC_NEXUS_SSH_IDENTITY_INTEGRATION"
+	sshHarnessAuthEnableEnv     = "BAC_NEXUS_SSH_INTEGRATION"
+	sshHarnessHostEnv           = "BAC_NEXUS_SSH_TEST_HOST"
+	sshHarnessPortEnv           = "BAC_NEXUS_SSH_TEST_PORT"
+	sshHarnessUserEnv           = "BAC_NEXUS_SSH_TEST_USER"
+	sshHarnessPasswordFileEnv   = "BAC_NEXUS_SSH_TEST_PASSWORD_FILE"
+	sshHarnessDefaultHost       = "127.0.0.1"
+	sshHarnessDefaultPort       = 2222
+	sshHarnessDefaultUser       = "transporttest"
+	sshHarnessMaxPasswordSize   = 1024
+	sshHarnessTimeout           = 10 * time.Second
 )
 
 type sshHarnessConfig struct {
-	host         string
-	port         int
-	user         string
-	passwordFile string
+	host string
+	port int
+	user string
 }
 
-func TestSSHTransportHarnessObservesIdentityAndAuthenticatesSFTP(t *testing.T) {
+func TestSSHTransportHarnessObservesIdentity(t *testing.T) {
 	if testing.Short() {
-		t.Skip("SSH transport harness is skipped in short mode")
+		t.Skip("SSH identity harness is skipped in short mode")
 	}
-	if os.Getenv(sshHarnessEnableEnv) != "1" {
-		t.Skip("set BAC_NEXUS_SSH_INTEGRATION=1 to run the local SSH transport harness")
+	if os.Getenv(sshHarnessIdentityEnableEnv) != "1" {
+		t.Skip("set BAC_NEXUS_SSH_IDENTITY_INTEGRATION=1 to run the local SSH identity harness")
 	}
 
 	config := loadSSHHarnessConfig(t)
-	password := readSSHHarnessPassword(t, config.passwordFile)
+	ctx, cancel := context.WithTimeout(context.Background(), sshHarnessTimeout)
+	defer cancel()
+	candidate, err := (HostIdentityInspector{}).InspectHostKey(ctx, config.host, config.port)
+	if err != nil {
+		t.Fatalf("InspectHostKey() error = %v", err)
+	}
+	if candidate.Algorithm == "" || candidate.Fingerprint == "" {
+		t.Fatalf("InspectHostKey() candidate = %#v, want algorithm and fingerprint", candidate)
+	}
+}
+
+func TestSSHTransportHarnessAuthenticatesSFTP(t *testing.T) {
+	if testing.Short() {
+		t.Skip("SSH authenticated harness is skipped in short mode")
+	}
+	if os.Getenv(sshHarnessAuthEnableEnv) != "1" {
+		t.Skip("set BAC_NEXUS_SSH_INTEGRATION=1 to run the authenticated local SSH transport harness")
+	}
+
+	config := loadSSHHarnessConfig(t)
+	password := readSSHHarnessPassword(t, os.Getenv(sshHarnessPasswordFileEnv))
 	defer Zero(password)
 
 	ctx, cancel := context.WithTimeout(context.Background(), sshHarnessTimeout)
@@ -83,9 +103,8 @@ func TestSSHTransportHarnessObservesIdentityAndAuthenticatesSFTP(t *testing.T) {
 func loadSSHHarnessConfig(t *testing.T) sshHarnessConfig {
 	t.Helper()
 	config := sshHarnessConfig{
-		host:         environmentOrDefault(sshHarnessHostEnv, sshHarnessDefaultHost),
-		user:         environmentOrDefault(sshHarnessUserEnv, sshHarnessDefaultUser),
-		passwordFile: os.Getenv(sshHarnessPasswordFileEnv),
+		host: environmentOrDefault(sshHarnessHostEnv, sshHarnessDefaultHost),
+		user: environmentOrDefault(sshHarnessUserEnv, sshHarnessDefaultUser),
 	}
 	port, err := strconv.Atoi(environmentOrDefault(sshHarnessPortEnv, strconv.Itoa(sshHarnessDefaultPort)))
 	if err != nil || profile.ValidatePort(port) != nil {
@@ -99,9 +118,6 @@ func loadSSHHarnessConfig(t *testing.T) sshHarnessConfig {
 	}
 	if err := profile.ValidateUsername(config.user); err != nil {
 		t.Fatal("SSH transport harness user is invalid")
-	}
-	if config.passwordFile == "" {
-		t.Fatal("set BAC_NEXUS_SSH_TEST_PASSWORD_FILE to an external password file")
 	}
 	return config
 }
