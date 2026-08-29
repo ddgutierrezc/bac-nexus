@@ -112,7 +112,19 @@ func TestSchemaV2RejectsAmbiguousOrCrossTransportTrustEvidence(t *testing.T) {
 }
 
 func TestMigrateV1IsConservativeAndDeterministic(t *testing.T) {
-	legacy := []byte(`{"name":"legacy","host":"ibmi.example.test","port":22,"username":"USER","hostKeyFingerprint":"SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","hostKeyTrust":"verified","mapepireJar":"C:/safe/mapepire.jar","credentialMode":"vault"}`)
+	legacy, err := json.Marshal(map[string]any{
+		"name":               "legacy",
+		"host":               "ibmi.example.test",
+		"port":               22,
+		"username":           "USER",
+		"hostKeyFingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		"hostKeyTrust":       "verified",
+		"mapepireJar":        filepath.Join(t.TempDir(), "mapepire.jar"),
+		"credentialMode":     "vault",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	first, err := MigrateV1(legacy)
 	if err != nil {
 		t.Fatal(err)
