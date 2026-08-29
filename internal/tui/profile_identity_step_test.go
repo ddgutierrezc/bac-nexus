@@ -176,6 +176,28 @@ func TestProfileIdentityBackRetentionAndExactTypedAcceptance(t *testing.T) {
 	}
 }
 
+func TestProfileIdentityAcceptanceFocusesForwardActionAndEnterReachesStep4(t *testing.T) {
+	m := newProfileIdentityTestModel(t, 80, 24)
+	m, cmd := startInspection(t, m)
+	m = finishInspection(t, m, cmd)
+	m = acceptCandidate(t, m)
+
+	if m.identityPhase != profileIdentityCompleted || m.identityFocus != profileIdentityFocusInspect {
+		t.Fatalf("accepted identity phase/focus=%v/%v, want completed/forward", m.identityPhase, m.identityFocus)
+	}
+	if m.screen != screenProfileIdentity {
+		t.Fatal("acceptance auto-transitioned before the explicit forward action")
+	}
+	if strings.TrimSpace(m.View()) == "" {
+		t.Fatal("completed identity view was empty")
+	}
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil || updated.(Model).screen != screenProfileMapepire {
+		t.Fatal("Enter after acceptance did not reach Step 4 without focus navigation")
+	}
+}
+
 func TestProfileIdentityRuntimeMatrixUsesActualTransitions(t *testing.T) {
 	for _, noColor := range []bool{false, true} {
 		for _, size := range []struct{ w, h int }{{120, 40}, {80, 24}, {40, 16}} {
