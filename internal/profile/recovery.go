@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"bac-nexus/internal/strictjson"
 )
@@ -17,10 +19,165 @@ import (
 const maxListLimit = MaxListLimit
 
 var (
-	ErrInvalidRoot         = errors.New("invalid profile store root")
-	ErrInvalidUpdateTarget = errors.New("invalid profile update target")
-	ErrProfileNotFound     = errors.New("profile not found")
+	ErrInvalidRoot            = errors.New("invalid profile store root")
+	ErrInvalidUpdateTarget    = errors.New("invalid profile update target")
+	ErrProfileNotFound        = errors.New("profile not found")
+	ErrPreparedCreateNotFound = errors.New("prepared create journal not found")
 )
+
+type PreparedCreatePhase string
+
+const (
+	PreparedCreateProvisioning    PreparedCreatePhase = "provisioning"
+	PreparedCreateSaving          PreparedCreatePhase = "saving"
+	PreparedCreateCleanupRequired PreparedCreatePhase = "credential_cleanup_required"
+)
+
+// PreparedCreateJournal contains recovery metadata only. Credential material and
+// backend ownership tokens must remain outside the profile root.
+type PreparedCreateJournal struct {
+	Profile         string              `json:"profile"`
+	TransactionID   string              `json:"transactionID"`
+	Phase           PreparedCreatePhase `json:"phase"`
+	CleanupRequired bool                `json:"cleanupRequired"`
+}
+
+// WithPreparedCreateLock serializes profile creation and credential mutation for
+// one profile across processes sharing a profile root.
+func (s Store) WithPreparedCreateLock(ctx context.Context, name string, action func() error) error {
+	if err := ValidateName(name); err != nil || action == nil {
+		return ErrInvalidUpdateTarget
+	}
+	if s.Root == "" {
+		return ErrInvalidRoot
+	}
+	if err := os.MkdirAll(s.Root, 0o700); err != nil {
+		return err
+	}
+	if err := s.verifyRoot(); err != nil {
+		return err
+	}
+	lock := filepath.Join(s.Root, ".prepared-create-"+name+".lock")
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		file, err := os.OpenFile(lock, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err == nil {
+			if closeErr := file.Close(); closeErr != nil {
+				_ = os.Remove(lock)
+				return closeErr
+			}
+			defer os.Remove(lock)
+			return action()
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+func (s Store) WritePreparedCreate(journal PreparedCreateJournal) error {
+	if err := validPreparedCreateJournal(journal); err != nil {
+		return err
+	}
+	if err := s.verifyRoot(); err != nil {
+		return err
+	}
+	data, err := json.Marshal(journal)
+	if err != nil {
+		return err
+	}
+	temp, err := s.writeTemp(data)
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(temp, s.preparedCreatePath(journal.Profile)); err != nil {
+		_ = os.Remove(temp)
+		return err
+	}
+	return nil
+}
+
+func (s Store) ReadPreparedCreate(name string) (PreparedCreateJournal, error) {
+	if err := ValidateName(name); err != nil {
+		return PreparedCreateJournal{}, ErrPreparedCreateNotFound
+	}
+	if err := s.verifyRoot(); err != nil {
+		return PreparedCreateJournal{}, err
+	}
+	data, err := readBounded(s.preparedCreatePath(name))
+	if errors.Is(err, os.ErrNotExist) {
+		return PreparedCreateJournal{}, ErrPreparedCreateNotFound
+	}
+	if err != nil {
+		return PreparedCreateJournal{}, ErrPreparedCreateNotFound
+	}
+	var journal PreparedCreateJournal
+	if err := strictjson.ValidateObjectKeys(data, "profile", "transactionID", "phase", "cleanupRequired"); err != nil || json.Unmarshal(data, &journal) != nil || journal.Profile != name || validPreparedCreateJournal(journal) != nil {
+		return PreparedCreateJournal{}, ErrPreparedCreateNotFound
+	}
+	return journal, nil
+}
+
+func (s Store) ClearPreparedCreate(name string) error {
+	if err := ValidateName(name); err != nil {
+		return ErrPreparedCreateNotFound
+	}
+	if err := s.verifyRoot(); err != nil {
+		return err
+	}
+	err := os.Remove(s.preparedCreatePath(name))
+	if errors.Is(err, os.ErrNotExist) {
+		return ErrPreparedCreateNotFound
+	}
+	return err
+}
+
+// RecoverPreparedCreate records that an operator completed external credential
+// recovery. It never deletes credentials because this store has no ownership
+// compare-and-delete primitive.
+func (s Store) RecoverPreparedCreate(name, confirmation string) error {
+	if confirmation != "recover "+name {
+		return ErrPreparedCreateNotFound
+	}
+	journal, err := s.ReadPreparedCreate(name)
+	if err != nil {
+		return err
+	}
+	if !journal.CleanupRequired || journal.Phase != PreparedCreateCleanupRequired {
+		return ErrPreparedCreateNotFound
+	}
+	return s.ClearPreparedCreate(name)
+}
+
+func (s Store) preparedCreatePath(name string) string {
+	return filepath.Join(s.Root, ".prepared-create-"+name+".json")
+}
+
+func validPreparedCreateJournal(journal PreparedCreateJournal) error {
+	if ValidateName(journal.Profile) != nil || len(journal.TransactionID) < 1 || len(journal.TransactionID) > 128 {
+		return ErrPreparedCreateNotFound
+	}
+	switch journal.Phase {
+	case PreparedCreateProvisioning, PreparedCreateSaving:
+		if journal.CleanupRequired {
+			return ErrPreparedCreateNotFound
+		}
+	case PreparedCreateCleanupRequired:
+		if !journal.CleanupRequired {
+			return ErrPreparedCreateNotFound
+		}
+	default:
+		return ErrPreparedCreateNotFound
+	}
+	return nil
+}
 
 // DeleteConfirmation is the exact, case-sensitive confirmation required
 // before a profile is moved to its retained backup.

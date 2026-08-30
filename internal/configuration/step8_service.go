@@ -58,6 +58,7 @@ type Step8Service struct {
 	Markers     Step8MarkerStore
 	Audit       Step8Auditor
 	NowUnixMs   func() int64
+	Tickets     *fallbackTicketStore
 }
 
 func (s Step8Service) Run(ctx context.Context, request Step8Request) (result Step8Result) {
@@ -67,6 +68,9 @@ func (s Step8Service) Run(ctx context.Context, request Step8Request) (result Ste
 	}
 	if err := ctx.Err(); err != nil {
 		return s.finish(ctx, request.Profile, terminalGateResult(result, ResultCancelled))
+	}
+	if !request.WSSConsent {
+		return s.finish(ctx, request.Profile, terminalGateResult(result, ResultConsentDeclined))
 	}
 	if s.Markers != nil {
 		if err := s.Markers.Clear(ctx, request.Profile); err != nil {
@@ -84,12 +88,43 @@ func (s Step8Service) Run(ctx context.Context, request Step8Request) (result Ste
 	case DecisionTerminal:
 		return s.finish(ctx, request.Profile, terminalGateResult(result, TerminalResultForObservation(observation.Reason)))
 	case DecisionSSHEligible:
-		return s.runSSH(ctx, request, observation)
+		return s.offerSSH(ctx, request, observation.Reason)
 	case DecisionWSSSelected:
 		return s.runWSS(ctx, request)
 	default:
 		return s.finish(ctx, request.Profile, terminalGateResult(result, ResultDowngradeBlocked))
 	}
+}
+
+func (s Step8Service) offerSSH(ctx context.Context, request Step8Request, reason Step8Reason) Step8Result {
+	result := Step8Result{RequestID: request.RequestID, Decision: DecisionSSHEligible, Class: ResultProofSuccess, FallbackClass: reason}
+	if s.Tickets == nil {
+		return s.finish(ctx, request.Profile, terminalGateResult(result, ResultDowngradeBlocked))
+	}
+	ticket, err := s.Tickets.issue(fallbackTicketClaim{Profile: request.Profile.Name, RequestID: request.RequestID, Generation: request.Generation, Class: reason})
+	if err != nil {
+		return s.finish(ctx, request.Profile, terminalGateResult(result, ResultDowngradeBlocked))
+	}
+	result.FallbackTicket = ticket
+	return s.finish(ctx, request.Profile, result)
+}
+
+// RunSSH requires a separately consented, atomically consumed ticket. It never
+// runs WSS observation and cannot infer SSH consent from a WSS request.
+func (s Step8Service) RunSSH(ctx context.Context, request Step8Request) Step8Result {
+	result := Step8Result{RequestID: request.RequestID}
+	if request.RequestID == "" || ValidateStep8Profile(request.Profile) != nil || !request.SSHConsent {
+		return s.finishTransport(ctx, request.Profile, TransportSSH, terminalGateResult(result, ResultConsentDeclined))
+	}
+	if err := ctx.Err(); err != nil {
+		return s.finishTransport(ctx, request.Profile, TransportSSH, terminalGateResult(result, ResultCancelled))
+	}
+	claim := fallbackTicketClaim{Profile: request.Profile.Name, RequestID: request.RequestID, Generation: request.Generation, Class: request.FallbackClass}
+	if s.Tickets == nil || s.Tickets.consume(request.FallbackTicket, claim) != nil {
+		return s.finishTransport(ctx, request.Profile, TransportSSH, terminalGateResult(result, ResultDowngradeBlocked))
+	}
+	request.Consent = true
+	return s.runSSH(ctx, request, Observation{Decision: DecisionSSHEligible, Reason: request.FallbackClass})
 }
 
 func (s Step8Service) runSSH(ctx context.Context, request Step8Request, observation Observation) Step8Result {

@@ -278,8 +278,11 @@ func (l *Ledger) Admit(ctx context.Context, record source.OwnershipRecord) error
 		} else if !isSQLiteBusy(err) {
 			return err
 		}
-		if attempt == len(transactionRetryDelays) {
+		if attempt == len(transactionRetryDelays)+1 {
 			return err
+		}
+		if attempt == len(transactionRetryDelays) {
+			continue
 		}
 		wait := l.retryWait
 		if wait == nil {

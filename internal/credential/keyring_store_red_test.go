@@ -46,6 +46,21 @@ func TestKeyringCredentialStoreUsesExactNativeIdentityAndOperations(t *testing.T
 	}
 }
 
+func TestKeyringCredentialStoreRotatesOnlyTheExactProfileAccount(t *testing.T) {
+	native := &keyringFake{}
+	store := NewKeyringStore(native)
+	if err := store.Set("production-1", []byte("first")); err != nil {
+		t.Fatalf("first Set() error = %v", err)
+	}
+	if err := store.Set("production-1", []byte("second")); err != nil {
+		t.Fatalf("rotated Set() error = %v", err)
+	}
+	want := []string{"set:BAC Nexus:ibmi/production-1:first", "set:BAC Nexus:ibmi/production-1:second"}
+	if !sameStrings(native.events, want) {
+		t.Fatalf("rotation events = %v, want %v", native.events, want)
+	}
+}
+
 func TestKeyringCredentialStoreRejectsInvalidInputsBeforeNativeAccess(t *testing.T) {
 	tests := []struct {
 		name string

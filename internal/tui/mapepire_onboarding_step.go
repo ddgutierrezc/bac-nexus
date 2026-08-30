@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"bac-nexus/internal/configuration"
+	"bac-nexus/internal/profile"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -46,18 +47,21 @@ func (m Model) updateProfileMapepireStep(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen = screenProfileConnection
 		return m, nil
 	case "enter":
-		if m.mapepireProbe == nil && m.mapepireFactory != nil {
-			m.mapepireProbe = m.mapepireFactory(m.connectionDraft.host, m.connectionDraft.port)
-		}
-		if m.mapepireResolution.AuthenticationPending {
+		if m.mapepireResolution.AuthenticationPending || m.mapepireResolution.Class != configuration.FailureNone {
 			for _, p := range m.profiles {
 				if p.Name == m.profileDraftName {
-					m.step8Action = step8Action{request: configuration.Step8Request{Profile: p}}
-					m.screen = screenProfileStep8Action
+					m.step8Action, m.screen = step8Action{request: configuration.Step8Request{Profile: p}}, screenProfileStep8Action
 					return m, nil
 				}
 			}
+			if m.identityDraft.fingerprint == "" {
+				return m, nil
+			}
+			m.credentialMode, m.credentialFocus, m.status, m.screen = profile.CredentialModePrompt, profileCredentialsFocusPrompt, "", screenProfileCredentials
 			return m, nil
+		}
+		if m.mapepireProbe == nil && m.mapepireFactory != nil {
+			m.mapepireProbe = m.mapepireFactory(m.connectionDraft.host, m.connectionDraft.port)
 		}
 		if m.mapepireProbe == nil {
 			return m, nil
@@ -79,7 +83,7 @@ func (m Model) renderProfileMapepireStep() string {
 
 func (m Model) renderProfileMapepirePanel(width, height int, t homeTheme) string {
 	panel := newWizardPanelLayout(width, height, t)
-	lines := renderWizardTitleRow(panel.contentWidth, t, "Mapepire", "Step 4 of 9 — Mapepire")
+	lines := renderWizardTitleRow(panel.contentWidth, t, "Mapepire", "Step 4 of 8 — Mapepire")
 	lines = append(lines, "", renderWizardDivider(panel.contentWidth, t))
 	lines = append(lines, t.wizardContentHeading.Render("Local readiness"), "")
 	message := "[--] Mapepire readiness has not been observed"

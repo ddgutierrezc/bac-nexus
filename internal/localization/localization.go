@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"sort"
+	"strings"
 
 	"github.com/nicksnyder/go-i18n/v2/i18n"
 	"golang.org/x/text/language"
@@ -15,7 +16,7 @@ import (
 //go:embed catalogs/*.json
 var catalogs embed.FS
 
-// Localizer translates semantic UI message IDs.
+// Localizer translates semantic UI message IDs; secret-bearing values are never inputs.
 type Localizer interface {
 	Text(id string, data map[string]any) string
 	Locale() language.Tag
@@ -64,6 +65,9 @@ func (l localizer) Text(id string, data map[string]any) string {
 	text, err := l.localizer.Localize(config)
 	if err != nil {
 		panic(fmt.Sprintf("localize %q: %v", id, err))
+	}
+	if id == "wizard.step.profile" || id == "wizard.step.connection" || id == "wizard.step.identity" {
+		text = strings.ReplaceAll(strings.ReplaceAll(text, "de 9", "de 8"), "of 9", "of 8")
 	}
 	return text
 }

@@ -2,7 +2,11 @@ package configuration
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
+	"sync"
 	"time"
 
 	"bac-nexus/internal/profile"
@@ -132,9 +136,119 @@ func ValidateCredentialMode(mode profile.CredentialMode) error {
 }
 
 type Step8Request struct {
-	RequestID string
-	Profile   profile.Profile
-	Consent   bool
+	RequestID      string
+	Profile        profile.Profile
+	Generation     uint64
+	WSSConsent     bool
+	SSHConsent     bool
+	FallbackTicket string
+	FallbackClass  Step8Reason
+	// Consent is retained for direct gate callers. Step8Service never uses it
+	// to infer either WSS or SSH consent.
+	Consent bool
+}
+
+const fallbackTicketLifetime = 5 * time.Minute
+
+type fallbackTicketClaim struct {
+	Profile    string
+	RequestID  string
+	Generation uint64
+	Class      Step8Reason
+}
+
+type fallbackTicketRecord struct {
+	claim   fallbackTicketClaim
+	expires time.Time
+}
+
+// fallbackTicketStore keeps only digests, never capability values. Its mutex
+// makes consume a single atomic admission point for SSH fallback.
+type fallbackTicketStore struct {
+	mu      sync.Mutex
+	now     func() time.Time
+	records map[[sha256.Size]byte]fallbackTicketRecord
+	latest  map[string]uint64
+}
+
+func newFallbackTicketStore(now func() time.Time) *fallbackTicketStore {
+	if now == nil {
+		now = time.Now
+	}
+	return &fallbackTicketStore{now: now, records: make(map[[sha256.Size]byte]fallbackTicketRecord), latest: make(map[string]uint64)}
+}
+
+func (s *fallbackTicketStore) issue(claim fallbackTicketClaim) (string, error) {
+	if s == nil || !validFallbackTicketClaim(claim) {
+		return "", errors.New("invalid fallback ticket claim")
+	}
+	capability := make([]byte, 24)
+	if _, err := rand.Read(capability); err != nil {
+		return "", errors.New("fallback ticket unavailable")
+	}
+	ticket := base64.RawURLEncoding.EncodeToString(capability)
+	digest := sha256.Sum256([]byte(ticket))
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if latest := s.latest[claim.Profile]; claim.Generation < latest {
+		return "", errors.New("superseded fallback ticket claim")
+	}
+	s.latest[claim.Profile] = claim.Generation
+	for key, record := range s.records {
+		if record.claim.Profile == claim.Profile && record.claim.Generation <= claim.Generation {
+			delete(s.records, key)
+		}
+	}
+	s.records[digest] = fallbackTicketRecord{claim: claim, expires: s.now().Add(fallbackTicketLifetime)}
+	return ticket, nil
+}
+
+func (s *fallbackTicketStore) consume(ticket string, claim fallbackTicketClaim) error {
+	if s == nil || !validFallbackTicketClaim(claim) || ticket == "" {
+		return errors.New("invalid fallback ticket")
+	}
+	digest := sha256.Sum256([]byte(ticket))
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, ok := s.records[digest]
+	if !ok || !s.now().Before(record.expires) || record.claim != claim {
+		return errors.New("fallback ticket rejected")
+	}
+	delete(s.records, digest)
+	return nil
+}
+
+func (s *fallbackTicketStore) cancel(claim fallbackTicketClaim) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, record := range s.records {
+		if record.claim == claim {
+			delete(s.records, key)
+		}
+	}
+}
+
+func (s *fallbackTicketStore) supersede(profileName string, generation uint64) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, record := range s.records {
+		if record.claim.Profile == profileName && record.claim.Generation < generation {
+			delete(s.records, key)
+		}
+	}
+	if s.latest[profileName] < generation {
+		s.latest[profileName] = generation
+	}
+}
+
+func validFallbackTicketClaim(claim fallbackTicketClaim) bool {
+	return claim.Profile != "" && claim.RequestID != "" && claim.Generation > 0 && DecisionForReason(claim.Class) == DecisionSSHEligible
 }
 
 // Observation is the typed, credential-free WSS outcome that precedes all
@@ -237,12 +351,14 @@ func gateContextResult(ctx context.Context, fallback ResultClass) ResultClass {
 }
 
 type Step8Result struct {
-	RequestID     string
-	Decision      Decision
-	Class         ResultClass
-	ProofRevision string
-	Outcome       string
-	Cleanup       bool
+	RequestID      string
+	Decision       Decision
+	Class          ResultClass
+	ProofRevision  string
+	Outcome        string
+	Cleanup        bool
+	FallbackTicket string
+	FallbackClass  Step8Reason
 }
 type Step8Runner interface {
 	Run(context.Context, Step8Request) Step8Result

@@ -33,7 +33,7 @@ func TestHomeCreateOpensProfileStepWithFocusedRealInput(t *testing.T) {
 		t.Fatalf("profile step input state = screen:%v focused:%v cursor:%v", m.screen, m.profileName.Focused(), m.profileName.CursorMode())
 	}
 	view := m.View()
-	for _, want := range []string{"BAC NEXUS", "PERFIL: NUEVO", "ESTADO: CONFIGURANDO", "Crear perfil IBM i", "Paso 1 de 9 — Perfil", "Nombre del perfil", "Usa 1–64 caracteres ASCII; inicia con letra o número.", "Luego usa solo letras, números, guion (-) o guion bajo (_).", "Sin espacios, puntos, tildes ni otros símbolos.", "Ej: CRI400F, CRI400FDev, CRI400FProd", "▸", "< CANCELAR >", "[ CONTINUAR ]"} {
+	for _, want := range []string{"BAC NEXUS", "PERFIL: NUEVO", "ESTADO: CONFIGURANDO", "Crear perfil IBM i", "Paso 1 de 8 — Perfil", "Nombre del perfil", "Usa 1–64 caracteres ASCII; inicia con letra o número.", "Luego usa solo letras, números, guion (-) o guion bajo (_).", "Sin espacios, puntos, tildes ni otros símbolos.", "Ej: CRI400F, CRI400FDev, CRI400FProd", "▸", "< CANCELAR >", "[ CONTINUAR ]"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("profile step omitted %q: %q", want, view)
 		}
@@ -163,14 +163,14 @@ func TestProfileStepWhitespaceCannotReachAcceptedDraft(t *testing.T) {
 func TestProfileStepTitleAndStepAlignmentFallback(t *testing.T) {
 	theme := newHomeTheme(true)
 	full := renderProfileStepTitleRow(66, theme)
-	if len(full) != 1 || !strings.Contains(full[0], "Crear perfil IBM i") || !strings.Contains(full[0], "Paso 1 de 9 — Perfil") {
+	if len(full) != 1 || !strings.Contains(full[0], "Crear perfil IBM i") || !strings.Contains(full[0], "Paso 1 de 8 — Perfil") {
 		t.Fatalf("full title row = %#v", full)
 	}
-	if title, step := strings.Index(full[0], "Crear perfil IBM i"), strings.Index(full[0], "Paso 1 de 9 — Perfil"); title != 0 || step <= title+len("Crear perfil IBM i")+1 {
+	if title, step := strings.Index(full[0], "Crear perfil IBM i"), strings.Index(full[0], "Paso 1 de 8 — Perfil"); title != 0 || step <= title+len("Crear perfil IBM i")+1 {
 		t.Fatalf("full title/step are not left/right aligned: %q", full[0])
 	}
 	fallback := renderProfileStepTitleRow(30, theme)
-	if len(fallback) != 2 || !strings.Contains(fallback[0], "Crear perfil IBM i") || !strings.Contains(fallback[1], "Paso 1 de 9 — Perfil") {
+	if len(fallback) != 2 || !strings.Contains(fallback[0], "Crear perfil IBM i") || !strings.Contains(fallback[1], "Paso 1 de 8 — Perfil") {
 		t.Fatalf("constrained fallback lost title or step: %#v", fallback)
 	}
 	for _, line := range fallback {
@@ -416,7 +416,7 @@ func TestProfileStepVisualRhythmAndSharedPanelGeometry(t *testing.T) {
 	fullLines := strings.Split(panel, "\n")
 	titleAndStepSameLine := false
 	for _, line := range fullLines {
-		if strings.Contains(line, "Crear perfil IBM i") && strings.Contains(line, "Paso 1 de 9 — Perfil") {
+		if strings.Contains(line, "Crear perfil IBM i") && strings.Contains(line, "Paso 1 de 8 — Perfil") {
 			titleAndStepSameLine = true
 			break
 		}

@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"bac-nexus/internal/configuration"
+	"bac-nexus/internal/credential"
 	"bac-nexus/internal/hostidentity"
 	"bac-nexus/internal/localization"
 	"bac-nexus/internal/profile"
@@ -35,7 +36,10 @@ const (
 	screenProfileConnection
 	screenProfileIdentity
 	screenProfileMapepire
+	screenProfileCredentials
+	screenProfileReview
 	screenProfileStep8Action
+	screenProfileCompletion
 	screenConfirm
 	screenSecurity
 )
@@ -157,8 +161,20 @@ type Model struct {
 	mapepireProbe      preAuthProbe
 	mapepireFactory    func(string, int) preAuthProbe
 	mapepireResolution configuration.Resolution
+	credentialMode     profile.CredentialMode
+	credentialFocus    profileCredentialsFocus
+	credentialStatus   credentialStatusChecker
+	credentialRequest  uint64
+	profileCreator     profileCreator
+	profileReviewFocus profileReviewFocus
+	createRequest      string
+	createGeneration   uint64
+	createPending      bool
+	createCancel       context.CancelFunc
 	step8Runner        configuration.Step8Runner
 	step8Action        step8Action
+	profileProof       profileProofState
+	profileCompletion  profileCompletionOutcome
 	wizardViewport     viewport.Model
 	legacyViewport     viewport.Model
 	legacyViewportText string
@@ -365,8 +381,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mapepireResolution, m.status, m.err = msg.resolution, "", msg.err
 		m.refreshWizardViewport()
 		return m, nil
+	case profileCredentialStatusMsg:
+		if msg.request != m.credentialRequest || m.screen != screenProfileCredentials {
+			return m, nil
+		}
+		if msg.presence == credential.PresenceUnavailable {
+			m.status = "[ERR] Secure keyring is unavailable; choose prompt"
+			return m, nil
+		}
+		m.status, m.screen = "", screenProfileReview
+		return m, nil
+	case profileCreateMsg:
+		if msg.request != m.createRequest || msg.generation != m.createGeneration || !m.createPending {
+			return m, nil
+		}
+		m.createPending, m.createCancel = false, nil
+		if msg.err != nil {
+			m.status = "[ERR] Profile could not be saved"
+			return m, nil
+		}
+		m.step8Action = step8Action{request: configuration.Step8Request{Profile: msg.result.Profile}}
+		m.profileProof = profileProofState{enabled: true}
+		m.screen, m.status = screenProfileStep8Action, "[OK] Profile saved"
+		return m, nil
 	case step8ActionMsg:
 		m.applyStep8Action(msg)
+		m.refreshWizardViewport()
+		return m, nil
+	case profileProofMsg:
+		m.applyProfileProof(msg)
 		m.refreshWizardViewport()
 		return m, nil
 	case operationMsg:
@@ -380,7 +423,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyMsg:
-		if m.screen == screenProfileStep || m.screen == screenProfileConnection || m.screen == screenProfileIdentity || m.screen == screenProfileMapepire || m.screen == screenProfileStep8Action {
+		if m.screen == screenProfileStep || m.screen == screenProfileConnection || m.screen == screenProfileIdentity || m.screen == screenProfileMapepire || m.screen == screenProfileCredentials || m.screen == screenProfileReview || m.screen == screenProfileStep8Action || m.screen == screenProfileCompletion {
 			switch msg.String() {
 			case "up", "k":
 				m.wizardViewport.LineUp(1)
@@ -441,11 +484,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			wizard.refreshWizardViewport()
 			return wizard, cmd
 		}
-		if m.screen == screenProfileStep8Action {
-			updated, cmd := m.updateStep8Action(msg)
+		if m.screen == screenProfileCredentials {
+			updated, cmd := m.updateProfileCredentialsStep(msg)
 			wizard := updated.(Model)
 			wizard.refreshWizardViewport()
 			return wizard, cmd
+		}
+		if m.screen == screenProfileReview {
+			updated, cmd := m.updateProfileReviewStep(msg)
+			wizard := updated.(Model)
+			wizard.refreshWizardViewport()
+			return wizard, cmd
+		}
+		if m.screen == screenProfileStep8Action {
+			if !m.profileProof.enabled {
+				updated, cmd := m.updateStep8Action(msg)
+				wizard := updated.(Model)
+				wizard.refreshWizardViewport()
+				return wizard, cmd
+			}
+			updated, cmd := m.updateProfileProofStep(msg)
+			wizard := updated.(Model)
+			wizard.refreshWizardViewport()
+			return wizard, cmd
+		}
+		if m.screen == screenProfileCompletion {
+			return m, nil
 		}
 		if m.screen == screenForm {
 			updated, cmd := m.updateForm(msg)
@@ -864,8 +928,17 @@ func (m Model) View() string {
 		return m.renderProfileIdentityStep()
 	case screenProfileMapepire:
 		return m.renderProfileMapepireStep()
+	case screenProfileCredentials:
+		return m.renderProfileCredentialsStep()
+	case screenProfileReview:
+		return m.renderProfileReviewStep()
 	case screenProfileStep8Action:
+		if m.profileProof.enabled {
+			return m.renderProfileProofStep()
+		}
 		return m.renderStep8Action()
+	case screenProfileCompletion:
+		return m.renderProfileCompletionStep()
 	case screenConfirm:
 		fmt.Fprintf(&b, "%s\n%s\n%s\n%s\n%s\n", m.text("legacy.confirm.delete", map[string]any{"Name": m.confirm}), m.text("legacy.confirm.retains_backup", nil), m.text("legacy.confirm.type_delete", map[string]any{"Name": m.confirm}), m.confirmInput.View(), m.text("legacy.confirm.cancel", nil))
 	case screenSecurity:

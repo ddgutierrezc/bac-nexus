@@ -24,7 +24,7 @@ func TestNewStep8ProductionUsesWSSWithoutFallbackRuntime(t *testing.T) {
 		SSH: ssh,
 	})
 
-	result := service.Run(context.Background(), Step8Request{RequestID: "wss", Profile: serviceSavedProfile()})
+	result := service.Run(context.Background(), Step8Request{RequestID: "wss", Generation: 1, Profile: serviceSavedProfile(), WSSConsent: true})
 	if result.Decision != DecisionWSSSelected || result.Class != ResultProofSuccess || !result.Cleanup {
 		t.Fatalf("result=%+v", result)
 	}
@@ -52,7 +52,11 @@ func TestNewStep8ProductionRoutesOnlyEligibleObservationsToGatedSSH(t *testing.T
 				SSHPolicy: gate, SSHTrust: gate, SSHCredentials: gate, SSH: ssh,
 			})
 
-			result := service.Run(context.Background(), Step8Request{RequestID: "ssh", Profile: serviceSavedProfile(), Consent: true})
+			wss := service.Run(context.Background(), Step8Request{RequestID: "ssh", Generation: 1, Profile: serviceSavedProfile(), WSSConsent: true})
+			if wss.FallbackTicket == "" || ssh.calls != 0 {
+				t.Fatalf("wss=%+v SSH=%d", wss, ssh.calls)
+			}
+			result := service.RunSSH(context.Background(), Step8Request{RequestID: "ssh", Generation: 1, Profile: serviceSavedProfile(), FallbackTicket: wss.FallbackTicket, FallbackClass: wss.FallbackClass, SSHConsent: true})
 			if result.Decision != DecisionSSHEligible || result.Class != ResultProofSuccess || !result.Cleanup {
 				t.Fatalf("result=%+v", result)
 			}
@@ -82,7 +86,7 @@ func TestNewStep8ProductionFailsClosedForTerminalAndUnknownObservations(t *testi
 				Observe:   step8ObserveFunc(func(context.Context, profile.Profile) Observation { return observation }),
 				SSHPolicy: gate, SSHTrust: gate, SSHCredentials: gate, SSH: ssh,
 			})
-			result := service.Run(context.Background(), Step8Request{RequestID: "terminal", Profile: serviceSavedProfile(), Consent: true})
+			result := service.Run(context.Background(), Step8Request{RequestID: "terminal", Generation: 1, Profile: serviceSavedProfile(), WSSConsent: true})
 			if result.Decision != DecisionTerminal || ssh.calls != 0 || len(gate.calls) != 0 {
 				t.Fatalf("result=%+v SSH=%d gate=%v", result, ssh.calls, gate.calls)
 			}

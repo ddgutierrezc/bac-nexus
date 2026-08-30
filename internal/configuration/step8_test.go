@@ -2,6 +2,7 @@ package configuration
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"testing"
 	"time"
@@ -299,5 +300,89 @@ func TestPostObservationGateZeroesCredentialOnTerminalRetrievalFailure(t *testin
 		if value != 0 {
 			t.Fatalf("credential was not zeroed: %q", fake.credential)
 		}
+	}
+}
+
+func TestStep8FallbackTicketsAreOpaqueBoundAndSingleUse(t *testing.T) {
+	now := time.Date(2026, time.August, 29, 12, 0, 0, 0, time.UTC)
+	tickets := newFallbackTicketStore(func() time.Time { return now })
+	claim := fallbackTicketClaim{Profile: "saved", RequestID: "wss-1", Generation: 7, Class: ReasonDaemonUnavailable}
+	ticket, err := tickets.issue(claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(ticket)
+	if err != nil || len(raw) != 24 {
+		t.Fatalf("ticket must be a 192-bit opaque value: len=%d err=%v", len(raw), err)
+	}
+	if err := tickets.consume(ticket, claim); err != nil {
+		t.Fatalf("bound ticket was rejected: %v", err)
+	}
+	if err := tickets.consume(ticket, claim); err == nil {
+		t.Fatal("replayed ticket was accepted")
+	}
+}
+
+func TestStep8FallbackTicketRejectsForgedMismatchedExpiredAndSupersededClaims(t *testing.T) {
+	now := time.Date(2026, time.August, 29, 12, 0, 0, 0, time.UTC)
+	tickets := newFallbackTicketStore(func() time.Time { return now })
+	claim := fallbackTicketClaim{Profile: "saved", RequestID: "wss-1", Generation: 7, Class: ReasonDaemonUnavailable}
+	ticket, err := tickets.issue(claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rejected := range []struct {
+		name   string
+		ticket string
+		claim  fallbackTicketClaim
+	}{
+		{"forged", "not-a-ticket", claim},
+		{"profile mismatch", ticket, fallbackTicketClaim{Profile: "other", RequestID: "wss-1", Generation: 7, Class: ReasonDaemonUnavailable}},
+		{"request mismatch", ticket, fallbackTicketClaim{Profile: "saved", RequestID: "wss-2", Generation: 7, Class: ReasonDaemonUnavailable}},
+		{"generation mismatch", ticket, fallbackTicketClaim{Profile: "saved", RequestID: "wss-1", Generation: 8, Class: ReasonDaemonUnavailable}},
+		{"class mismatch", ticket, fallbackTicketClaim{Profile: "saved", RequestID: "wss-1", Generation: 7, Class: ReasonDaemonPolicyDisabled}},
+	} {
+		t.Run(rejected.name, func(t *testing.T) {
+			if err := tickets.consume(rejected.ticket, rejected.claim); err == nil {
+				t.Fatal("mismatched ticket was accepted")
+			}
+		})
+	}
+	tickets.cancel(claim)
+	if err := tickets.consume(ticket, claim); err == nil {
+		t.Fatal("cancelled ticket was accepted")
+	}
+	supersededTickets := newFallbackTicketStore(func() time.Time { return now })
+	supersededTicket, err := supersededTickets.issue(claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	supersededTickets.supersede("saved", 8)
+	if err := supersededTickets.consume(supersededTicket, claim); err == nil {
+		t.Fatal("superseded ticket was accepted")
+	}
+
+	expiringTickets := newFallbackTicketStore(func() time.Time { return now })
+	expiringTicket, err := expiringTickets.issue(claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(5*time.Minute + time.Nanosecond)
+	if err := expiringTickets.consume(expiringTicket, claim); err == nil {
+		t.Fatal("expired ticket was accepted")
+	}
+}
+
+func TestStep8FallbackTicketsAcceptExactlyFiveEligibleClasses(t *testing.T) {
+	tickets := newFallbackTicketStore(time.Now)
+	for _, reason := range []Step8Reason{ReasonDaemonRefused, ReasonDaemonUnavailable, ReasonDaemonAvailabilityTimeout, ReasonDaemonPolicyDisabled, ReasonUnsupportedVersion} {
+		t.Run(string(reason), func(t *testing.T) {
+			if _, err := tickets.issue(fallbackTicketClaim{Profile: "saved", RequestID: "wss-" + string(reason), Generation: 1, Class: reason}); err != nil {
+				t.Fatalf("eligible class rejected: %v", err)
+			}
+		})
+	}
+	if _, err := tickets.issue(fallbackTicketClaim{Profile: "saved", RequestID: "wss-terminal", Generation: 1, Class: ReasonIdentityFailure}); err == nil {
+		t.Fatal("terminal class issued a fallback ticket")
 	}
 }

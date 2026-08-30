@@ -119,6 +119,32 @@ func TestHomeFunctionalFeedbackIsLosslessAcrossRenderMatrix(t *testing.T) {
 	}
 }
 
+func TestCanonicalWizardFramesHaveEightStepsWithoutJava(t *testing.T) {
+	for _, step := range []struct {
+		name   string
+		screen screen
+		label  string
+		proof  bool
+	}{
+		{"mapepire", screenProfileMapepire, "Step 4 of 8", false},
+		{"credentials", screenProfileCredentials, "Step 5 of 8", false},
+		{"review", screenProfileReview, "Step 6 of 8", false},
+		{"proof", screenProfileStep8Action, "Step 7 of 8", true},
+		{"completion", screenProfileCompletion, "Step 8 of 8", false},
+	} {
+		t.Run(step.name, func(t *testing.T) {
+			m := NewModel(&profileStoreStub{})
+			m.screen, m.noColor = step.screen, true
+			m.profileProof.enabled = step.proof
+			updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+			view := updated.(Model).View()
+			if !strings.Contains(view, step.label) || strings.Contains(view, "Step 5 of 8 — Java") || strings.Contains(view, "Paso 5 de 8 — Java") {
+				t.Fatalf("wizard frame = %q, want %q without a Java step", view, step.label)
+			}
+		})
+	}
+}
+
 func TestSecurityViewportReachabilityAndIndicatorsAcrossRenderMatrix(t *testing.T) {
 	for _, noColor := range []bool{false, true} {
 		for _, size := range []struct{ width, height int }{{120, 40}, {80, 24}, {40, 16}} {

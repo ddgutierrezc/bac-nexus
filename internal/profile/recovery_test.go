@@ -9,6 +9,23 @@ import (
 	"testing"
 )
 
+func TestPreparedCreateJournalRecordsOnlyRecoveryMetadata(t *testing.T) {
+	store := Store{Root: t.TempDir()}
+	journal := PreparedCreateJournal{
+		Profile: "wizard", TransactionID: "transaction-123", Phase: PreparedCreateProvisioning,
+	}
+	if err := store.WritePreparedCreate(journal); err != nil {
+		t.Fatalf("WritePreparedCreate() error = %v", err)
+	}
+	got, err := store.ReadPreparedCreate("wizard")
+	if err != nil {
+		t.Fatalf("ReadPreparedCreate() error = %v", err)
+	}
+	if got != journal {
+		t.Fatalf("journal = %#v, want %#v", got, journal)
+	}
+}
+
 func recoveryProfile(name string) Profile {
 	p := validProfile()
 	p.Name = name
