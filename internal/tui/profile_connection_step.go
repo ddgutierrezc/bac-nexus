@@ -22,7 +22,7 @@ const (
 const (
 	profileConnectionStepFooter = "Tab siguiente  •  Enter continuar  •  Esc volver  •  ? ayuda"
 	connectionPanelTitle        = "Crear perfil IBM i"
-	connectionStepIndicator     = "Paso 2 de 9 — Conexión"
+	connectionStepIndicator     = "Paso 2 de 8 — Conexión"
 )
 
 func newProfileConnectionInput(limit int) textinput.Model {
@@ -316,7 +316,7 @@ func (m Model) profileConnectionFocusRange(width, height int, t homeTheme) wizar
 }
 
 func renderProfileConnectionTitleRow(width int, t homeTheme) []string {
-	return renderWizardTitleRow(width, t, "Crear perfil IBM i", "Paso 2 de 9 — Conexión")
+	return renderWizardTitleRow(width, t, "Crear perfil IBM i", "Paso 2 de 8 — Conexión")
 }
 
 func (m Model) renderConnectionInputRow(label string, input textinput.Model, focus profileConnectionFocus, width int, t homeTheme) string {

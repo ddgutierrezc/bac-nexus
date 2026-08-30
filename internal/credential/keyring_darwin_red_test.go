@@ -19,6 +19,9 @@ func TestMacOSSetCommandUsesFixedSecurityAndEncodedStdin(t *testing.T) {
 	if strings.Contains(input, "native-secret") {
 		t.Fatalf("stdin command contains plaintext secret: %q", input)
 	}
+	if strings.Contains(strings.Join(command.Args, " "), "native-secret") {
+		t.Fatalf("command args contain plaintext secret: %q", command.Args)
+	}
 	if !strings.Contains(input, "add-generic-password") || !strings.Contains(input, "ibmi/production-1") {
 		t.Fatalf("stdin command = %q, want encoded exact set operation", input)
 	}

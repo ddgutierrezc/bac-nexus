@@ -317,6 +317,25 @@ type Store struct {
 	replace func(string, string) error
 }
 
+// Exists validates the exact stored profile before reporting it present. It is
+// used only while a prepared-create lock is held, before credential provisioning.
+func (s Store) Exists(name string) (bool, error) {
+	if err := ValidateName(name); err != nil {
+		return false, ErrProfileNotFound
+	}
+	if err := s.verifyRoot(); err != nil {
+		return false, err
+	}
+	_, err := s.Load(name)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func DefaultRoot() (string, error) {
 	root, err := os.UserConfigDir()
 	if err != nil {

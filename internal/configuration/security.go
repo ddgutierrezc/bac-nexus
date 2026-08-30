@@ -59,10 +59,21 @@ const (
 type CredentialService struct {
 	store CredentialBackend
 	input SecretInput
+	lock  ProfileCredentialLock
 }
 
-func NewCredentialService(store CredentialBackend, input SecretInput) *CredentialService {
-	return &CredentialService{store: store, input: input}
+// ProfileCredentialLock serializes Nexus credential mutations with profile
+// creation when the composition root provides the profile-root lock.
+type ProfileCredentialLock interface {
+	WithPreparedCreateLock(context.Context, string, func() error) error
+}
+
+func NewCredentialService(store CredentialBackend, input SecretInput, locks ...ProfileCredentialLock) *CredentialService {
+	service := &CredentialService{store: store, input: input}
+	if len(locks) > 0 {
+		service.lock = locks[0]
+	}
+	return service
 }
 
 func (s *CredentialService) Status(ctx context.Context, profileName string) (credential.Presence, error) {
@@ -95,6 +106,16 @@ func (s *CredentialService) Rotate(ctx context.Context, profileName string) (Cre
 }
 
 func (s *CredentialService) write(ctx context.Context, profileName string, outcome CredentialOutcome) (CredentialOutcome, error) {
+	var result CredentialOutcome
+	err := s.withProfileCredentialLock(ctx, profileName, func() error {
+		var err error
+		result, err = s.writeLocked(ctx, profileName, outcome)
+		return err
+	})
+	return result, err
+}
+
+func (s *CredentialService) writeLocked(ctx context.Context, profileName string, outcome CredentialOutcome) (CredentialOutcome, error) {
 	if s.store == nil || s.input == nil {
 		return "", ErrCredentialUnavailable
 	}
@@ -121,6 +142,16 @@ func (s *CredentialService) write(ctx context.Context, profileName string, outco
 }
 
 func (s *CredentialService) Delete(ctx context.Context, profileName, confirmation string) (CredentialOutcome, error) {
+	var result CredentialOutcome
+	err := s.withProfileCredentialLock(ctx, profileName, func() error {
+		var err error
+		result, err = s.deleteLocked(ctx, profileName, confirmation)
+		return err
+	})
+	return result, err
+}
+
+func (s *CredentialService) deleteLocked(ctx context.Context, profileName, confirmation string) (CredentialOutcome, error) {
 	if confirmation != "delete credential "+profileName {
 		return "", ErrConfirmationRequired
 	}
@@ -141,6 +172,13 @@ func (s *CredentialService) Delete(ctx context.Context, profileName, confirmatio
 		return "", mapCredentialError(err)
 	}
 	return CredentialOutcomeDeleted, nil
+}
+
+func (s *CredentialService) withProfileCredentialLock(ctx context.Context, profileName string, action func() error) error {
+	if s.lock == nil {
+		return action()
+	}
+	return s.lock.WithPreparedCreateLock(ctx, profileName, action)
 }
 
 func (s *CredentialService) Migrate(ctx context.Context, profileName string, vault credential.LegacyVault, confirmed bool) (CredentialOutcome, error) {

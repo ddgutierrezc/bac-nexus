@@ -1,5 +1,7 @@
 package configuration
 
+import "time"
+
 // Step8ProductionDependencies names the already-owned application boundaries
 // required to compose one production Step 8 runner. It does not expose a
 // generic SQL, shell, download, retry, or alternate-transport surface.
@@ -34,5 +36,6 @@ func NewStep8Production(deps Step8ProductionDependencies) Step8Service {
 		Markers:   deps.Markers,
 		Audit:     deps.Audit,
 		NowUnixMs: deps.NowUnixMs,
+		Tickets:   newFallbackTicketStore(time.Now),
 	}
 }

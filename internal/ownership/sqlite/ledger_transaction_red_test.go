@@ -53,6 +53,11 @@ func TestLedgerTransactionLockHelper(t *testing.T) {
 
 func TestLedgerAdmissionUsesExactRetrySchedule(t *testing.T) {
 	ledger := openTransactionLedger(t)
+	var retryDelays []time.Duration
+	ledger.retryWait = func(ctx context.Context, delay time.Duration) error {
+		retryDelays = append(retryDelays, delay)
+		return waitForRetry(ctx, delay)
+	}
 
 	startLedgerLock(t, ledger, "exclusive", 1100*time.Millisecond)
 	started := time.Now()
@@ -63,6 +68,15 @@ func TestLedgerAdmissionUsesExactRetrySchedule(t *testing.T) {
 	}
 	if elapsed < time.Second || elapsed > 1500*time.Millisecond {
 		t.Fatalf("Admit elapsed %s; want bounded 25ms+50ms+100ms retry schedule without extra delay", elapsed)
+	}
+	want := []time.Duration{25 * time.Millisecond, 50 * time.Millisecond, 100 * time.Millisecond}
+	if len(retryDelays) != len(want) {
+		t.Fatalf("retry delays = %v; want %v", retryDelays, want)
+	}
+	for i := range want {
+		if retryDelays[i] != want[i] {
+			t.Fatalf("retry delay %d = %s; want %s", i, retryDelays[i], want[i])
+		}
 	}
 }
 

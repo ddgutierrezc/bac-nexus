@@ -44,12 +44,16 @@ type KeyringStore struct {
 	native NativeKeyring
 }
 
+// nativeKeyring is an unexported construction seam so platform failure tests
+// never need to read or mutate a developer's real native credential store.
+var nativeKeyring = platformKeyring
+
 func NewKeyringStore(native NativeKeyring) *KeyringStore {
 	return &KeyringStore{native: native}
 }
 
 func NewNativeCredentialStore() *KeyringStore {
-	return NewKeyringStore(platformKeyring())
+	return NewKeyringStore(nativeKeyring())
 }
 
 func (s *KeyringStore) Get(profile string) ([]byte, error) {

@@ -57,7 +57,7 @@ func wizardOverflowIndicator(vp interface {
 }
 
 func (m *Model) refreshWizardViewport() {
-	if m.screen != screenProfileStep && m.screen != screenProfileConnection && m.screen != screenProfileIdentity && m.screen != screenProfileMapepire && m.screen != screenProfileStep8Action {
+	if m.screen != screenProfileStep && m.screen != screenProfileConnection && m.screen != screenProfileIdentity && m.screen != screenProfileMapepire && m.screen != screenProfileStep8Action && m.screen != screenProfileCompletion {
 		return
 	}
 	frameWidth, frameHeight := m.shellFrameDimensions()
@@ -85,8 +85,16 @@ func (m *Model) refreshWizardViewport() {
 		footer = m.text("wizard.footer.mapepire", nil)
 		panel = m.renderProfileMapepirePanel(width, height, t)
 	case screenProfileStep8Action:
-		footer = "Enter run  •  R retry  •  Esc back"
-		panel = m.renderStep8ActionPanel(width, height, t)
+		if m.profileProof.enabled {
+			footer = "Enter: consent and start • R: retry • O: omit • Esc: cancel"
+			panel = m.renderProfileProofPanel(width, height, t)
+		} else {
+			footer = "Enter run  •  R retry  •  Esc back"
+			panel = m.renderStep8ActionPanel(width, height, t)
+		}
+	case screenProfileCompletion:
+		footer = "Enter: finish"
+		panel = m.renderProfileCompletionPanel(width, height, t)
 	}
 	if m.status != "" {
 		if feedback, ok := m.wizardContextFeedback(); ok {
@@ -176,7 +184,12 @@ func (m Model) wizardPanelContent() string {
 	case screenProfileMapepire:
 		return m.renderProfileMapepirePanel(width, height, t)
 	case screenProfileStep8Action:
+		if m.profileProof.enabled {
+			return m.renderProfileProofPanel(width, height, t)
+		}
 		return m.renderStep8ActionPanel(width, height, t)
+	case screenProfileCompletion:
+		return m.renderProfileCompletionPanel(width, height, t)
 	}
 	return ""
 }

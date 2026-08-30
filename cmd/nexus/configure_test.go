@@ -88,8 +88,9 @@ func TestStep8ProductionRunnerWSSSuccessDoesNotInvokeSSHRuntime(t *testing.T) {
 	service.Markers, service.Audit = nil, nil
 
 	result := service.Run(context.Background(), configuration.Step8Request{
-		RequestID: "wss-success",
-		Profile:   profile.Profile{SchemaVersion: profile.SchemaVersionV3, Name: "profile-1", Host: "host.example", Port: 22, Username: "user", CredentialMode: profile.CredentialModePrompt},
+		RequestID:  "wss-success",
+		WSSConsent: true,
+		Profile:    profile.Profile{SchemaVersion: profile.SchemaVersionV3, Name: "profile-1", Host: "host.example", Port: 22, Username: "user", CredentialMode: profile.CredentialModePrompt},
 	})
 	if result.Decision != configuration.DecisionWSSSelected || result.Class != configuration.ResultProofSuccess || !result.Cleanup {
 		t.Fatalf("WSS result = %+v", result)

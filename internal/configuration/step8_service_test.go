@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
 	"bac-nexus/internal/profile"
@@ -39,7 +40,7 @@ func TestStep8ServiceRunsWSSProofAfterPreAuthAndCleansUp(t *testing.T) {
 		}),
 	}
 
-	result := service.Run(context.Background(), Step8Request{RequestID: "request-1", Profile: serviceSavedProfile()})
+	result := service.Run(context.Background(), Step8Request{RequestID: "request-1", Profile: serviceSavedProfile(), WSSConsent: true})
 	if result.Decision != DecisionWSSSelected || result.Class != ResultProofSuccess || !result.Cleanup || result.ProofRevision != ProofRevision {
 		t.Fatalf("unexpected result: %#v", result)
 	}
@@ -70,7 +71,7 @@ func TestStep8ServiceTerminalAndHistoricalMarkerNeverRetrieveCredential(t *testi
 		}),
 		Markers: &step8Markers{trace: &trace},
 	}
-	result := service.Run(context.Background(), Step8Request{RequestID: "request-2", Profile: serviceSavedProfile()})
+	result := service.Run(context.Background(), Step8Request{RequestID: "request-2", Profile: serviceSavedProfile(), WSSConsent: true})
 	if result.Decision != DecisionTerminal || result.Class != ResultIdentityFailure || credentials != 0 {
 		t.Fatalf("terminal result = %#v, credentials = %d", result, credentials)
 	}
@@ -93,7 +94,7 @@ func TestStep8ServiceProofFailureClosesAndDoesNotWriteMarker(t *testing.T) {
 		Markers: &step8Markers{trace: &trace},
 		Audit:   step8AuditFunc(func(context.Context, Step8AuditEvent) error { trace = append(trace, "audit"); return nil }),
 	}
-	result := service.Run(context.Background(), Step8Request{RequestID: "request-4", Profile: serviceSavedProfile()})
+	result := service.Run(context.Background(), Step8Request{RequestID: "request-4", Profile: serviceSavedProfile(), WSSConsent: true})
 	if result.Decision != DecisionTerminal || result.Class != ResultProofFailure {
 		t.Fatalf("proof failure = %#v", result)
 	}
@@ -127,7 +128,7 @@ func TestStep8ServiceUnknownObservationFailsClosedBeforeCredential(t *testing.T)
 			return []byte("secret"), nil
 		}),
 	}
-	result := service.Run(context.Background(), Step8Request{RequestID: "request-5", Profile: serviceSavedProfile()})
+	result := service.Run(context.Background(), Step8Request{RequestID: "request-5", Profile: serviceSavedProfile(), WSSConsent: true})
 	if result.Decision != DecisionTerminal || result.Class != ResultDowngradeBlocked || credentials != 0 {
 		t.Fatalf("unknown result = %#v, credentials = %d", result, credentials)
 	}
@@ -163,9 +164,11 @@ func TestStep8ServiceFallsBackForExactlyFiveEligibleReasonsWithGateCredential(t 
 				NowUnixMs: func() int64 {
 					return 1
 				},
+				Tickets: newFallbackTicketStore(time.Now),
 			}
 
-			result := service.Run(context.Background(), Step8Request{RequestID: "request-ssh", Profile: serviceSavedProfile(), Consent: true})
+			wss := service.Run(context.Background(), Step8Request{RequestID: "request-ssh", Generation: 1, Profile: serviceSavedProfile(), WSSConsent: true})
+			result := service.RunSSH(context.Background(), Step8Request{RequestID: "request-ssh", Generation: 1, Profile: serviceSavedProfile(), FallbackTicket: wss.FallbackTicket, FallbackClass: wss.FallbackClass, SSHConsent: true})
 			if result.Decision != DecisionSSHEligible || result.Class != ResultProofSuccess || !result.Cleanup {
 				t.Fatalf("result=%+v", result)
 			}
@@ -211,9 +214,11 @@ func TestStep8ServiceFallbackKeepsPrimaryFailureAndSuppressesMarker(t *testing.T
 			audit = event
 			return nil
 		}),
+		Tickets: newFallbackTicketStore(time.Now),
 	}
 
-	result := service.Run(context.Background(), Step8Request{RequestID: "request-cleanup", Profile: serviceSavedProfile(), Consent: true})
+	wss := service.Run(context.Background(), Step8Request{RequestID: "request-cleanup", Generation: 1, Profile: serviceSavedProfile(), WSSConsent: true})
+	result := service.RunSSH(context.Background(), Step8Request{RequestID: "request-cleanup", Generation: 1, Profile: serviceSavedProfile(), FallbackTicket: wss.FallbackTicket, FallbackClass: wss.FallbackClass, SSHConsent: true})
 	if result.Class != ResultProofFailure || result.Cleanup {
 		t.Fatalf("result=%+v", result)
 	}
@@ -268,6 +273,98 @@ func TestStep8ServiceNeverFallsBackForWSSOrTerminalObservations(t *testing.T) {
 			_ = service.Run(context.Background(), Step8Request{RequestID: "request-terminal", Profile: serviceSavedProfile()})
 			if factory.calls != 0 || len(gate.calls) != 0 {
 				t.Fatalf("fallback calls runtime=%d gates=%v", factory.calls, gate.calls)
+			}
+		})
+	}
+}
+
+func TestStep8ServiceRequiresExplicitWSSConsentBeforeTrustCredentialsOrNetwork(t *testing.T) {
+	observeCalls, credentialCalls, wssCalls := 0, 0, 0
+	service := Step8Service{
+		Observe: step8ObserveFunc(func(context.Context, profile.Profile) Observation {
+			observeCalls++
+			return Observation{Decision: DecisionWSSSelected, Reason: ReasonWSSSelected}
+		}),
+		Credentials: step8CredentialsFunc(func(context.Context, string, profile.CredentialMode) ([]byte, error) {
+			credentialCalls++
+			return []byte("opaque"), nil
+		}),
+		WSS: step8WSSFunc(func(context.Context, profile.Profile) (Step8WSSSession, error) {
+			wssCalls++
+			return &step8Session{}, nil
+		}),
+	}
+	result := service.Run(context.Background(), Step8Request{RequestID: "wss-no-consent", Generation: 1, Profile: serviceSavedProfile()})
+	if result.Class != ResultConsentDeclined || observeCalls != 0 || credentialCalls != 0 || wssCalls != 0 {
+		t.Fatalf("result=%+v observe=%d credential=%d wss=%d", result, observeCalls, credentialCalls, wssCalls)
+	}
+}
+
+func TestStep8ServiceIssuesTicketThenRequiresSeparateSSHConsent(t *testing.T) {
+	now := time.Date(2026, time.August, 29, 12, 0, 0, 0, time.UTC)
+	client := &serviceSSHClient{}
+	factory := &serviceSSHFactory{runtime: &SSHRuntime{client: client, remoteJAR: "/tmp/pinned.jar"}}
+	gate := &gateFake{credential: []byte("opaque")}
+	service := Step8Service{
+		Observe: step8ObserveFunc(func(context.Context, profile.Profile) Observation {
+			return Observation{Decision: DecisionSSHEligible, Reason: ReasonDaemonUnavailable}
+		}),
+		Gate:    PostObservationGate{Policy: gate, Trust: gate, Credentials: gate},
+		SSH:     factory,
+		Tickets: newFallbackTicketStore(func() time.Time { return now }),
+	}
+	wss := service.Run(context.Background(), Step8Request{RequestID: "wss-1", Generation: 1, Profile: serviceSavedProfile(), WSSConsent: true})
+	if wss.Decision != DecisionSSHEligible || wss.FallbackTicket == "" || factory.calls != 0 {
+		t.Fatalf("wss=%+v ssh calls=%d", wss, factory.calls)
+	}
+	rejected := service.RunSSH(context.Background(), Step8Request{RequestID: "wss-1", Generation: 1, Profile: serviceSavedProfile(), FallbackTicket: wss.FallbackTicket, FallbackClass: wss.FallbackClass})
+	if rejected.Class != ResultConsentDeclined || factory.calls != 0 {
+		t.Fatalf("rejected=%+v ssh calls=%d", rejected, factory.calls)
+	}
+	accepted := service.RunSSH(context.Background(), Step8Request{RequestID: "wss-1", Generation: 1, Profile: serviceSavedProfile(), FallbackTicket: wss.FallbackTicket, FallbackClass: wss.FallbackClass, SSHConsent: true})
+	if accepted.Class != ResultProofSuccess || factory.calls != 1 || client.proofs != 1 {
+		t.Fatalf("accepted=%+v ssh calls=%d proofs=%d", accepted, factory.calls, client.proofs)
+	}
+}
+
+func TestStep8ServiceRejectedTicketAdmissionsHaveZeroSSHEffects(t *testing.T) {
+	now := time.Date(2026, time.August, 29, 12, 0, 0, 0, time.UTC)
+	claim := fallbackTicketClaim{Profile: "profile-1", RequestID: "wss-1", Generation: 1, Class: ReasonDaemonUnavailable}
+	for _, tt := range []struct {
+		name    string
+		prepare func(*fallbackTicketStore, string)
+		request func(string) Step8Request
+	}{
+		{"forgery", func(*fallbackTicketStore, string) {}, func(string) Step8Request {
+			return Step8Request{RequestID: "wss-1", Generation: 1, Profile: serviceSavedProfile(), FallbackTicket: "forged", FallbackClass: ReasonDaemonUnavailable, SSHConsent: true}
+		}},
+		{"mismatch", func(*fallbackTicketStore, string) {}, func(ticket string) Step8Request {
+			return Step8Request{RequestID: "wss-1", Generation: 2, Profile: serviceSavedProfile(), FallbackTicket: ticket, FallbackClass: ReasonDaemonUnavailable, SSHConsent: true}
+		}},
+		{"replay", func(tickets *fallbackTicketStore, ticket string) { _ = tickets.consume(ticket, claim) }, func(ticket string) Step8Request {
+			return Step8Request{RequestID: "wss-1", Generation: 1, Profile: serviceSavedProfile(), FallbackTicket: ticket, FallbackClass: ReasonDaemonUnavailable, SSHConsent: true}
+		}},
+		{"cancelled", func(tickets *fallbackTicketStore, _ string) { tickets.cancel(claim) }, func(ticket string) Step8Request {
+			return Step8Request{RequestID: "wss-1", Generation: 1, Profile: serviceSavedProfile(), FallbackTicket: ticket, FallbackClass: ReasonDaemonUnavailable, SSHConsent: true}
+		}},
+		{"superseded", func(tickets *fallbackTicketStore, _ string) { tickets.supersede("profile-1", 2) }, func(ticket string) Step8Request {
+			return Step8Request{RequestID: "wss-1", Generation: 1, Profile: serviceSavedProfile(), FallbackTicket: ticket, FallbackClass: ReasonDaemonUnavailable, SSHConsent: true}
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tickets := newFallbackTicketStore(func() time.Time { return now })
+			ticket, err := tickets.issue(claim)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tt.prepare(tickets, ticket)
+			gate := &gateFake{credential: []byte("opaque")}
+			client := &serviceSSHClient{}
+			factory := &serviceSSHFactory{runtime: &SSHRuntime{client: client, remoteJAR: "/tmp/pinned.jar"}}
+			service := Step8Service{Gate: PostObservationGate{Policy: gate, Trust: gate, Credentials: gate}, SSH: factory, Tickets: tickets}
+			result := service.RunSSH(context.Background(), tt.request(ticket))
+			if result.Class != ResultDowngradeBlocked || factory.calls != 0 || client.proofs != 0 || len(gate.calls) != 0 {
+				t.Fatalf("result=%+v factory=%d proofs=%d gates=%v", result, factory.calls, client.proofs, gate.calls)
 			}
 		})
 	}

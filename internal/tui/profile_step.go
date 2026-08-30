@@ -257,7 +257,7 @@ func (m Model) profileStepGuidance(width, height int, t homeTheme) []string {
 // renderProfileStepTitleRow keeps the wizard title and step indicator aligned
 // to opposite edges whenever their display widths leave a readable middle gap.
 func renderProfileStepTitleRow(width int, t homeTheme) []string {
-	return renderWizardTitleRow(width, t, "Crear perfil IBM i", "Paso 1 de 9 — Perfil")
+	return renderWizardTitleRow(width, t, "Crear perfil IBM i", "Paso 1 de 8 — Perfil")
 }
 
 func appendProfileStepGap(lines []string, size int) []string {

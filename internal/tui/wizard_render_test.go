@@ -46,7 +46,7 @@ func TestWizardRenderThemeHierarchy(t *testing.T) {
 
 func TestWizardTitleAndDividerHelpersAreShared(t *testing.T) {
 	theme := newHomeTheme(true)
-	if got, want := renderProfileStepTitleRow(66, theme), renderWizardTitleRow(66, theme, "Crear perfil IBM i", "Paso 1 de 9 — Perfil"); strings.Join(got, "\n") != strings.Join(want, "\n") {
+	if got, want := renderProfileStepTitleRow(66, theme), renderWizardTitleRow(66, theme, "Crear perfil IBM i", "Paso 1 de 8 — Perfil"); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("Step 1 title helper drifted: %q != %q", got, want)
 	}
 	if got, want := renderProfileConnectionTitleRow(66, theme), renderWizardTitleRow(66, theme, connectionPanelTitle, connectionStepIndicator); strings.Join(got, "\n") != strings.Join(want, "\n") {
@@ -537,7 +537,7 @@ func TestProfileConnectionColorRenderPreservesHierarchyAndBounds(t *testing.T) {
 	m.noColor = false
 	view := m.View()
 	t.Logf("Step 2 color render 120x40:\n%s", view)
-	if !strings.Contains(view, "\x1b[") || !strings.Contains(view, "Paso 2 de 9 — Conexión") || !strings.Contains(view, "▸") {
+	if !strings.Contains(view, "\x1b[") || !strings.Contains(view, "Paso 2 de 8 — Conexión") || !strings.Contains(view, "▸") {
 		t.Fatalf("color render lost hierarchy: %q", view)
 	}
 	if lipgloss.Width(view) > 120 || lipgloss.Height(view) > 40 {
