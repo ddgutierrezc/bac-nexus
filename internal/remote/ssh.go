@@ -187,6 +187,41 @@ type SecretPrompt struct {
 	Read       func(int) ([]byte, error)
 }
 
+// PromptCode is the secret-free result of terminal-only credential capture.
+// It is safe for a Bubble Tea command result, audit record, or user feedback.
+type PromptCode string
+
+const (
+	PromptCaptured            PromptCode = "captured"
+	PromptTerminalUnavailable PromptCode = "terminal_unavailable"
+	PromptEOF                 PromptCode = "eof"
+	PromptCancelled           PromptCode = "cancelled"
+	PromptUnavailable         PromptCode = "unavailable"
+)
+
+// Capture validates the terminal boundary before calling the injected reader.
+// It returns owned bytes only on success; every rejected reader buffer is zeroed.
+func (p SecretPrompt) Capture(ctx context.Context, input, output *os.File, label string) ([]byte, PromptCode) {
+	if ctx == nil || ctx.Err() != nil {
+		return nil, PromptCancelled
+	}
+	if input == nil || output == nil || p.Input != input || p.Output != output || p.IsTerminal == nil || p.Read == nil || !p.IsTerminal(int(input.Fd())) || !p.IsTerminal(int(output.Fd())) {
+		return nil, PromptTerminalUnavailable
+	}
+	secret, err := p.Read(int(input.Fd()))
+	if err != nil || ctx.Err() != nil || len(secret) == 0 {
+		Zero(secret)
+		if errors.Is(err, io.EOF) {
+			return nil, PromptEOF
+		}
+		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+			return nil, PromptCancelled
+		}
+		return nil, PromptUnavailable
+	}
+	return secret, PromptCaptured
+}
+
 type PasswordPrompt = SecretPrompt
 
 func TerminalSecretPrompt() SecretPrompt {

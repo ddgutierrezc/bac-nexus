@@ -113,6 +113,34 @@ func TestKeyringCredentialStoreRedactsNativeFailuresAndFailsClosed(t *testing.T)
 	}
 }
 
+func TestKeyringCapabilityIsIndependentOfAccountPresenceAndErrors(t *testing.T) {
+	unsupported := NewKeyringStore(nil)
+	if got := unsupported.Capability(); got != CapabilityUnsupported {
+		t.Fatalf("unsupported capability = %q", got)
+	}
+
+	for _, tt := range []struct {
+		name     string
+		native   *keyringFake
+		presence Presence
+	}{
+		{name: "absent account", native: &keyringFake{}, presence: PresenceAbsent},
+		{name: "present account", native: &keyringFake{secret: "credential"}, presence: PresencePresent},
+		{name: "account error", native: &keyringFake{err: errors.New("native failure")}, presence: PresenceUnavailable},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			store := NewKeyringStore(tt.native)
+			if got := store.Capability(); got != CapabilitySupported {
+				t.Fatalf("capability = %q, want supported", got)
+			}
+			got, err := store.Status("production")
+			if err != nil || got != tt.presence {
+				t.Fatalf("Status() = %q, %v; want %q, nil", got, err, tt.presence)
+			}
+		})
+	}
+}
+
 func TestKeyringCredentialStoreMigrationDeletesVaultOnlyAfterExactReadback(t *testing.T) {
 	secret := []byte("legacy-secret")
 	vault := &legacyVaultFake{secret: append([]byte(nil), secret...)}

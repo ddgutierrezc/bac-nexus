@@ -2,8 +2,6 @@ package configuration
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"sync"
 
@@ -16,20 +14,6 @@ var (
 	ErrCredentialCleanupRequired = errors.New("credential cleanup required")
 	ErrProfileAlreadyExists      = errors.New("profile already exists")
 )
-
-// CredentialProvisioner keeps transient credential handling outside profile
-// creation requests and results. It must not return secret material.
-type CredentialProvisioner interface {
-	Status(string) (credential.Presence, error)
-	Provision(context.Context, string) (CredentialProvisionResult, error)
-}
-
-// CredentialProvisionResult communicates only recovery state. Ownership tokens
-// are intentionally not retained because the native keyring cannot conditionally
-// delete a credential by ownership.
-type CredentialProvisionResult struct {
-	CleanupRequired bool
-}
 
 // CreateProfileRequest binds one save intent to an immutable non-secret draft.
 type CreateProfileRequest struct {
@@ -57,15 +41,13 @@ type createCall struct {
 // ProfileCreator coordinates prepared profile creation and idempotent request
 // replay. It never accepts, stores, or returns credential bytes.
 type ProfileCreator struct {
-	profiles    profile.Store
-	credentials CredentialProvisioner
-
+	profiles profile.Store
 	mu       sync.Mutex
 	requests map[string]*createCall
 }
 
-func NewProfileCreator(profiles profile.Store, credentials CredentialProvisioner) *ProfileCreator {
-	return &ProfileCreator{profiles: profiles, credentials: credentials, requests: make(map[string]*createCall)}
+func NewProfileCreator(profiles profile.Store, _ CredentialProvisioner) *ProfileCreator {
+	return &ProfileCreator{profiles: profiles, requests: make(map[string]*createCall)}
 }
 
 func (c *ProfileCreator) Create(ctx context.Context, request CreateProfileRequest) (CreateProfileResult, error) {
@@ -97,7 +79,10 @@ func (c *ProfileCreator) Create(ctx context.Context, request CreateProfileReques
 }
 
 func (c *ProfileCreator) create(ctx context.Context, request CreateProfileRequest) (CreateProfileResult, error) {
-	if c.credentials == nil {
+	if request.Profile.CredentialMode == profile.CredentialModeKeyring {
+		return CreateProfileResult{}, ErrCredentialUnavailable
+	}
+	if request.Profile.CredentialMode != profile.CredentialModePrompt {
 		return CreateProfileResult{}, ErrCredentialUnavailable
 	}
 	result := CreateProfileResult{RequestID: request.RequestID, Generation: request.Generation, DraftDigest: request.DraftDigest, Profile: request.Profile}
@@ -117,44 +102,10 @@ func (c *ProfileCreator) create(ctx context.Context, request CreateProfileReques
 		if exists {
 			return ErrProfileAlreadyExists
 		}
-
-		journal := profile.PreparedCreateJournal{
-			Profile: request.Profile.Name, TransactionID: createTransactionID(), Phase: profile.PreparedCreateProvisioning,
-		}
-		if err := c.profiles.WritePreparedCreate(journal); err != nil {
-			return err
-		}
-		presence, err := c.credentials.Status(request.Profile.Name)
-		if err != nil || presence == credential.PresenceUnavailable {
-			_ = c.profiles.ClearPreparedCreate(request.Profile.Name)
-			return ErrCredentialUnavailable
-		}
-		if presence == credential.PresencePresent {
-			_ = c.profiles.ClearPreparedCreate(request.Profile.Name)
-			return ErrCredentialExists
-		}
-		provisioned, err := c.credentials.Provision(ctx, request.Profile.Name)
-		if err != nil {
-			if provisioned.CleanupRequired {
-				journal.Phase, journal.CleanupRequired = profile.PreparedCreateCleanupRequired, true
-				if writeErr := c.profiles.WritePreparedCreate(journal); writeErr != nil {
-					return ErrCredentialCleanupRequired
-				}
-				return ErrCredentialCleanupRequired
-			}
-			_ = c.profiles.ClearPreparedCreate(request.Profile.Name)
-			return ErrCredentialUnavailable
-		}
-		journal.Phase = profile.PreparedCreateSaving
-		if err := c.profiles.WritePreparedCreate(journal); err != nil {
-			return ErrCredentialCleanupRequired
-		}
-		if _, err := c.profiles.Save(request.Profile); err != nil {
-			journal.Phase, journal.CleanupRequired = profile.PreparedCreateCleanupRequired, true
-			_ = c.profiles.WritePreparedCreate(journal)
-			return ErrCredentialCleanupRequired
-		}
-		return c.profiles.ClearPreparedCreate(request.Profile.Name)
+		// Prompt mode deliberately persists no credential material. It is local-only
+		// profile creation and does not contact IBM i or provision a native keyring.
+		_, err = c.profiles.Save(request.Profile)
+		return err
 	})
 	if err != nil {
 		return CreateProfileResult{}, err
@@ -173,10 +124,11 @@ func sameCreateIdentity(left, right CreateProfileRequest) bool {
 	return left.RequestID == right.RequestID && left.Generation == right.Generation && left.DraftDigest == right.DraftDigest && left.Profile == right.Profile
 }
 
-func createTransactionID() string {
-	var value [16]byte
-	if _, err := rand.Read(value[:]); err != nil {
-		return "unavailable"
-	}
-	return hex.EncodeToString(value[:])
+// CredentialProvisioner is retained as the composition boundary for a future
+// explicitly approved secure-secret flow. Prompt-first creation never calls it.
+type CredentialProvisioner interface {
+	Status(string) (credential.Presence, error)
+	Provision(context.Context, string) (CredentialProvisionResult, error)
 }
+
+type CredentialProvisionResult struct{ CleanupRequired bool }

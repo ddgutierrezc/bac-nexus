@@ -17,6 +17,16 @@ const (
 	PresenceUnavailable Presence = "unavailable"
 )
 
+// Capability describes whether this installation can use a native keyring.
+// It intentionally says nothing about a specific profile account.
+type Capability string
+
+const (
+	CapabilitySupported   Capability = "supported"
+	CapabilityUnsupported Capability = "unsupported"
+	CapabilityUnavailable Capability = "unavailable"
+)
+
 type StatusStore interface {
 	Status(profile string) (Presence, error)
 }
@@ -54,6 +64,13 @@ func NewKeyringStore(native NativeKeyring) *KeyringStore {
 
 func NewNativeCredentialStore() *KeyringStore {
 	return NewKeyringStore(nativeKeyring())
+}
+
+func (s *KeyringStore) Capability() Capability {
+	if s == nil || s.native == nil {
+		return CapabilityUnsupported
+	}
+	return CapabilitySupported
 }
 
 func (s *KeyringStore) Get(profile string) ([]byte, error) {
