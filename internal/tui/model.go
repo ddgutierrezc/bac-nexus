@@ -16,7 +16,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"bac-nexus/internal/configuration"
-	"bac-nexus/internal/credential"
 	"bac-nexus/internal/localization"
 	"bac-nexus/internal/profile"
 	"bac-nexus/internal/remote"
@@ -32,8 +31,6 @@ const (
 	screenDetail
 	screenForm
 	screenProfileConnection
-	screenProfileCredentials
-	screenProfileReview
 	screenProfileStep8Action
 	screenProfileCompletion
 	screenConfirm
@@ -107,16 +104,6 @@ type Model struct {
 	profileDraftName     string
 	connectionDraft      profileConnectionDraft
 	identityDraft        profileIdentityDraft
-	credentialMode       profile.CredentialMode
-	credentialFocus      profileCredentialsFocus
-	credentialStatus     credentialStatusChecker
-	credentialRequest    uint64
-	profileCreator       profileCreator
-	profileReviewFocus   profileReviewFocus
-	createRequest        string
-	createGeneration     uint64
-	createPending        bool
-	createCancel         context.CancelFunc
 	step8Runner          configuration.Step8Runner
 	step8Action          step8Action
 	profileProof         profileProofState
@@ -285,29 +272,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.profiles = replaceProfile(m.profiles, msg.profile)
 		m.screen, m.status, m.err = screenDetail, m.text("operation.profile_saved", nil), nil
 		return m, nil
-	case profileCredentialStatusMsg:
-		if msg.request != m.credentialRequest || m.screen != screenProfileCredentials {
-			return m, nil
-		}
-		if msg.presence == credential.PresenceUnavailable {
-			m.status = "[ERR] Secure keyring is unavailable; choose prompt"
-			return m, nil
-		}
-		m.status, m.screen = "", screenProfileReview
-		return m, nil
-	case profileCreateMsg:
-		if msg.request != m.createRequest || msg.generation != m.createGeneration || !m.createPending {
-			return m, nil
-		}
-		m.createPending, m.createCancel = false, nil
-		if msg.err != nil {
-			m.status = "[ERR] Profile could not be saved"
-			return m, nil
-		}
-		m.step8Action = step8Action{request: configuration.Step8Request{Profile: msg.result.Profile}}
-		m.profileProof = profileProofState{enabled: true}
-		m.screen, m.status = screenProfileStep8Action, "[OK] Profile saved"
-		return m, nil
 	case step8ActionMsg:
 		m.applyStep8Action(msg)
 		m.refreshWizardViewport()
@@ -360,7 +324,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = screenList
 			return m, m.reload()
 		}
-		if m.screen == screenProfileCredentials || m.screen == screenProfileReview || m.screen == screenProfileStep8Action || m.screen == screenProfileCompletion {
+		if m.screen == screenProfileStep8Action || m.screen == screenProfileCompletion {
 			switch msg.String() {
 			case "up", "k":
 				m.wizardViewport.LineUp(1)
@@ -396,18 +360,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			security := updated.(SecurityModel)
 			m.security = &security
 			return m, cmd
-		}
-		if m.screen == screenProfileCredentials {
-			updated, cmd := m.updateProfileCredentialsStep(msg)
-			wizard := updated.(Model)
-			wizard.refreshWizardViewport()
-			return wizard, cmd
-		}
-		if m.screen == screenProfileReview {
-			updated, cmd := m.updateProfileReviewStep(msg)
-			wizard := updated.(Model)
-			wizard.refreshWizardViewport()
-			return wizard, cmd
 		}
 		if m.screen == screenProfileStep8Action {
 			if !m.profileProof.enabled {
@@ -779,10 +731,6 @@ func (m Model) View() string {
 			fmt.Fprintf(&b, "%s: %s\n", m.form[i].label, m.form[i].input.View())
 		}
 		b.WriteString("\n" + m.text("form.footer", nil) + "\n")
-	case screenProfileCredentials:
-		return m.renderProfileCredentialsStep()
-	case screenProfileReview:
-		return m.renderProfileReviewStep()
 	case screenProfileStep8Action:
 		if m.profileProof.enabled {
 			return m.renderProfileProofStep()

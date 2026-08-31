@@ -57,7 +57,7 @@ func wizardOverflowIndicator(vp interface {
 }
 
 func (m *Model) refreshWizardViewport() {
-	if m.screen != screenProfileCredentials && m.screen != screenProfileReview && m.screen != screenProfileStep8Action && m.screen != screenProfileCompletion {
+	if m.screen != screenProfileStep8Action && m.screen != screenProfileCompletion {
 		return
 	}
 	frameWidth, frameHeight := m.shellFrameDimensions()
@@ -67,12 +67,6 @@ func (m *Model) refreshWizardViewport() {
 	panel := ""
 	anchor := ""
 	switch m.screen {
-	case screenProfileCredentials:
-		footer = "Tab: move • Enter: select • Esc: back"
-		panel = m.renderProfileCredentialsPanel(width, height, t)
-	case screenProfileReview:
-		footer = "Enter: save • Esc: back"
-		panel = m.renderProfileReviewPanel(width, height, t)
 	case screenProfileStep8Action:
 		if m.profileProof.enabled {
 			footer = "Enter: consent and start • R: retry • O: omit • Esc: cancel"
@@ -158,10 +152,6 @@ func (m Model) wizardPanelContent() string {
 	width, height := m.shellInnerWidth(frameWidth), m.shellInnerHeight(frameHeight)
 	t := newHomeTheme(m.noColor)
 	switch m.screen {
-	case screenProfileCredentials:
-		return m.renderProfileCredentialsPanel(width, height, t)
-	case screenProfileReview:
-		return m.renderProfileReviewPanel(width, height, t)
 	case screenProfileStep8Action:
 		if m.profileProof.enabled {
 			return m.renderProfileProofPanel(width, height, t)

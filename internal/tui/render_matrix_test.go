@@ -133,8 +133,6 @@ func TestRemainingWizardFramesRemainBoundedWithoutRenumbering(t *testing.T) {
 		label  string
 		proof  bool
 	}{
-		{"credentials", screenProfileCredentials, "Step 5 of 8", false},
-		{"review", screenProfileReview, "Step 6 of 8", false},
 		{"proof", screenProfileStep8Action, "Step 7 of 8", true},
 		{"completion", screenProfileCompletion, "Step 8 of 8", false},
 	} {
