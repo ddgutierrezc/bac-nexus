@@ -21,6 +21,7 @@ import (
 	"bac-nexus/internal/hostidentity"
 	"bac-nexus/internal/localization"
 	"bac-nexus/internal/profile"
+	"bac-nexus/internal/remote"
 )
 
 const profileLimit = 128
@@ -42,6 +43,9 @@ const (
 	screenProfileCompletion
 	screenConfirm
 	screenSecurity
+	screenDirectOnboarding
+	screenDirectOnboardingRunning
+	screenDirectOnboardingCompletion
 )
 
 type profileStore interface {
@@ -124,72 +128,83 @@ type field struct {
 // Model is the deterministic shell model. It contains profile metadata only;
 // credential material is intentionally not accepted by this adapter.
 type Model struct {
-	store              profileStore
-	screen             screen
-	profiles           []profile.Profile
-	selected           int
-	homeSelected       homeActionID
-	homeFocus          homeFocus
-	menuOffset         int
-	readinessOffset    int
-	homeMenuRows       []homeMenuRow
-	homeReadinessRows  []string
-	profilesLoaded     bool
-	profilesLoadFailed bool
-	form               []field
-	formEdit           string
-	formReturn         screen
-	profileName        textinput.Model
-	profileFocus       profileStepFocus
-	profileDraftName   string
-	connectionHost     textinput.Model
-	connectionUsername textinput.Model
-	connectionPort     textinput.Model
-	connectionFocus    profileConnectionFocus
-	connectionDraft    profileConnectionDraft
-	connectionReady    bool
-	connectionValidate bool
-	identityFocus      profileIdentityFocus
-	identityPhase      profileIdentityPhase
-	identityCandidate  hostidentity.Candidate
-	identityDraft      profileIdentityDraft
-	identityRequest    uint64
-	identityCancel     context.CancelFunc
-	identityInspector  hostidentity.Inspector
-	identityParent     context.Context
-	identityTimeout    time.Duration
-	mapepireProbe      preAuthProbe
-	mapepireFactory    func(string, int) preAuthProbe
-	mapepireResolution configuration.Resolution
-	credentialMode     profile.CredentialMode
-	credentialFocus    profileCredentialsFocus
-	credentialStatus   credentialStatusChecker
-	credentialRequest  uint64
-	profileCreator     profileCreator
-	profileReviewFocus profileReviewFocus
-	createRequest      string
-	createGeneration   uint64
-	createPending      bool
-	createCancel       context.CancelFunc
-	step8Runner        configuration.Step8Runner
-	step8Action        step8Action
-	profileProof       profileProofState
-	profileCompletion  profileCompletionOutcome
-	wizardViewport     viewport.Model
-	legacyViewport     viewport.Model
-	legacyViewportText string
-	wizardFocusStart   int
-	wizardFocusEnd     int
-	confirm            string
-	confirmInput       textinput.Model
-	width              int
-	height             int
-	noColor            bool
-	buildInfo          BuildInfo
-	status             string
-	err                error
-	security           *SecurityModel
-	localizer          localization.Localizer
+	store                profileStore
+	screen               screen
+	profiles             []profile.Profile
+	selected             int
+	homeSelected         homeActionID
+	homeFocus            homeFocus
+	menuOffset           int
+	readinessOffset      int
+	homeMenuRows         []homeMenuRow
+	homeReadinessRows    []string
+	profilesLoaded       bool
+	profilesLoadFailed   bool
+	form                 []field
+	formEdit             string
+	formReturn           screen
+	profileName          textinput.Model
+	profileFocus         profileStepFocus
+	profileDraftName     string
+	connectionHost       textinput.Model
+	connectionUsername   textinput.Model
+	connectionPort       textinput.Model
+	connectionFocus      profileConnectionFocus
+	connectionDraft      profileConnectionDraft
+	connectionReady      bool
+	connectionValidate   bool
+	identityFocus        profileIdentityFocus
+	identityPhase        profileIdentityPhase
+	identityCandidate    hostidentity.Candidate
+	identityDraft        profileIdentityDraft
+	identityRequest      uint64
+	identityCancel       context.CancelFunc
+	identityInspector    hostidentity.Inspector
+	identityParent       context.Context
+	identityTimeout      time.Duration
+	mapepireProbe        preAuthProbe
+	mapepireFactory      func(string, int) preAuthProbe
+	mapepireResolution   configuration.Resolution
+	credentialMode       profile.CredentialMode
+	credentialFocus      profileCredentialsFocus
+	credentialStatus     credentialStatusChecker
+	credentialRequest    uint64
+	profileCreator       profileCreator
+	profileReviewFocus   profileReviewFocus
+	createRequest        string
+	createGeneration     uint64
+	createPending        bool
+	createCancel         context.CancelFunc
+	step8Runner          configuration.Step8Runner
+	step8Action          step8Action
+	profileProof         profileProofState
+	profileCompletion    profileCompletionOutcome
+	wizardViewport       viewport.Model
+	legacyViewport       viewport.Model
+	legacyViewportText   string
+	wizardFocusStart     int
+	wizardFocusEnd       int
+	confirm              string
+	confirmInput         textinput.Model
+	width                int
+	height               int
+	noColor              bool
+	buildInfo            BuildInfo
+	status               string
+	err                  error
+	security             *SecurityModel
+	localizer            localization.Localizer
+	directHost           textinput.Model
+	directUsername       textinput.Model
+	directFocus          onboardingFocus
+	onboardingContext    context.Context
+	onboardingPrompt     remote.SecretPrompt
+	onboardingOperations OnboardingOperations
+	onboardingOperation  configuration.OperationIdentity
+	onboardingRunning    bool
+	onboardingCompletion configuration.OnboardingResult
+	onboardingFeedback   string
+	directOnboarding     bool
 }
 
 // BuildInfo is the build identity supplied by the composition root. The TUI
@@ -201,6 +216,20 @@ type BuildInfo struct {
 
 func NewModel(store configuration.ProfilesStore) Model {
 	return NewModelWithBuildInfoAndInspector(store, BuildInfo{Version: "dev", Revision: "unknown"}, nil)
+}
+
+// NewModelWithOnboarding composes the direct, secret-free TUI route with its
+// terminal-only password boundary and application-owned operation service.
+func NewModelWithOnboarding(store configuration.ProfilesStore, ctx context.Context, operations OnboardingOperations, prompt remote.SecretPrompt) Model {
+	m := NewModel(store)
+	if ctx != nil {
+		m.onboardingContext = ctx
+	} else {
+		m.onboardingContext = context.Background()
+	}
+	m.onboardingOperations, m.onboardingPrompt = operations, prompt
+	m.directOnboarding = true
+	return m
 }
 
 // NewModelWithStep8Runner injects the application-owned Step 8 boundary.
@@ -254,6 +283,7 @@ func NewModelWithBuildInfoAndLocalizer(store configuration.ProfilesStore, buildI
 	}
 	m.form = m.newFields(profile.Profile{})
 	m.profileName = newProfileNameInput()
+	m.onboardingContext = context.Background()
 	return m
 }
 
@@ -422,7 +452,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.reload()
 		}
 		return m, nil
+	case onboardingPromptMsg:
+		if !m.onboardingRunning || msg.Code != remote.PromptCaptured || msg.ID == "" {
+			m.onboardingRunning = false
+			m.onboardingFeedback = m.text("onboarding.prompt_failed", nil)
+			m.screen = screenDirectOnboarding
+			return m, nil
+		}
+		m.onboardingOperation = configuration.OperationIdentity{ID: msg.ID, Generation: msg.Generation}
+		m.screen = screenDirectOnboardingRunning
+		return m, func() tea.Msg {
+			return onboardingResultMsg{ID: msg.ID, Generation: msg.Generation, Result: m.onboardingOperations.Wait(m.onboardingContext, msg.ID)}
+		}
+	case onboardingResultMsg:
+		if !m.onboardingRunning || msg.ID != m.onboardingOperation.ID || msg.Generation != m.onboardingOperation.Generation {
+			return m, nil
+		}
+		m.onboardingRunning, m.onboardingCompletion, m.screen = false, msg.Result, screenDirectOnboardingCompletion
+		return m, nil
 	case tea.KeyMsg:
+		if m.screen == screenDirectOnboarding {
+			return m.updateDirectOnboarding(msg)
+		}
+		if m.screen == screenDirectOnboardingRunning && (msg.String() == "esc" || msg.String() == "ctrl+c") {
+			if m.onboardingOperations != nil && m.onboardingOperation.ID != "" {
+				m.onboardingOperations.Cancel(m.onboardingOperation.ID)
+			}
+			m.onboardingRunning = false
+			m.screen = screenDirectOnboarding
+			return m, nil
+		}
+		if m.screen == screenDirectOnboardingCompletion && msg.String() == "enter" {
+			m.screen = screenList
+			return m, m.reload()
+		}
 		if m.screen == screenProfileStep || m.screen == screenProfileConnection || m.screen == screenProfileIdentity || m.screen == screenProfileMapepire || m.screen == screenProfileCredentials || m.screen == screenProfileReview || m.screen == screenProfileStep8Action || m.screen == screenProfileCompletion {
 			switch msg.String() {
 			case "up", "k":
@@ -569,7 +632,11 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.screen, m.status = screenList, ""
 				return m, m.reload()
 			case actionCreate:
-				m.beginProfileStep()
+				if m.directOnboarding {
+					m.beginDirectOnboarding()
+				} else {
+					m.beginProfileStep()
+				}
 			case actionExit:
 				return m, tea.Quit
 			}
@@ -585,7 +652,11 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "down", "j":
 			m.selected = clamp(m.selected+1, len(m.profiles))
 		case "n":
-			m.beginForm(profile.Profile{}, screenList)
+			if m.directOnboarding {
+				m.beginDirectOnboarding()
+			} else {
+				m.beginForm(profile.Profile{}, screenList)
+			}
 		case "enter":
 			if len(m.profiles) > 0 {
 				m.screen = screenDetail
@@ -947,6 +1018,12 @@ func (m Model) View() string {
 			security.noColor = m.noColor
 			return security.View()
 		}
+	case screenDirectOnboarding:
+		return m.renderDirectOnboarding()
+	case screenDirectOnboardingRunning:
+		return m.renderDirectOnboardingRunning()
+	case screenDirectOnboardingCompletion:
+		return m.renderDirectOnboardingCompletion()
 	}
 	if m.status != "" {
 		b.WriteString("\n" + m.text("common.status", nil) + ": " + m.status + "\n")
@@ -1138,7 +1215,7 @@ func replaceProfile(list []profile.Profile, p profile.Profile) []profile.Profile
 // Run starts the local terminal program. It never creates an MCP server or
 // writes client configuration files.
 func Run(ctx context.Context, store configuration.ProfilesStore, buildInfo BuildInfo) error {
-	return RunWithHostIdentityInspector(ctx, store, buildInfo, nil)
+	return RunWithOnboarding(ctx, store, buildInfo, nil, remote.SecretPrompt{})
 }
 
 func RunWithHostIdentityInspector(ctx context.Context, store configuration.ProfilesStore, buildInfo BuildInfo, inspector hostidentity.Inspector) error {
@@ -1151,6 +1228,14 @@ func RunWithHostIdentityInspector(ctx context.Context, store configuration.Profi
 func RunWithHostIdentityInspectorAndStep8Runner(ctx context.Context, store configuration.ProfilesStore, buildInfo BuildInfo, inspector hostidentity.Inspector, runner configuration.Step8Runner) error {
 	program := tea.NewProgram(newModelWithIdentityInspectorAndStep8Runner(store, buildInfo, inspector, runner, ctx, identityInspectionTimeout), tuiProgramOptions(ctx)...)
 	_, err := program.Run()
+	return err
+}
+
+// RunWithOnboarding starts the local UI with the direct onboarding boundary.
+func RunWithOnboarding(ctx context.Context, store configuration.ProfilesStore, buildInfo BuildInfo, operations OnboardingOperations, prompt remote.SecretPrompt) error {
+	m := NewModelWithOnboarding(store, ctx, operations, prompt)
+	m.buildInfo = buildInfo
+	_, err := tea.NewProgram(m, tuiProgramOptions(ctx)...).Run()
 	return err
 }
 

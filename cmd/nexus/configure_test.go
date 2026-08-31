@@ -5,13 +5,9 @@ import (
 	"io"
 	"testing"
 
-	"bac-nexus/internal/audit"
 	"bac-nexus/internal/configuration"
-	"bac-nexus/internal/credential"
-	"bac-nexus/internal/hostidentity"
 	"bac-nexus/internal/profile"
 	"bac-nexus/internal/remote"
-	"bac-nexus/internal/security"
 	"bac-nexus/internal/tui"
 )
 
@@ -22,41 +18,16 @@ func TestRunCommandConfigureIsSeparateFromServe(t *testing.T) {
 	oldVersion, oldRevision := releaseVersion, vcsRevision
 	defer func() { releaseVersion, vcsRevision = oldVersion, oldRevision }()
 	releaseVersion, vcsRevision = "v9.8.7", "abc123"
-	runConfigureTUI = func(_ context.Context, _ configuration.ProfilesStore, build tui.BuildInfo, inspector hostidentity.Inspector, runner configuration.Step8Runner) error {
+	runConfigureTUI = func(_ context.Context, _ configuration.ProfilesStore, build tui.BuildInfo, operations tui.OnboardingOperations, prompt remote.SecretPrompt) error {
 		calls++
-		if _, ok := inspector.(remote.HostIdentityInspector); !ok {
-			t.Fatalf("configure inspector = %T, want remote.HostIdentityInspector", inspector)
-		}
 		if build != (tui.BuildInfo{Version: "v9.8.7", Revision: "abc123"}) {
 			t.Fatalf("configure build identity = %#v", build)
 		}
-		service, ok := runner.(configuration.Step8Service)
-		if !ok {
-			t.Fatalf("configure runner = %T, want configuration.Step8Service", runner)
+		if _, ok := operations.(*configuration.OnboardingService); !ok {
+			t.Fatalf("configure operations = %T, want onboarding service", operations)
 		}
-		if _, ok := service.Observe.(configuration.ManagedStep8PreAuth); !ok {
-			t.Fatalf("observe adapter = %T, want configuration.ManagedStep8PreAuth", service.Observe)
-		}
-		if _, ok := service.Credentials.(credential.Step8Provider); !ok {
-			t.Fatalf("credential adapter = %T, want credential.Step8Provider", service.Credentials)
-		}
-		if _, ok := service.WSS.(configuration.ManagedStep8WSS); !ok {
-			t.Fatalf("WSS adapter = %T, want configuration.ManagedStep8WSS", service.WSS)
-		}
-		if _, ok := service.Gate.Policy.(security.Step8SSHPolicy); !ok {
-			t.Fatalf("SSH policy adapter = %T, want security.Step8SSHPolicy", service.Gate.Policy)
-		}
-		if _, ok := service.Gate.Trust.(security.Step8SSHTrustAdapter); !ok {
-			t.Fatalf("SSH trust adapter = %T, want security.Step8SSHTrustAdapter", service.Gate.Trust)
-		}
-		if _, ok := service.SSH.(configuration.SSHRuntimeFactory); !ok {
-			t.Fatalf("SSH runtime adapter = %T, want configuration.SSHRuntimeFactory", service.SSH)
-		}
-		if _, ok := service.Markers.(step8MarkerAdapter); !ok {
-			t.Fatalf("marker store = %T, want step8MarkerAdapter", service.Markers)
-		}
-		if _, ok := service.Audit.(audit.Step8ConfigurationAdapter); !ok {
-			t.Fatalf("audit adapter = %T, want audit.Step8ConfigurationAdapter", service.Audit)
+		if prompt.Input == nil || prompt.Output == nil || prompt.IsTerminal == nil || prompt.Read == nil {
+			t.Fatal("configure prompt is not fully injected")
 		}
 		return nil
 	}
@@ -69,10 +40,7 @@ func TestRunCommandConfigureIsSeparateFromServe(t *testing.T) {
 }
 
 func TestStep8ProductionRunnerWSSSuccessDoesNotInvokeSSHRuntime(t *testing.T) {
-	service, ok := newStep8ProductionRunner(profile.Store{Root: t.TempDir()}).(configuration.Step8Service)
-	if !ok {
-		t.Fatal("production runner is not a Step8Service")
-	}
+	service := newStep8ProductionRunnerWithCredentials(profile.Store{Root: t.TempDir()}, configureCredentialsFunc(func(context.Context, string, profile.CredentialMode) ([]byte, error) { return []byte("opaque"), nil }))
 	ssh := &configureSSHFactory{}
 	session := &configureWSSSession{}
 	service.Observe = configureObserveFunc(func(context.Context, profile.Profile) configuration.Observation {

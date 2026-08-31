@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"regexp"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"bac-nexus/internal/profile"
+	"bac-nexus/internal/remote"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -36,6 +38,11 @@ func TestNonWizardRenderMatrix(t *testing.T) {
 				name  string
 				model func() Model
 			}{
+				{"direct-onboarding", func() Model {
+					m := NewModelWithOnboarding(&profileStoreStub{}, context.Background(), &onboardingOperationsStub{}, remote.SecretPrompt{})
+					m.beginDirectOnboarding()
+					return m
+				}},
 				{"home", func() Model { return NewModel(&profileStoreStub{profiles: profiles}) }},
 				{"list", func() Model {
 					m := NewModel(&profileStoreStub{profiles: profiles})
