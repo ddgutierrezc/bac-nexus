@@ -33,7 +33,7 @@ func TestProfileReviewSavesOnceAndHandsOffExactProfile(t *testing.T) {
 	m := NewModel(&profileStoreStub{})
 	m.screen, m.profileCreator, m.profileDraftName = screenProfileReview, creator, "CRI400F"
 	m.connectionDraft = profileConnectionDraft{host: "ibmi.example.test", username: "USER", port: 22}
-	m.identityDraft = profileIdentityDraft{algorithm: "ssh-ed25519", fingerprint: testCandidate.Fingerprint, trustMethod: profile.HostKeyTrustTOFU}
+	m.identityDraft = profileIdentityDraft{algorithm: "ssh-ed25519", fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", trustMethod: profile.HostKeyTrustTOFU}
 	m.credentialMode, m.profileReviewFocus = profile.CredentialModePrompt, profileReviewFocusSave
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {

@@ -9,7 +9,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -18,7 +17,6 @@ import (
 
 	"bac-nexus/internal/configuration"
 	"bac-nexus/internal/credential"
-	"bac-nexus/internal/hostidentity"
 	"bac-nexus/internal/localization"
 	"bac-nexus/internal/profile"
 	"bac-nexus/internal/remote"
@@ -34,8 +32,6 @@ const (
 	screenDetail
 	screenForm
 	screenProfileConnection
-	screenProfileIdentity
-	screenProfileMapepire
 	screenProfileCredentials
 	screenProfileReview
 	screenProfileStep8Action
@@ -79,33 +75,10 @@ type profileConnectionDraft struct {
 	port           int
 }
 
-type profileIdentityPhase uint8
-
-const (
-	profileIdentityAuthorize profileIdentityPhase = iota
-	profileIdentityLoading
-	profileIdentityReview
-	profileIdentityError
-	profileIdentityCompleted
-)
-
 type profileIdentityDraft struct {
 	host, algorithm, fingerprint string
 	trustMethod                  profile.HostKeyTrust
 	port                         int
-}
-
-type profileIdentityInspectionMsg struct {
-	request   uint64
-	host      string
-	port      int
-	candidate hostidentity.Candidate
-	err       error
-}
-
-type profileIdentityAcceptedMsg struct {
-	request   uint64
-	candidate hostidentity.Candidate
 }
 
 type field struct {
@@ -133,18 +106,7 @@ type Model struct {
 	formReturn           screen
 	profileDraftName     string
 	connectionDraft      profileConnectionDraft
-	identityFocus        profileIdentityFocus
-	identityPhase        profileIdentityPhase
-	identityCandidate    hostidentity.Candidate
 	identityDraft        profileIdentityDraft
-	identityRequest      uint64
-	identityCancel       context.CancelFunc
-	identityInspector    hostidentity.Inspector
-	identityParent       context.Context
-	identityTimeout      time.Duration
-	mapepireProbe        preAuthProbe
-	mapepireFactory      func(string, int) preAuthProbe
-	mapepireResolution   configuration.Resolution
 	credentialMode       profile.CredentialMode
 	credentialFocus      profileCredentialsFocus
 	credentialStatus     credentialStatusChecker
@@ -194,7 +156,7 @@ type BuildInfo struct {
 }
 
 func NewModel(store configuration.ProfilesStore) Model {
-	return NewModelWithBuildInfoAndInspector(store, BuildInfo{Version: "dev", Revision: "unknown"}, nil)
+	return NewModelWithBuildInfoAndLocalizer(store, BuildInfo{Version: "dev", Revision: "unknown"}, localization.Spanish())
 }
 
 // NewModelWithOnboarding composes the direct, secret-free TUI route with its
@@ -222,24 +184,7 @@ func NewModelWithStep8Runner(store configuration.ProfilesStore, runner configura
 // NewModelWithBuildInfo constructs the Home model with build identity supplied
 // by the caller. Empty values retain truthful local-build defaults.
 func NewModelWithBuildInfo(store configuration.ProfilesStore, buildInfo BuildInfo) Model {
-	return NewModelWithBuildInfoAndInspector(store, buildInfo, nil)
-}
-
-// NewModelWithBuildInfoAndInspector composes the optional no-auth inspection boundary.
-func NewModelWithBuildInfoAndInspector(store configuration.ProfilesStore, buildInfo BuildInfo, inspector hostidentity.Inspector) Model {
-	return newModelWithIdentityInspector(store, buildInfo, inspector, context.Background(), identityInspectionTimeout)
-}
-
-func newModelWithIdentityInspector(store configuration.ProfilesStore, buildInfo BuildInfo, inspector hostidentity.Inspector, parent context.Context, timeout time.Duration) Model {
-	return newModelWithIdentityInspectorAndStep8Runner(store, buildInfo, inspector, nil, parent, timeout)
-}
-
-func newModelWithIdentityInspectorAndStep8Runner(store configuration.ProfilesStore, buildInfo BuildInfo, inspector hostidentity.Inspector, runner configuration.Step8Runner, parent context.Context, timeout time.Duration) Model {
-	m := NewModelWithBuildInfoAndLocalizer(store, buildInfo, localization.Spanish())
-	m.identityInspector = inspector
-	m.step8Runner = runner
-	m.identityParent, m.identityTimeout = parent, timeout
-	return m
+	return NewModelWithBuildInfoAndLocalizer(store, buildInfo, localization.Spanish())
 }
 
 // NewModelWithBuildInfoAndLocalizer is the explicit composition seam for a
@@ -255,10 +200,6 @@ func NewModelWithBuildInfoAndLocalizer(store configuration.ProfilesStore, buildI
 		panic("nil localizer")
 	}
 	m := Model{store: store, screen: screenHome, homeSelected: actionCreate, noColor: noColorEnabled(), buildInfo: buildInfo, wizardViewport: viewport.New(1, 1), legacyViewport: viewport.New(1, 1), localizer: localizer}
-	m.mapepireFactory = func(host string, port int) preAuthProbe {
-		probe, _ := configuration.NewManagedDaemonProbe(host, port, nil)
-		return managedDaemonPreAuth{probe}
-	}
 	m.form = m.newFields(profile.Profile{})
 	m.onboardingContext = context.Background()
 	return m
@@ -344,36 +285,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.profiles = replaceProfile(m.profiles, msg.profile)
 		m.screen, m.status, m.err = screenDetail, m.text("operation.profile_saved", nil), nil
 		return m, nil
-	case profileIdentityInspectionMsg:
-		if msg.request != m.identityRequest || m.identityPhase != profileIdentityLoading || msg.host != m.connectionDraft.host || msg.port != m.connectionDraft.port {
-			return m, nil
-		}
-		m.identityCancel = nil
-		if msg.err != nil {
-			if hostidentity.SafeFailure(msg.err) == hostidentity.FailureCancelled {
-				return m, nil
-			}
-			m.identityPhase, m.status, m.err = profileIdentityError, wizardFeedbackRow(wizardFeedback{kind: wizardFeedbackError, message: m.identityFailureText(hostidentity.SafeFailure(msg.err))}), nil
-			m.refreshWizardViewport()
-			return m, nil
-		}
-		m.identityCandidate, m.identityPhase, m.status, m.err = msg.candidate, profileIdentityReview, "", nil
-		m.identityFocus = profileIdentityFocusTrust
-		m.refreshWizardViewport()
-		return m, nil
-	case profileIdentityAcceptedMsg:
-		if msg.request != m.identityRequest || m.identityPhase != profileIdentityReview || msg.candidate != m.identityCandidate {
-			return m, nil
-		}
-		m.identityDraft = profileIdentityDraft{host: m.connectionDraft.host, port: m.connectionDraft.port, algorithm: msg.candidate.Algorithm, fingerprint: msg.candidate.Fingerprint, trustMethod: profile.HostKeyTrustTOFU}
-		m.identityPhase, m.status = profileIdentityCompleted, wizardFeedbackRow(wizardFeedback{kind: wizardFeedbackOK, message: m.text("wizard.identity.completed", nil)})
-		m.identityFocus = profileIdentityFocusInspect
-		m.refreshWizardViewport()
-		return m, nil
-	case mapepireProbeMsg:
-		m.mapepireResolution, m.status, m.err = msg.resolution, "", msg.err
-		m.refreshWizardViewport()
-		return m, nil
 	case profileCredentialStatusMsg:
 		if msg.request != m.credentialRequest || m.screen != screenProfileCredentials {
 			return m, nil
@@ -449,7 +360,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = screenList
 			return m, m.reload()
 		}
-		if m.screen == screenProfileIdentity || m.screen == screenProfileMapepire || m.screen == screenProfileCredentials || m.screen == screenProfileReview || m.screen == screenProfileStep8Action || m.screen == screenProfileCompletion {
+		if m.screen == screenProfileCredentials || m.screen == screenProfileReview || m.screen == screenProfileStep8Action || m.screen == screenProfileCompletion {
 			switch msg.String() {
 			case "up", "k":
 				m.wizardViewport.LineUp(1)
@@ -485,18 +396,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			security := updated.(SecurityModel)
 			m.security = &security
 			return m, cmd
-		}
-		if m.screen == screenProfileIdentity {
-			updated, cmd := m.updateProfileIdentityStep(msg)
-			wizard := updated.(Model)
-			wizard.refreshWizardViewport()
-			return wizard, cmd
-		}
-		if m.screen == screenProfileMapepire {
-			updated, cmd := m.updateProfileMapepireStep(msg)
-			wizard := updated.(Model)
-			wizard.refreshWizardViewport()
-			return wizard, cmd
 		}
 		if m.screen == screenProfileCredentials {
 			updated, cmd := m.updateProfileCredentialsStep(msg)
@@ -660,26 +559,6 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Security child input is handled before shell dispatch.
 	}
 	return m, nil
-}
-
-func (m *Model) resetProfileIdentityStep() {
-	if m.identityCancel != nil {
-		m.identityCancel()
-	}
-	m.identityFocus = profileIdentityFocusInspect
-	m.identityPhase = profileIdentityAuthorize
-	m.identityCandidate = hostidentity.Candidate{}
-	m.identityDraft = profileIdentityDraft{}
-	m.identityCancel = nil
-	m.identityRequest++
-}
-func (m *Model) beginProfileIdentityStep() {
-	if m.identityPhase == profileIdentityAuthorize {
-		m.identityFocus = profileIdentityFocusInspect
-	}
-	m.status, m.err, m.screen = "", nil, screenProfileIdentity
-	m.wizardViewport.SetYOffset(0)
-	m.refreshWizardViewport()
 }
 
 // renderProfileConnectionHeader remains a compatibility bridge for later
@@ -900,10 +779,6 @@ func (m Model) View() string {
 			fmt.Fprintf(&b, "%s: %s\n", m.form[i].label, m.form[i].input.View())
 		}
 		b.WriteString("\n" + m.text("form.footer", nil) + "\n")
-	case screenProfileIdentity:
-		return m.renderProfileIdentityStep()
-	case screenProfileMapepire:
-		return m.renderProfileMapepireStep()
 	case screenProfileCredentials:
 		return m.renderProfileCredentialsStep()
 	case screenProfileReview:
@@ -1121,19 +996,6 @@ func replaceProfile(list []profile.Profile, p profile.Profile) []profile.Profile
 // writes client configuration files.
 func Run(ctx context.Context, store configuration.ProfilesStore, buildInfo BuildInfo) error {
 	return RunWithOnboarding(ctx, store, buildInfo, nil, remote.SecretPrompt{})
-}
-
-func RunWithHostIdentityInspector(ctx context.Context, store configuration.ProfilesStore, buildInfo BuildInfo, inspector hostidentity.Inspector) error {
-	return RunWithHostIdentityInspectorAndStep8Runner(ctx, store, buildInfo, inspector, nil)
-}
-
-// RunWithHostIdentityInspectorAndStep8Runner composes the no-auth inspector
-// and application-owned Step 8 boundary. Startup retains both seams but never
-// invokes the runner; the explicit Phase 8 lifecycle owns invocation.
-func RunWithHostIdentityInspectorAndStep8Runner(ctx context.Context, store configuration.ProfilesStore, buildInfo BuildInfo, inspector hostidentity.Inspector, runner configuration.Step8Runner) error {
-	program := tea.NewProgram(newModelWithIdentityInspectorAndStep8Runner(store, buildInfo, inspector, runner, ctx, identityInspectionTimeout), tuiProgramOptions(ctx)...)
-	_, err := program.Run()
-	return err
 }
 
 // RunWithOnboarding starts the local UI with the direct onboarding boundary.

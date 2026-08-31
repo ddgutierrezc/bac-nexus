@@ -37,3 +37,13 @@ func TestProfileCredentialsPromptAdvancesWithoutCredentialMaterial(t *testing.T)
 		t.Fatalf("prompt selection = screen %v, command %v; want review without command", updated.(Model).screen, cmd)
 	}
 }
+
+func TestProfileCredentialsEscapeReturnsHome(t *testing.T) {
+	m := NewModel(&profileStoreStub{})
+	m.screen = screenProfileCredentials
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd != nil || updated.(Model).screen != screenHome {
+		t.Fatalf("escape = screen %v, command %v; want home without command", updated.(Model).screen, cmd)
+	}
+}

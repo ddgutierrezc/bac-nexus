@@ -25,7 +25,7 @@ type profileCredentialStatusMsg struct {
 func (m Model) updateProfileCredentialsStep(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "ctrl+c":
-		m.screen = screenProfileMapepire
+		m.screen = screenHome
 	case "tab":
 		m.credentialFocus = (m.credentialFocus + 1) % 3
 	case "shift+tab":
@@ -59,6 +59,10 @@ func (m Model) renderProfileCredentialsStep() string {
 	fw, fh := m.shellFrameDimensions()
 	w, h := m.shellInnerWidth(fw), m.shellInnerHeight(fh)
 	t := newHomeTheme(m.noColor)
+	return m.renderWizardShell(m.renderProfileConnectionHeader(w, t), renderFooterText(w, t, "Tab: move • Enter: select • Esc: back", m.buildInfo), m.renderProfileCredentialsPanel(w, h, t))
+}
+
+func (m Model) renderProfileCredentialsPanel(w, h int, t homeTheme) string {
 	panel := newWizardPanelLayout(w, h, t)
 	lines := renderWizardTitleRow(panel.contentWidth, t, "Credentials", "Step 5 of 8")
 	lines = append(lines, "", renderWizardDivider(panel.contentWidth, t), "", t.wizardContentHeading.Render("Credential handling"))
@@ -85,5 +89,5 @@ func (m Model) renderProfileCredentialsStep() string {
 	if m.status != "" {
 		lines = append(lines, "", m.status)
 	}
-	return m.renderWizardShell(m.renderProfileConnectionHeader(w, t), renderFooterText(w, t, "Tab: move • Enter: select • Esc: back", m.buildInfo), panel.render(w, lines))
+	return panel.render(w, lines)
 }

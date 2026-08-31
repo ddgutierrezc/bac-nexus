@@ -57,7 +57,7 @@ func wizardOverflowIndicator(vp interface {
 }
 
 func (m *Model) refreshWizardViewport() {
-	if m.screen != screenProfileIdentity && m.screen != screenProfileMapepire && m.screen != screenProfileStep8Action && m.screen != screenProfileCompletion {
+	if m.screen != screenProfileCredentials && m.screen != screenProfileReview && m.screen != screenProfileStep8Action && m.screen != screenProfileCompletion {
 		return
 	}
 	frameWidth, frameHeight := m.shellFrameDimensions()
@@ -66,17 +66,13 @@ func (m *Model) refreshWizardViewport() {
 	footer := m.text("wizard.footer.profile", nil)
 	panel := ""
 	anchor := ""
-	var focusRange wizardLineRange
-	hasFocusRange := false
 	switch m.screen {
-	case screenProfileIdentity:
-		footer = m.identityFooter()
-		identityPanel := m.renderProfileIdentityPanelContent(width, height, t)
-		panel = identityPanel.text
-		focusRange, hasFocusRange = identityPanel.ranges[m.identityFocus]
-	case screenProfileMapepire:
-		footer = m.text("wizard.footer.mapepire", nil)
-		panel = m.renderProfileMapepirePanel(width, height, t)
+	case screenProfileCredentials:
+		footer = "Tab: move • Enter: select • Esc: back"
+		panel = m.renderProfileCredentialsPanel(width, height, t)
+	case screenProfileReview:
+		footer = "Enter: save • Esc: back"
+		panel = m.renderProfileReviewPanel(width, height, t)
 	case screenProfileStep8Action:
 		if m.profileProof.enabled {
 			footer = "Enter: consent and start • R: retry • O: omit • Esc: cancel"
@@ -92,22 +88,16 @@ func (m *Model) refreshWizardViewport() {
 	if m.status != "" {
 		if feedback, ok := m.wizardContextFeedback(); ok {
 			anchor = wizardFeedbackMarker(feedback.kind)
-			hasFocusRange = false
 		}
 	}
 	if m.err != nil {
 		anchor = "[ERR]"
-		hasFocusRange = false
 	}
 	footerText := renderFooterText(width, t, footer, m.buildInfo)
 	bodyHeight := max(height-lipgloss.Height(m.renderProfileConnectionHeader(width, t))-1-newWizardRhythm(height).top-lipgloss.Height(t.fieldsetBorder.Render(strings.Repeat("─", width+2))+"\n"+footerText)-1, 1)
 	m.wizardViewport.Width, m.wizardViewport.Height = width, max(bodyHeight-1, 1)
 	m.wizardViewport.SetContent(panel)
-	if hasFocusRange && m.status == "" {
-		m.wizardFocusStart, m.wizardFocusEnd = focusRange.start, focusRange.end
-	} else {
-		m.setWizardFocusRange(panel, anchor)
-	}
+	m.setWizardFocusRange(panel, anchor)
 	m.revealWizardFocusRange()
 }
 
@@ -168,10 +158,10 @@ func (m Model) wizardPanelContent() string {
 	width, height := m.shellInnerWidth(frameWidth), m.shellInnerHeight(frameHeight)
 	t := newHomeTheme(m.noColor)
 	switch m.screen {
-	case screenProfileIdentity:
-		return m.renderProfileIdentityPanel(width, height, t)
-	case screenProfileMapepire:
-		return m.renderProfileMapepirePanel(width, height, t)
+	case screenProfileCredentials:
+		return m.renderProfileCredentialsPanel(width, height, t)
+	case screenProfileReview:
+		return m.renderProfileReviewPanel(width, height, t)
 	case screenProfileStep8Action:
 		if m.profileProof.enabled {
 			return m.renderProfileProofPanel(width, height, t)

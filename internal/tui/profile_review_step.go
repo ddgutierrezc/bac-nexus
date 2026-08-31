@@ -54,11 +54,15 @@ func (m Model) renderProfileReviewStep() string {
 	fw, fh := m.shellFrameDimensions()
 	w, h := m.shellInnerWidth(fw), m.shellInnerHeight(fh)
 	t := newHomeTheme(m.noColor)
+	return m.renderWizardShell(m.renderProfileConnectionHeader(w, t), renderFooterText(w, t, "Enter: save • Esc: back", m.buildInfo), m.renderProfileReviewPanel(w, h, t))
+}
+
+func (m Model) renderProfileReviewPanel(w, h int, t homeTheme) string {
 	panel := newWizardPanelLayout(w, h, t)
 	p := m.reviewProfile()
 	lines := append(renderWizardTitleRow(panel.contentWidth, t, "Review & Save", "Step 6 of 8"), "", renderWizardDivider(panel.contentWidth, t), "", fmt.Sprintf("Profile: %s", p.Name), fmt.Sprintf("Endpoint: %s:%d", p.Host, p.Port), fmt.Sprintf("Credentials: %s", p.CredentialMode), "", "▸ [ SAVE PROFILE ]")
 	if m.status != "" {
 		lines = append(lines, "", m.status)
 	}
-	return m.renderWizardShell(m.renderProfileConnectionHeader(w, t), renderFooterText(w, t, "Enter: save • Esc: back", m.buildInfo), panel.render(w, lines))
+	return panel.render(w, lines)
 }
