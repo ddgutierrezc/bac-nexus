@@ -123,21 +123,6 @@ func TestEnglishRuntimeCoversWizardAndLegacyScreensWithoutSpanishLeakage(t *test
 		name, want string
 		model      func() Model
 	}{
-		{"step-1", "Name", func() Model { m := base(); m.beginProfileStep(); return m }},
-		{"step-2", "Host", func() Model {
-			m := base()
-			m.beginProfileStep()
-			updated, _ := m.Update(profileStepAcceptedMsg{name: "dev"})
-			return updated.(Model)
-		}},
-		{"step-3", "INSPECT IDENTITY", func() Model {
-			m := base()
-			m.beginProfileStep()
-			updated, _ := m.Update(profileStepAcceptedMsg{name: "dev"})
-			m = updated.(Model)
-			updated, _ = m.Update(profileConnectionAcceptedMsg{host: "ibmi.example", username: "USER", port: 22})
-			return updated.(Model)
-		}},
 		{"list", "Profiles", func() Model { m := base(); m.screen, m.profiles = screenList, []profile.Profile{p}; return m }},
 		{"detail", "Profile", func() Model { m := base(); m.screen, m.profiles = screenDetail, []profile.Profile{p}; return m }},
 		{"form", "Profile fields", func() Model { m := base(); m.beginForm(p, screenList); return m }},

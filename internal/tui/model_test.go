@@ -201,18 +201,6 @@ func TestHomeConditionalManageProfileAction(t *testing.T) {
 	}
 }
 
-func TestHomeTransitionsToCreateProfile(t *testing.T) {
-	m := NewModel(&profileStoreStub{})
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if updated.(Model).screen != screenProfileStep {
-		t.Fatalf("initial create focus did not enter profile step: screen = %v", updated.(Model).screen)
-	}
-	updated, _ = updated.(Model).Update(tea.KeyMsg{Type: tea.KeyEscape})
-	if updated.(Model).screen != screenHome {
-		t.Fatalf("escape did not return to home")
-	}
-}
-
 func TestHomeMenuTransitionsToProfileListWhenPopulated(t *testing.T) {
 	store := &profileStoreStub{profiles: []profile.Profile{testProfile("dev")}}
 	m := NewModel(store)

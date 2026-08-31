@@ -33,7 +33,6 @@ const (
 	screenList
 	screenDetail
 	screenForm
-	screenProfileStep
 	screenProfileConnection
 	screenProfileIdentity
 	screenProfileMapepire
@@ -74,17 +73,6 @@ const (
 	operationProfileUpdated
 	operationProfileDeleted
 )
-
-// profileStepAcceptedMsg is deliberately transport-free: later wizard steps
-// can consume the accepted draft without Step 1 persisting any profile data.
-type profileStepAcceptedMsg struct{ name string }
-
-// profileConnectionAcceptedMsg is deliberately local: it carries only the
-// validated Step 2 draft to the future wizard seam and triggers no I/O.
-type profileConnectionAcceptedMsg struct {
-	host, username string
-	port           int
-}
 
 type profileConnectionDraft struct {
 	host, username string
@@ -143,16 +131,8 @@ type Model struct {
 	form                 []field
 	formEdit             string
 	formReturn           screen
-	profileName          textinput.Model
-	profileFocus         profileStepFocus
 	profileDraftName     string
-	connectionHost       textinput.Model
-	connectionUsername   textinput.Model
-	connectionPort       textinput.Model
-	connectionFocus      profileConnectionFocus
 	connectionDraft      profileConnectionDraft
-	connectionReady      bool
-	connectionValidate   bool
 	identityFocus        profileIdentityFocus
 	identityPhase        profileIdentityPhase
 	identityCandidate    hostidentity.Candidate
@@ -204,7 +184,6 @@ type Model struct {
 	onboardingRunning    bool
 	onboardingCompletion configuration.OnboardingResult
 	onboardingFeedback   string
-	directOnboarding     bool
 }
 
 // BuildInfo is the build identity supplied by the composition root. The TUI
@@ -228,7 +207,6 @@ func NewModelWithOnboarding(store configuration.ProfilesStore, ctx context.Conte
 		m.onboardingContext = context.Background()
 	}
 	m.onboardingOperations, m.onboardingPrompt = operations, prompt
-	m.directOnboarding = true
 	return m
 }
 
@@ -282,7 +260,6 @@ func NewModelWithBuildInfoAndLocalizer(store configuration.ProfilesStore, buildI
 		return managedDaemonPreAuth{probe}
 	}
 	m.form = m.newFields(profile.Profile{})
-	m.profileName = newProfileNameInput()
 	m.onboardingContext = context.Background()
 	return m
 }
@@ -366,20 +343,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case profileMsg:
 		m.profiles = replaceProfile(m.profiles, msg.profile)
 		m.screen, m.status, m.err = screenDetail, m.text("operation.profile_saved", nil), nil
-		return m, nil
-	case profileStepAcceptedMsg:
-		m.profileDraftName = msg.name
-		m.beginProfileConnectionStep()
-		m.refreshWizardViewport()
-		return m, nil
-	case profileConnectionAcceptedMsg:
-		changedEndpoint := m.connectionDraft.host != msg.host || m.connectionDraft.port != msg.port
-		m.connectionDraft = profileConnectionDraft{host: msg.host, username: msg.username, port: msg.port}
-		if changedEndpoint {
-			m.resetProfileIdentityStep()
-		}
-		m.beginProfileIdentityStep()
-		m.refreshWizardViewport()
 		return m, nil
 	case profileIdentityInspectionMsg:
 		if msg.request != m.identityRequest || m.identityPhase != profileIdentityLoading || msg.host != m.connectionDraft.host || msg.port != m.connectionDraft.port {
@@ -486,7 +449,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = screenList
 			return m, m.reload()
 		}
-		if m.screen == screenProfileStep || m.screen == screenProfileConnection || m.screen == screenProfileIdentity || m.screen == screenProfileMapepire || m.screen == screenProfileCredentials || m.screen == screenProfileReview || m.screen == screenProfileStep8Action || m.screen == screenProfileCompletion {
+		if m.screen == screenProfileIdentity || m.screen == screenProfileMapepire || m.screen == screenProfileCredentials || m.screen == screenProfileReview || m.screen == screenProfileStep8Action || m.screen == screenProfileCompletion {
 			switch msg.String() {
 			case "up", "k":
 				m.wizardViewport.LineUp(1)
@@ -522,18 +485,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			security := updated.(SecurityModel)
 			m.security = &security
 			return m, cmd
-		}
-		if m.screen == screenProfileStep {
-			updated, cmd := m.updateProfileStep(msg)
-			wizard := updated.(Model)
-			wizard.refreshWizardViewport()
-			return wizard, cmd
-		}
-		if m.screen == screenProfileConnection {
-			updated, cmd := m.updateProfileConnectionStep(msg)
-			wizard := updated.(Model)
-			wizard.refreshWizardViewport()
-			return wizard, cmd
 		}
 		if m.screen == screenProfileIdentity {
 			updated, cmd := m.updateProfileIdentityStep(msg)
@@ -632,11 +583,7 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.screen, m.status = screenList, ""
 				return m, m.reload()
 			case actionCreate:
-				if m.directOnboarding {
-					m.beginDirectOnboarding()
-				} else {
-					m.beginProfileStep()
-				}
+				m.beginDirectOnboarding()
 			case actionExit:
 				return m, tea.Quit
 			}
@@ -652,11 +599,7 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "down", "j":
 			m.selected = clamp(m.selected+1, len(m.profiles))
 		case "n":
-			if m.directOnboarding {
-				m.beginDirectOnboarding()
-			} else {
-				m.beginForm(profile.Profile{}, screenList)
-			}
+			m.beginDirectOnboarding()
 		case "enter":
 			if len(m.profiles) > 0 {
 				m.screen = screenDetail
@@ -719,18 +662,6 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) beginProfileStep() {
-	m.profileName = newProfileNameInput()
-	m.profileFocus = profileFocusName
-	m.profileDraftName = ""
-	m.resetProfileConnectionStep()
-	m.resetProfileIdentityStep()
-	m.status, m.err = "", nil
-	m.screen = screenProfileStep
-	m.wizardViewport.SetYOffset(0)
-	m.refreshWizardViewport()
-}
-
 func (m *Model) resetProfileIdentityStep() {
 	if m.identityCancel != nil {
 		m.identityCancel()
@@ -751,33 +682,11 @@ func (m *Model) beginProfileIdentityStep() {
 	m.refreshWizardViewport()
 }
 
-// resetProfileConnectionStep is called only when Home starts a genuinely new
-// wizard. Direct Step 1/Step 2 navigation deliberately retains this state.
-func (m *Model) resetProfileConnectionStep() {
-	m.connectionHost = textinput.Model{}
-	m.connectionUsername = textinput.Model{}
-	m.connectionPort = textinput.Model{}
-	m.connectionFocus = profileConnectionFocusHost
-	m.connectionDraft = profileConnectionDraft{}
-	m.connectionReady = false
-	m.connectionValidate = false
-}
-
-func (m *Model) beginProfileConnectionStep() {
-	if !m.connectionReady {
-		m.connectionHost = newProfileConnectionInput(253)
-		m.connectionUsername = newProfileConnectionInput(128)
-		m.connectionPort = newProfileConnectionInput(5)
-		m.connectionPort.SetValue("22")
-		m.connectionReady = true
-	}
-	m.connectionFocus = profileConnectionFocusHost
-	m.focusProfileConnectionInput()
-	m.connectionValidate = false
-	m.status, m.err = "", nil
-	m.screen = screenProfileConnection
-	m.wizardViewport.SetYOffset(0)
-	m.refreshWizardViewport()
+// renderProfileConnectionHeader remains a compatibility bridge for later
+// legacy wizard screens until their retirement. It no longer renders or owns
+// the retired connection screen.
+func (m Model) renderProfileConnectionHeader(width int, t homeTheme) string {
+	return m.renderWizardHeader(width, t, m.profileDraftName)
 }
 
 func (m Model) selectedHomeAction() homeAction {
@@ -991,10 +900,6 @@ func (m Model) View() string {
 			fmt.Fprintf(&b, "%s: %s\n", m.form[i].label, m.form[i].input.View())
 		}
 		b.WriteString("\n" + m.text("form.footer", nil) + "\n")
-	case screenProfileStep:
-		return m.renderProfileStep()
-	case screenProfileConnection:
-		return m.renderProfileConnectionStep()
 	case screenProfileIdentity:
 		return m.renderProfileIdentityStep()
 	case screenProfileMapepire:

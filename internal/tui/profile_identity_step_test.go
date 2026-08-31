@@ -160,20 +160,6 @@ func TestProfileIdentityBackRetentionAndExactTypedAcceptance(t *testing.T) {
 	if m.identityDraft.trustMethod != profile.HostKeyTrustTOFU || m.identityDraft.fingerprint != testCandidate.Fingerprint {
 		t.Fatal("acceptance did not retain typed exact TOFU evidence")
 	}
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
-	m = updated.(Model)
-	if m.screen != screenProfileConnection || m.identityPhase != profileIdentityCompleted {
-		t.Fatal("completed back did not retain accepted draft on Step 2")
-	}
-	updated, _ = m.Update(profileConnectionAcceptedMsg{host: "ibmi.example.test", username: "NEWUSER", port: 22})
-	m = updated.(Model)
-	if m.identityPhase != profileIdentityCompleted {
-		t.Fatal("username-only change invalidated identity")
-	}
-	updated, _ = m.Update(profileConnectionAcceptedMsg{host: "other.example.test", username: "NEWUSER", port: 22})
-	if updated.(Model).identityPhase != profileIdentityAuthorize {
-		t.Fatal("endpoint change did not reset identity")
-	}
 }
 
 func TestProfileIdentityAcceptanceFocusesForwardActionAndEnterReachesStep4(t *testing.T) {
@@ -269,6 +255,9 @@ func assertIdentityRuntimePages(t *testing.T, pages []string, m Model, phase str
 	t.Helper()
 	all := strings.Join(pages, "\n")
 	panel := runtimePanelFragments(pages)
+	if shell, ok := runtimePanelFromView(pages[0]); !ok || runtimePanelHeight(t, m, shell) < 1 {
+		t.Fatal("identity panel did not remain reachable through runtime output")
+	}
 	for _, page := range pages {
 		if lipgloss.Width(page) > width || lipgloss.Height(page) > height {
 			t.Fatalf("%s overflow %dx%d", phase, width, height)
