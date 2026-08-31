@@ -77,7 +77,7 @@ func (m Model) updateStep8Action(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.step8Action.cancel, m.step8Action.phase = nil, step8ActionPhaseCancelled
 			return m, nil
 		}
-		m.screen = screenProfileMapepire
+		m.screen = screenHome
 	case "enter":
 		if m.step8Action.phase == step8ActionPhaseIdle && m.step8Action.request.Profile.Name != "" {
 			return m.startStep8Action(m.step8Action.request.Profile, m.step8Action.request.Consent)
