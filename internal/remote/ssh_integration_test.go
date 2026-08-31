@@ -38,7 +38,7 @@ func TestSSHTransportHarnessObservesIdentity(t *testing.T) {
 	if testing.Short() {
 		t.Skip("SSH identity harness is skipped in short mode")
 	}
-	if os.Getenv(sshHarnessIdentityEnableEnv) != "1" {
+	if !LiveValidationEnabled(os.LookupEnv, sshHarnessIdentityEnableEnv) {
 		t.Skip("set BAC_NEXUS_SSH_IDENTITY_INTEGRATION=1 to run the local SSH identity harness")
 	}
 
@@ -58,7 +58,7 @@ func TestSSHTransportHarnessAuthenticatesSFTP(t *testing.T) {
 	if testing.Short() {
 		t.Skip("SSH authenticated harness is skipped in short mode")
 	}
-	if os.Getenv(sshHarnessAuthEnableEnv) != "1" {
+	if !LiveValidationEnabled(os.LookupEnv, sshHarnessAuthEnableEnv) {
 		t.Skip("set BAC_NEXUS_SSH_INTEGRATION=1 to run the authenticated local SSH transport harness")
 	}
 

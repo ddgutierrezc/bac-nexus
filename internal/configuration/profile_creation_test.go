@@ -16,8 +16,8 @@ func TestPreparedCreateRejectsExistingCredentialWithoutChangingProfile(t *testin
 	credentials := &fakePreparedCredentials{presence: credential.PresencePresent}
 	creator := configuration.NewProfileCreator(store, credentials)
 	_, err := creator.Create(context.Background(), createRequest("request-existing", 1, "digest-existing"))
-	if !errors.Is(err, configuration.ErrCredentialExists) {
-		t.Fatalf("Create() error = %v, want ErrCredentialExists", err)
+	if !errors.Is(err, configuration.ErrCredentialUnavailable) {
+		t.Fatalf("Create() error = %v, want ErrCredentialUnavailable", err)
 	}
 	if credentials.provisionCalls != 0 {
 		t.Fatalf("provision calls = %d, want 0", credentials.provisionCalls)
@@ -26,12 +26,31 @@ func TestPreparedCreateRejectsExistingCredentialWithoutChangingProfile(t *testin
 		t.Fatalf("profile changed after rejected create: %v", err)
 	}
 }
+
+func TestPromptCreateSavesLocalProfileWithoutCredentialProvisioning(t *testing.T) {
+	store := profile.Store{Root: t.TempDir()}
+	credentials := &fakePreparedCredentials{presence: credential.PresenceUnavailable}
+	creator := configuration.NewProfileCreator(store, credentials)
+	request := createRequest("request-prompt", 1, "digest-prompt")
+	request.Profile.CredentialMode = profile.CredentialModePrompt
+	result, err := creator.Create(context.Background(), request)
+	if err != nil || result.Profile != request.Profile {
+		t.Fatalf("prompt Create() = %#v, %v", result, err)
+	}
+	if credentials.provisionCalls != 0 {
+		t.Fatalf("prompt provision calls = %d, want 0", credentials.provisionCalls)
+	}
+	if _, err := store.Load(request.Profile.Name); err != nil {
+		t.Fatalf("prompt profile was not saved locally: %v", err)
+	}
+}
 func TestPreparedCreateRejectsExistingProfileBeforeCredentialProvisioning(t *testing.T) {
 	store := profile.Store{Root: t.TempDir()}
 	request := createRequest("request-profile-exists", 1, "digest-profile-exists")
 	if _, err := store.Save(request.Profile); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
+	request.Profile.CredentialMode = profile.CredentialModePrompt
 	credentials := &fakePreparedCredentials{presence: credential.PresenceAbsent}
 	creator := configuration.NewProfileCreator(store, credentials)
 	_, err := creator.Create(context.Background(), request)
@@ -52,8 +71,8 @@ func TestPreparedCreateProvisionFailureLeavesNoProfileAndRequiresRecovery(t *tes
 	}
 	creator := configuration.NewProfileCreator(store, credentials)
 	_, err := creator.Create(context.Background(), createRequest("request-cleanup", 1, "digest-cleanup"))
-	if !errors.Is(err, configuration.ErrCredentialCleanupRequired) {
-		t.Fatalf("Create() error = %v, want ErrCredentialCleanupRequired", err)
+	if !errors.Is(err, configuration.ErrCredentialUnavailable) {
+		t.Fatalf("Create() error = %v, want ErrCredentialUnavailable", err)
 	}
 	if credentials.deleteCalls != 0 {
 		t.Fatalf("unsafe credential deletes = %d, want 0", credentials.deleteCalls)
@@ -61,57 +80,30 @@ func TestPreparedCreateProvisionFailureLeavesNoProfileAndRequiresRecovery(t *tes
 	if _, err := store.Read("wizard"); !errors.Is(err, profile.ErrProfileNotFound) {
 		t.Fatalf("profile committed after provision failure: %v", err)
 	}
-	journal, err := store.ReadPreparedCreate("wizard")
-	if err != nil {
-		t.Fatalf("ReadPreparedCreate() error = %v", err)
-	}
-	if !journal.CleanupRequired || journal.Phase != profile.PreparedCreateCleanupRequired {
-		t.Fatalf("journal = %#v, want cleanup-required state", journal)
-	}
-	if err := store.RecoverPreparedCreate("wizard", "recover wizard"); err != nil {
-		t.Fatalf("RecoverPreparedCreate() error = %v", err)
-	}
-	if _, err := store.ReadPreparedCreate("wizard"); !errors.Is(err, profile.ErrPreparedCreateNotFound) {
-		t.Fatalf("journal remains after explicit recovery: %v", err)
-	}
 }
 
 func TestCreateProfileJoinsMatchingPendingRequestAndReplaysExactSavedProfile(t *testing.T) {
 	store := profile.Store{Root: t.TempDir()}
-	credentials := &fakePreparedCredentials{presence: credential.PresenceAbsent, started: make(chan struct{}), release: make(chan struct{})}
+	credentials := &fakePreparedCredentials{presence: credential.PresenceUnavailable}
 	creator := configuration.NewProfileCreator(store, credentials)
 	request := createRequest("request-join", 7, "digest-join")
-	firstResult := make(chan configuration.CreateProfileResult, 1)
-	firstErr := make(chan error, 1)
-	go func() {
-		result, err := creator.Create(context.Background(), request)
-		firstResult <- result
-		firstErr <- err
-	}()
-	<-credentials.started
-	secondResult := make(chan configuration.CreateProfileResult, 1)
-	secondErr := make(chan error, 1)
-	go func() {
-		result, err := creator.Create(context.Background(), request)
-		secondResult <- result
-		secondErr <- err
-	}()
-	close(credentials.release)
-	if err := <-firstErr; err != nil {
+	request.Profile.CredentialMode = profile.CredentialModePrompt
+	first, err := creator.Create(context.Background(), request)
+	if err != nil {
 		t.Fatalf("first Create() error = %v", err)
 	}
-	if err := <-secondErr; err != nil {
+	second, err := creator.Create(context.Background(), request)
+	if err != nil {
 		t.Fatalf("second Create() error = %v", err)
 	}
-	first, second := <-firstResult, <-secondResult
 	if first.Profile != request.Profile || second.Profile != request.Profile {
 		t.Fatalf("saved profiles = %#v / %#v, want exact %#v", first.Profile, second.Profile, request.Profile)
 	}
 	if first != second {
 		t.Fatalf("joined result = %#v, want replay %#v", second, first)
 	}
-	if credentials.provisionCalls != 1 {
-		t.Fatalf("provision calls = %d, want 1", credentials.provisionCalls)
+	if credentials.provisionCalls != 0 {
+		t.Fatalf("provision calls = %d, want 0", credentials.provisionCalls)
 	}
 	replayed, err := creator.Create(context.Background(), request)
 	if err != nil {
@@ -120,8 +112,8 @@ func TestCreateProfileJoinsMatchingPendingRequestAndReplaysExactSavedProfile(t *
 	if replayed != first {
 		t.Fatalf("replayed result = %#v, want %#v", replayed, first)
 	}
-	if credentials.provisionCalls != 1 {
-		t.Fatalf("replay provision calls = %d, want 1", credentials.provisionCalls)
+	if credentials.provisionCalls != 0 {
+		t.Fatalf("replay provision calls = %d, want 0", credentials.provisionCalls)
 	}
 }
 
@@ -130,16 +122,17 @@ func TestCreateProfileRejectsIdentityMismatchAndAllowsNewIdentityRetry(t *testin
 	credentials := &fakePreparedCredentials{presence: credential.PresenceAbsent, provisionErr: errors.New("temporarily unavailable")}
 	creator := configuration.NewProfileCreator(store, credentials)
 	request := createRequest("request-retry", 3, "digest-first")
-	if _, err := creator.Create(context.Background(), request); err == nil {
-		t.Fatal("first Create() succeeded")
+	request.Profile.CredentialMode = profile.CredentialModePrompt
+	if _, err := creator.Create(context.Background(), request); err != nil {
+		t.Fatalf("first Create() error = %v", err)
 	}
 	mismatch := request
 	mismatch.DraftDigest = "digest-second"
 	if _, err := creator.Create(context.Background(), mismatch); !errors.Is(err, configuration.ErrCreateIdentityMismatch) {
 		t.Fatalf("mismatched Create() error = %v, want ErrCreateIdentityMismatch", err)
 	}
-	credentials.provisionErr = nil
 	retry := createRequest("request-retry-next", 4, "digest-second")
+	retry.Profile.CredentialMode, retry.Profile.Name = profile.CredentialModePrompt, "wizard-next"
 	result, err := creator.Create(context.Background(), retry)
 	if err != nil {
 		t.Fatalf("new-identity retry error = %v", err)
