@@ -25,11 +25,12 @@ import (
 	"bac-nexus/internal/remote"
 	"bac-nexus/internal/security"
 	"bac-nexus/internal/tui"
+	"golang.org/x/term"
 )
 
 var releaseVersion = "dev"
 var vcsRevision = "unknown"
-var runConfigureTUI = tui.RunWithHostIdentityInspectorAndStep8Runner
+var runConfigureTUI = tui.RunWithOnboarding
 
 func main() {
 	err := runCommand(os.Args[1:], os.Stderr)
@@ -205,7 +206,114 @@ func runConfigure(args []string) error {
 	}
 	profileStore := profile.Store{Root: root}
 	var store configuration.ProfilesStore = profileStore
-	return runConfigureTUI(context.Background(), store, tui.BuildInfo{Version: releaseVersion, Revision: vcsRevision}, remote.HostIdentityInspector{}, newStep8ProductionRunner(profileStore))
+	prompt := remote.SecretPrompt{Input: os.Stdin, Output: os.Stderr, IsTerminal: term.IsTerminal, Read: term.ReadPassword}
+	return runConfigureTUI(context.Background(), store, tui.BuildInfo{Version: releaseVersion, Revision: vcsRevision}, newDirectOnboardingService(profileStore), prompt)
+}
+
+type capturedCredential struct{ secret []byte }
+
+func (c capturedCredential) Get(ctx context.Context, _ string, _ profile.CredentialMode) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return append([]byte(nil), c.secret...), nil
+}
+
+func newDirectOnboardingService(store profile.Store) *configuration.OnboardingService {
+	keyring := credential.NewNativeCredentialStore()
+	onboardingAudit := profile.OnboardingAuditStore{Profiles: store}
+	return configuration.NewOnboardingService(configuration.OnboardingDeps{
+		Inspect: remote.InspectHostKey,
+		Existing: func(_ context.Context, name string) (*profile.Profile, error) {
+			existing, err := store.Load(name)
+			if os.IsNotExist(err) {
+				return nil, nil
+			}
+			if err != nil {
+				return nil, err
+			}
+			return &existing, nil
+		},
+		Proof: func(ctx context.Context, p profile.Profile, secret []byte) error {
+			service := newStep8ProductionRunnerWithCredentials(store, capturedCredential{secret: secret})
+			request := configuration.Step8Request{RequestID: "direct-" + p.Name, Generation: 1, Profile: p, WSSConsent: true}
+			result := service.Run(ctx, request)
+			if result.Decision == configuration.DecisionSSHEligible {
+				grant, allowed := (configuration.PolicyFallbackAuthorizer{}).Authorize(request.RequestID, request.Generation, result.FallbackClass)
+				sshRequest, consented := (configuration.PolicySSHConsent{}).From(grant, request.RequestID, request.Generation)
+				if !allowed || !consented {
+					return errors.New("authenticated proof fallback was not authorized")
+				}
+				sshRequest.Profile, sshRequest.FallbackTicket = p, result.FallbackTicket
+				result = service.RunSSH(ctx, sshRequest)
+			}
+			if result.Class != configuration.ResultProofSuccess || !result.Cleanup || (result.Decision != configuration.DecisionWSSSelected && result.Decision != configuration.DecisionSSHEligible) {
+				return errors.New("authenticated proof did not complete")
+			}
+			return nil
+		},
+		Save: func(p profile.Profile) error { _, err := store.Save(p); return err },
+		Delete: func(name string) error {
+			_, err := store.Delete(name, profile.DeleteConfirmation("delete "+name))
+			return err
+		},
+		Audit: func(ctx context.Context, event configuration.OnboardingAuditEvent) error {
+			return onboardingAudit.Record(ctx, event.Profile, event.Code)
+		},
+		Capability: keyring.Capability,
+		Keyring:    keyring,
+		Commit: func(ctx context.Context, p profile.Profile, secret []byte, auditCommitted func(context.Context) error) profile.OnboardingCommitResult {
+			transactionID := "onboarding-" + p.Name
+			var result profile.OnboardingCommitResult
+			err := store.WithPreparedCreateLock(ctx, p.Name, func() error {
+				wasExisting := false
+				result = (profile.OnboardingCommit{
+					Prepare: func(context.Context) error {
+						exists, err := store.Exists(p.Name)
+						if err != nil {
+							return err
+						}
+						wasExisting = exists
+						return store.WritePreparedCreate(profile.PreparedCreateJournal{Profile: p.Name, TransactionID: transactionID, Phase: profile.PreparedCreateSaving})
+					},
+					StoreKeyring: func() error {
+						if p.CredentialMode != profile.CredentialModeKeyring {
+							return nil
+						}
+						return keyring.Set(p.Name, secret)
+					},
+					SaveProfile: func() error {
+						if wasExisting {
+							_, err := store.Update(p, p.Name)
+							return err
+						}
+						_, err := store.Save(p)
+						return err
+					},
+					CommitPin: func() error { return nil }, AuditCommitted: auditCommitted, RollbackPin: func() error { return nil },
+					RollbackProfile: func() error {
+						if wasExisting {
+							return store.Restore(p.Name)
+						}
+						_, err := store.Delete(p.Name, profile.DeleteConfirmation("delete "+p.Name))
+						return err
+					},
+					RollbackKeyring: func() error {
+						if p.CredentialMode != profile.CredentialModeKeyring {
+							return nil
+						}
+						return keyring.Delete(p.Name)
+					},
+					ClearJournal: func() error { return store.ClearPreparedCreate(p.Name) },
+				}).Commit(ctx)
+				return result.Err
+			})
+			if err != nil && result.Err == nil {
+				result.Err = err
+			}
+			return result
+		},
+	})
 }
 
 type sshFingerprintObserver struct{}
@@ -218,14 +326,7 @@ func (sshFingerprintObserver) ObserveSSHFingerprint(ctx context.Context, host st
 	return observation.Fingerprint, nil
 }
 
-func newStep8ProductionRunner(store profile.Store) configuration.Step8Runner {
-	prompt := credential.NewPromptProvider(func(ctx context.Context, _ string) ([]byte, error) {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		return remote.TerminalSecretPrompt().Prompt("IBM i password")
-	})
-	credentials := credential.NewStep8Provider(prompt, credential.NewNativeCredentialStore())
+func newStep8ProductionRunnerWithCredentials(store profile.Store, credentials configuration.CredentialProvider) configuration.Step8Service {
 	trust := security.NewStep8SSHTrustAdapter(sshFingerprintObserver{})
 	return configuration.NewStep8Production(configuration.Step8ProductionDependencies{
 		Observe:        configuration.NewManagedStep8PreAuth(),

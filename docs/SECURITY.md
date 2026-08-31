@@ -56,6 +56,29 @@ Use a read-oriented IBM i identity limited to approved libraries and source acce
 
 Nexus exposes no generic SSH, SQL, shell, or MCP recovery operation. The MCP server's typed input schemas forbid path, listing, or delete fields; recovery is an internal, exact-record lifecycle control, not an operator command surface.
 
+## Direct IBM i onboarding
+
+`nexus configure` persists only host and IBM i username in its Bubble Tea model.
+The password is captured after the operator selects Connect and Save through a
+fixed in-process terminal command. It is zeroed after handoff and never appears
+in model state, messages, views, logs, audit, profile metadata, or files.
+
+Automatic first contact accepts one unverified observed host key only under the
+documented TOFU policy. The durable audit records `identity_bootstrap_allowed`
+before authenticated proof and `identity_pin_committed` after persistence.
+Missing or failed audit is fail-closed; a failed committed audit compensates the
+new profile and native keyring credential. A changed or ambiguous existing pin is
+rejected.
+
+Native keyring support stores credentials only in the operating-system keyring.
+Unsupported or unavailable capability selects prompt-on-use mode; a supported
+keyring failure is not downgraded. WSS is preferred. Only an eligible
+non-security WSS failure may receive an internal policy-bound fallback grant.
+The grant creates bound `SSHConsent` and a single-use ticket consumed
+immediately. Identity, trust, protocol, malformed-response, credential, and
+other security failures never downgrade. This is not an operator choice and
+exposes no generic SSH capability.
+
 ## Evidence and rollout limits
 
 | Evidence | What it proves | What it does not prove |

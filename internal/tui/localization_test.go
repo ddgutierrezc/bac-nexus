@@ -7,6 +7,7 @@ import (
 
 	"bac-nexus/internal/localization"
 	"bac-nexus/internal/profile"
+	"bac-nexus/internal/remote"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -19,6 +20,26 @@ func TestModelDefaultsToSpanishAndSupportsExplicitEnglish(t *testing.T) {
 	english := NewModelWithBuildInfoAndLocalizer(&profileStoreStub{}, BuildInfo{}, localization.English())
 	if !strings.Contains(english.View(), "Create a profile") {
 		t.Fatalf("explicit English view is not English: %q", english.View())
+	}
+}
+
+func TestDirectOnboardingLocaleParity(t *testing.T) {
+	for _, tt := range []struct {
+		name, want string
+		localizer  localization.Localizer
+	}{
+		{"spanish", "CONECTAR Y GUARDAR", localization.Spanish()},
+		{"english", "CONNECT AND SAVE", localization.English()},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewModelWithOnboarding(&profileStoreStub{}, context.Background(), &onboardingOperationsStub{}, remote.SecretPrompt{})
+			m.localizer = tt.localizer
+			m.beginDirectOnboarding()
+			updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+			if !strings.Contains(updated.(Model).View(), tt.want) {
+				t.Fatalf("direct locale copy missing %q", tt.want)
+			}
+		})
 	}
 }
 

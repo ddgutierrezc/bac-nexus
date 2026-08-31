@@ -1,0 +1,17 @@
+[
+  {"id":"onboarding.title","translation":"Conectar IBM i"},
+  {"id":"onboarding.description","translation":"Ingresa el host y tu usuario IBM i. La contraseña se solicitará de forma segura al conectar."},
+  {"id":"onboarding.host","translation":"Host"},
+  {"id":"onboarding.username","translation":"Usuario IBM i"},
+  {"id":"onboarding.connect","translation":"CONECTAR Y GUARDAR"},
+  {"id":"onboarding.footer","translation":"Tab siguiente  •  Enter conectar  •  Esc volver"},
+  {"id":"onboarding.validation","translation":"Ingresa un host y usuario IBM i válidos."},
+  {"id":"onboarding.unavailable","translation":"La conexión segura no está disponible en esta instalación."},
+  {"id":"onboarding.prompt_failed","translation":"No se pudo solicitar la contraseña de forma segura. No se inició ninguna conexión."},
+  {"id":"onboarding.running","translation":"Conectando y guardando el perfil de forma segura…"},
+  {"id":"onboarding.cancel","translation":"Esc cancelar"},
+  {"id":"onboarding.failed","translation":"No se pudo guardar el perfil. Revisa la conexión e inténtalo de nuevo."},
+  {"id":"onboarding.failed_cleanup","translation":"El perfil no se guardó. La credencial puede seguir almacenada. Intenta nuevamente o completa la limpieza antes de reintentar."},
+  {"id":"onboarding.saved","translation":"Perfil conectado y guardado."},
+  {"id":"onboarding.finalize","translation":"FINALIZAR"}
+]
