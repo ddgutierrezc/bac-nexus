@@ -57,7 +57,7 @@ func wizardOverflowIndicator(vp interface {
 }
 
 func (m *Model) refreshWizardViewport() {
-	if m.screen != screenProfileStep && m.screen != screenProfileConnection && m.screen != screenProfileIdentity && m.screen != screenProfileMapepire && m.screen != screenProfileStep8Action && m.screen != screenProfileCompletion {
+	if m.screen != screenProfileIdentity && m.screen != screenProfileMapepire && m.screen != screenProfileStep8Action && m.screen != screenProfileCompletion {
 		return
 	}
 	frameWidth, frameHeight := m.shellFrameDimensions()
@@ -69,13 +69,6 @@ func (m *Model) refreshWizardViewport() {
 	var focusRange wizardLineRange
 	hasFocusRange := false
 	switch m.screen {
-	case screenProfileStep:
-		panel = m.renderProfileStepPanel(width, height, t)
-		focusRange, hasFocusRange = m.profileStepFocusRange(width, height, t), true
-	case screenProfileConnection:
-		footer = m.text("wizard.footer.connection", nil)
-		panel = m.renderProfileConnectionPanel(width, height, t)
-		focusRange, hasFocusRange = m.profileConnectionFocusRange(width, height, t), true
 	case screenProfileIdentity:
 		footer = m.identityFooter()
 		identityPanel := m.renderProfileIdentityPanelContent(width, height, t)
@@ -175,10 +168,6 @@ func (m Model) wizardPanelContent() string {
 	width, height := m.shellInnerWidth(frameWidth), m.shellInnerHeight(frameHeight)
 	t := newHomeTheme(m.noColor)
 	switch m.screen {
-	case screenProfileStep:
-		return m.renderProfileStepPanel(width, height, t)
-	case screenProfileConnection:
-		return m.renderProfileConnectionPanel(width, height, t)
 	case screenProfileIdentity:
 		return m.renderProfileIdentityPanel(width, height, t)
 	case screenProfileMapepire:
