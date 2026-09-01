@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -30,7 +29,6 @@ const (
 	screenList
 	screenDetail
 	screenForm
-	screenProfileConnection
 	screenConfirm
 	screenSecurity
 	screenDirectOnboarding
@@ -65,17 +63,6 @@ const (
 	operationProfileDeleted
 )
 
-type profileConnectionDraft struct {
-	host, username string
-	port           int
-}
-
-type profileIdentityDraft struct {
-	host, algorithm, fingerprint string
-	trustMethod                  profile.HostKeyTrust
-	port                         int
-}
-
 type field struct {
 	label string
 	input textinput.Model
@@ -99,11 +86,6 @@ type Model struct {
 	form                 []field
 	formEdit             string
 	formReturn           screen
-	profileDraftName     string
-	connectionDraft      profileConnectionDraft
-	identityDraft        profileIdentityDraft
-	legacyViewport       viewport.Model
-	legacyViewportText   string
 	confirm              string
 	confirmInput         textinput.Model
 	width                int
@@ -168,7 +150,7 @@ func NewModelWithBuildInfoAndLocalizer(store configuration.ProfilesStore, buildI
 	if localizer == nil {
 		panic("nil localizer")
 	}
-	m := Model{store: store, screen: screenHome, homeSelected: actionCreate, noColor: noColorEnabled(), buildInfo: buildInfo, legacyViewport: viewport.New(1, 1), localizer: localizer}
+	m := Model{store: store, screen: screenHome, homeSelected: actionCreate, noColor: noColorEnabled(), buildInfo: buildInfo, localizer: localizer}
 	m.form = m.newFields(profile.Profile{})
 	m.onboardingContext = context.Background()
 	return m
@@ -243,7 +225,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.menuOffset = m.visibleMenuWindow().Start
 			m.readinessOffset = m.visibleReadinessWindow().Start
 		}
-		m.refreshLegacyViewport()
 		return m, nil
 	case profilesMsg:
 		m.profiles, m.err, m.profilesLoaded, m.profilesLoadFailed = append([]profile.Profile(nil), msg.profiles...), nil, true, false
@@ -297,16 +278,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = screenList
 			return m, m.reload()
 		}
-		if m.screen == screenList || m.screen == screenDetail || m.screen == screenForm || m.screen == screenConfirm {
-			switch msg.String() {
-			case "pgup":
-				m.legacyViewport.LineUp(max(m.legacyViewport.Height, 1))
-				return m, nil
-			case "pgdown":
-				m.legacyViewport.LineDown(max(m.legacyViewport.Height, 1))
-				return m, nil
-			}
-		}
 		if m.screen == screenSecurity && m.security != nil {
 			if (msg.String() == "esc" || msg.String() == "b") && m.security.screen == securityMenu {
 				m.screen = screenDetail
@@ -319,15 +290,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		if m.screen == screenForm {
-			updated, cmd := m.updateForm(msg)
-			legacy := updated.(Model)
-			legacy.refreshLegacyViewport()
-			return legacy, cmd
+			return m.updateForm(msg)
 		}
-		updated, cmd := m.updateShell(msg)
-		legacy := updated.(Model)
-		legacy.refreshLegacyViewport()
-		return legacy, cmd
+		return m.updateShell(msg)
 	}
 	return m, nil
 }
@@ -699,28 +664,19 @@ func responsive(view string, width, height int) string {
 }
 
 func (m Model) renderLegacyViewport(content string) string {
-	width, height := m.width, m.height
+	width := m.width
 	if width <= 0 {
 		width = 80
-	}
-	if height <= 0 {
-		height = 24
 	}
 	var lines []string
 	for _, line := range strings.Split(content, "\n") {
 		lines = append(lines, wrapWizardText(line, width, "")...)
 	}
-	text := strings.Join(lines, "\n")
-	v := m.legacyViewport
-	if v.Width != width || v.Height != max(height-1, 1) || m.legacyViewportText != text {
-		v.Width, v.Height = width, max(height-1, 1)
-		v.SetContent(text)
-	}
-	return strings.TrimRight(v.View(), "\n") + "\n" + wizardOverflowIndicator(v, width, newHomeTheme(m.noColor), m.text("overflow.above", nil), m.text("overflow.below", nil))
+	return responsive(strings.Join(lines, "\n"), width, m.height)
 }
 
-// wizardOverflowIndicator is retained for the Security and legacy profile
-// viewports, which continue to disclose content outside the visible page.
+// wizardOverflowIndicator is retained for the Security viewport, which
+// continues to disclose content outside the visible page.
 func wizardOverflowIndicator(vp interface {
 	AtTop() bool
 	AtBottom() bool
@@ -739,123 +695,6 @@ func wizardOverflowIndicator(vp interface {
 	}
 	return t.metadata.Width(width).Align(lipgloss.Right).Render(indicator)
 }
-
-// refreshLegacyViewport preserves a real Bubbles viewport between updates.
-// Legacy screens intentionally keep their existing keyboard bindings; PgUp and
-// PgDown are the non-conflicting manual navigation surface.
-func (m *Model) refreshLegacyViewport() {
-	if m.screen != screenList && m.screen != screenDetail && m.screen != screenForm && m.screen != screenConfirm {
-		return
-	}
-	width, height := m.width, m.height
-	if width <= 0 {
-		width = 80
-	}
-	if height <= 0 {
-		height = 24
-	}
-	content := m.legacyViewportContent()
-	var lines []string
-	for _, line := range strings.Split(content, "\n") {
-		lines = append(lines, wrapWizardText(line, width, "")...)
-	}
-	m.legacyViewport.Width, m.legacyViewport.Height = width, max(height-1, 1)
-	m.legacyViewportText = strings.Join(lines, "\n")
-	m.legacyViewport.SetContent(m.legacyViewportText)
-	start, end := m.legacyFocusRange()
-	if end-start+1 > m.legacyViewport.Height {
-		m.legacyViewport.SetYOffset(start)
-	} else if start < m.legacyViewport.YOffset {
-		m.legacyViewport.SetYOffset(start)
-	} else if end >= m.legacyViewport.YOffset+m.legacyViewport.Height {
-		m.legacyViewport.SetYOffset(max(end-m.legacyViewport.Height+1, 0))
-	}
-}
-
-// legacyFocusRange is a semantic range, deliberately derived from the stable
-// legacy screen layout rather than rendered ANSI text.
-func (m Model) legacyFocusRange() (int, int) {
-	width := m.width
-	if width <= 0 {
-		width = 80
-	}
-	switch m.screen {
-	case screenList:
-		start := 3 // title, blank line, and the Profiles heading.
-		for i := 0; i < m.selected && i < len(m.profiles); i++ {
-			start += len(wrapWizardText("  "+m.profiles[i].Name, width, ""))
-		}
-		if m.selected >= len(m.profiles) {
-			return start, start
-		}
-		return start, start + len(wrapWizardText("> "+m.profiles[m.selected].Name, width, "")) - 1
-	case screenForm:
-		index := m.focusIndex()
-		if index < 0 {
-			index = 0
-		}
-		start := 3 // title, blank line, and the Profile fields heading.
-		for i := 0; i < index && i < len(m.form); i++ {
-			start += len(wrapWizardText(m.form[i].label+": "+m.form[i].input.View(), width, ""))
-		}
-		if index >= len(m.form) {
-			return start, start
-		}
-		return start, start + len(wrapWizardText(m.form[index].label+": "+m.form[index].input.View(), width, "")) - 1
-	case screenConfirm:
-		start := 2
-		for _, line := range []string{
-			m.text("legacy.confirm.delete", map[string]any{"Name": m.confirm}),
-			m.text("legacy.confirm.retains_backup", nil),
-			m.text("legacy.confirm.type_delete", map[string]any{"Name": m.confirm}),
-		} {
-			start += len(wrapWizardText(line, width, ""))
-		}
-		return start, start + len(wrapWizardText(m.confirmInput.View(), width, "")) - 1
-	default:
-		return 0, 0
-	}
-}
-
-func (m Model) legacyViewportContent() string {
-	var b strings.Builder
-	title := lipgloss.NewStyle().Bold(true).Render(m.text("legacy.title", nil))
-	b.WriteString(title + "\n\n")
-	switch m.screen {
-	case screenList:
-		b.WriteString(m.text("legacy.list.heading", nil) + "\n")
-		if len(m.profiles) == 0 {
-			b.WriteString(m.text("legacy.list.empty", nil) + "\n")
-		}
-		for i, p := range m.profiles {
-			marker := " "
-			if i == m.selected {
-				marker = ">"
-			}
-			fmt.Fprintf(&b, "%s %s\n", marker, p.Name)
-		}
-		b.WriteString("\n" + m.text("legacy.list.footer", nil) + "\n")
-	case screenDetail:
-		p := m.profiles[m.selected]
-		fmt.Fprintf(&b, "%s: %s\n%s: %s:%d\n%s: %s\n%s: %s\n\n%s\n", m.text("legacy.detail.profile", nil), p.Name, m.text("legacy.detail.host", nil), p.Host, p.Port, m.text("legacy.detail.username", nil), p.Username, m.text("legacy.detail.trust", nil), m.trustDisplay(p.HostKeyTrust), m.text("legacy.detail.footer", nil))
-	case screenForm:
-		b.WriteString(m.text("form.fields", nil) + "\n")
-		for i := range m.form {
-			fmt.Fprintf(&b, "%s: %s\n", m.form[i].label, m.form[i].input.View())
-		}
-		b.WriteString("\n" + m.text("form.footer", nil) + "\n")
-	case screenConfirm:
-		fmt.Fprintf(&b, "%s\n%s\n%s\n%s\n%s\n", m.text("legacy.confirm.delete", map[string]any{"Name": m.confirm}), m.text("legacy.confirm.retains_backup", nil), m.text("legacy.confirm.type_delete", map[string]any{"Name": m.confirm}), m.confirmInput.View(), m.text("legacy.confirm.cancel", nil))
-	}
-	if m.status != "" {
-		b.WriteString("\n" + m.text("common.status", nil) + ": " + m.status + "\n")
-	}
-	if m.err != nil {
-		b.WriteString(m.text("common.error", nil) + ": " + sanitizeError(m.err) + "\n")
-	}
-	return b.String()
-}
-
 func sanitizeError(err error) string { return strings.Join(strings.Fields(err.Error()), " ") }
 
 func (m Model) reload() tea.Cmd {
