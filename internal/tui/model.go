@@ -31,8 +31,6 @@ const (
 	screenDetail
 	screenForm
 	screenProfileConnection
-	screenProfileStep8Action
-	screenProfileCompletion
 	screenConfirm
 	screenSecurity
 	screenDirectOnboarding
@@ -104,15 +102,9 @@ type Model struct {
 	profileDraftName     string
 	connectionDraft      profileConnectionDraft
 	identityDraft        profileIdentityDraft
-	step8Runner          configuration.Step8Runner
-	step8Action          step8Action
-	profileProof         profileProofState
-	profileCompletion    profileCompletionOutcome
 	wizardViewport       viewport.Model
 	legacyViewport       viewport.Model
 	legacyViewportText   string
-	wizardFocusStart     int
-	wizardFocusEnd       int
 	confirm              string
 	confirmInput         textinput.Model
 	width                int
@@ -156,15 +148,6 @@ func NewModelWithOnboarding(store configuration.ProfilesStore, ctx context.Conte
 		m.onboardingContext = context.Background()
 	}
 	m.onboardingOperations, m.onboardingPrompt = operations, prompt
-	return m
-}
-
-// NewModelWithStep8Runner injects the application-owned Step 8 boundary.
-// The runner is retained for the later explicit action lifecycle and is never
-// invoked during model construction, initialization, updates, or rendering.
-func NewModelWithStep8Runner(store configuration.ProfilesStore, runner configuration.Step8Runner) Model {
-	m := NewModel(store)
-	m.step8Runner = runner
 	return m
 }
 
@@ -261,7 +244,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.menuOffset = m.visibleMenuWindow().Start
 			m.readinessOffset = m.visibleReadinessWindow().Start
 		}
-		m.refreshWizardViewport()
 		m.refreshLegacyViewport()
 		return m, nil
 	case profilesMsg:
@@ -271,14 +253,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case profileMsg:
 		m.profiles = replaceProfile(m.profiles, msg.profile)
 		m.screen, m.status, m.err = screenDetail, m.text("operation.profile_saved", nil), nil
-		return m, nil
-	case step8ActionMsg:
-		m.applyStep8Action(msg)
-		m.refreshWizardViewport()
-		return m, nil
-	case profileProofMsg:
-		m.applyProfileProof(msg)
-		m.refreshWizardViewport()
 		return m, nil
 	case operationMsg:
 		m.status, m.err = m.operationText(msg.code), msg.err
@@ -324,22 +298,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = screenList
 			return m, m.reload()
 		}
-		if m.screen == screenProfileStep8Action || m.screen == screenProfileCompletion {
-			switch msg.String() {
-			case "up", "k":
-				m.wizardViewport.LineUp(1)
-				return m, nil
-			case "down", "j":
-				m.wizardViewport.LineDown(1)
-				return m, nil
-			case "pgup":
-				m.wizardViewport.ViewUp()
-				return m, nil
-			case "pgdown":
-				m.wizardViewport.ViewDown()
-				return m, nil
-			}
-		}
 		if m.screen == screenList || m.screen == screenDetail || m.screen == screenForm || m.screen == screenConfirm {
 			switch msg.String() {
 			case "pgup":
@@ -360,21 +318,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			security := updated.(SecurityModel)
 			m.security = &security
 			return m, cmd
-		}
-		if m.screen == screenProfileStep8Action {
-			if !m.profileProof.enabled {
-				updated, cmd := m.updateStep8Action(msg)
-				wizard := updated.(Model)
-				wizard.refreshWizardViewport()
-				return wizard, cmd
-			}
-			updated, cmd := m.updateProfileProofStep(msg)
-			wizard := updated.(Model)
-			wizard.refreshWizardViewport()
-			return wizard, cmd
-		}
-		if m.screen == screenProfileCompletion {
-			return m, nil
 		}
 		if m.screen == screenForm {
 			updated, cmd := m.updateForm(msg)
@@ -731,13 +674,6 @@ func (m Model) View() string {
 			fmt.Fprintf(&b, "%s: %s\n", m.form[i].label, m.form[i].input.View())
 		}
 		b.WriteString("\n" + m.text("form.footer", nil) + "\n")
-	case screenProfileStep8Action:
-		if m.profileProof.enabled {
-			return m.renderProfileProofStep()
-		}
-		return m.renderStep8Action()
-	case screenProfileCompletion:
-		return m.renderProfileCompletionStep()
 	case screenConfirm:
 		fmt.Fprintf(&b, "%s\n%s\n%s\n%s\n%s\n", m.text("legacy.confirm.delete", map[string]any{"Name": m.confirm}), m.text("legacy.confirm.retains_backup", nil), m.text("legacy.confirm.type_delete", map[string]any{"Name": m.confirm}), m.confirmInput.View(), m.text("legacy.confirm.cancel", nil))
 	case screenSecurity:
