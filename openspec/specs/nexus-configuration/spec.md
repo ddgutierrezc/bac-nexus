@@ -50,47 +50,6 @@ Profile deletion MUST require exact confirmation of the selected profile, retain
 - WHEN credential deletion fails after profile deletion
 - THEN the profile is restored and the credential failure is sanitized
 
-### Requirement: Native Credential Administration
-A lower-layer credential-status contract MUST report presence or unavailability without returning secret bytes. Set, rotate, delete, and explicit legacy-vault migration MUST use transient input services that return opaque outcomes; secret bytes MUST NOT enter Bubble Tea commands, messages, model state, views, serializable artifacts, previews, logs, audit, argv, or environment.
-
-#### Scenario: Presence is displayed safely
-- GIVEN a profile credential is present, absent, or unavailable
-- WHEN credential status is requested
-- THEN the UI reports only that classification
-
-#### Scenario: Set or rotate succeeds
-- GIVEN transient secret entry and an available native store
-- WHEN Set or Rotate completes
-- THEN the UI receives an opaque success outcome and renders no secret
-
-#### Scenario: Credential deletion is explicit
-- GIVEN an operator confirms deletion of a profile-owned credential
-- WHEN Delete completes
-- THEN the UI receives only an opaque outcome
-
-#### Scenario: Migration is explicit
-- GIVEN a legacy vault is detected
-- WHEN the operator explicitly confirms migration
-- THEN migration follows the native-store verification policy or retains the vault on failure
-
-### Requirement: Host-Key Enrollment and Pinning
-Manual fingerprint entry MUST support independently verified host keys. Remote inspection MUST be an explicit, warned, timed, cancellable action labeled unverified TOFU; exact confirmation MUST precede pinning. A mismatch MUST fail closed.
-
-#### Scenario: Manual enrollment
-- GIVEN an independently verified fingerprint
-- WHEN the operator confirms manual enrollment
-- THEN the key and verified provenance are pinned
-
-#### Scenario: TOFU enrollment is inspected deliberately
-- GIVEN a remote inspection is warned and labeled unverified TOFU
-- WHEN the operator exactly confirms the inspected fingerprint
-- THEN it is pinned with unverified provenance
-
-#### Scenario: TOFU mismatch
-- GIVEN an enrolled fingerprint differs from a later presented key
-- WHEN a remote action is attempted
-- THEN it returns `host_key_changed` without remote discovery
-
 ### Requirement: Honest Readiness and Diagnostics
 Local readiness MUST never contact IBM i and MUST report missing production recovery, resolver, acquirer, or lease composition. Remote diagnostics MUST be explicitly initiated, warned, timed, cancellable, sanitized, and auditable; they MUST retain `ready_for_controlled_ibmi_validation` and `not_validated_on_ibmi`. Java, Mapepire, and JAR checks MAY appear only as legacy diagnostics.
 
