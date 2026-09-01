@@ -102,7 +102,6 @@ type Model struct {
 	profileDraftName     string
 	connectionDraft      profileConnectionDraft
 	identityDraft        profileIdentityDraft
-	wizardViewport       viewport.Model
 	legacyViewport       viewport.Model
 	legacyViewportText   string
 	confirm              string
@@ -169,7 +168,7 @@ func NewModelWithBuildInfoAndLocalizer(store configuration.ProfilesStore, buildI
 	if localizer == nil {
 		panic("nil localizer")
 	}
-	m := Model{store: store, screen: screenHome, homeSelected: actionCreate, noColor: noColorEnabled(), buildInfo: buildInfo, wizardViewport: viewport.New(1, 1), legacyViewport: viewport.New(1, 1), localizer: localizer}
+	m := Model{store: store, screen: screenHome, homeSelected: actionCreate, noColor: noColorEnabled(), buildInfo: buildInfo, legacyViewport: viewport.New(1, 1), localizer: localizer}
 	m.form = m.newFields(profile.Profile{})
 	m.onboardingContext = context.Background()
 	return m
@@ -456,13 +455,6 @@ func (m Model) updateShell(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// renderProfileConnectionHeader remains a compatibility bridge for later
-// legacy wizard screens until their retirement. It no longer renders or owns
-// the retired connection screen.
-func (m Model) renderProfileConnectionHeader(width int, t homeTheme) string {
-	return m.renderWizardHeader(width, t, m.profileDraftName)
-}
-
 func (m Model) selectedHomeAction() homeAction {
 	for _, action := range m.visibleHomeActions() {
 		if action.id == m.homeSelected {
@@ -725,6 +717,27 @@ func (m Model) renderLegacyViewport(content string) string {
 		v.SetContent(text)
 	}
 	return strings.TrimRight(v.View(), "\n") + "\n" + wizardOverflowIndicator(v, width, newHomeTheme(m.noColor), m.text("overflow.above", nil), m.text("overflow.below", nil))
+}
+
+// wizardOverflowIndicator is retained for the Security and legacy profile
+// viewports, which continue to disclose content outside the visible page.
+func wizardOverflowIndicator(vp interface {
+	AtTop() bool
+	AtBottom() bool
+}, width int, t homeTheme, above, below string) string {
+	indicator := ""
+	switch {
+	case !vp.AtTop() && !vp.AtBottom():
+		indicator = above + "  " + below
+	case !vp.AtTop():
+		indicator = above
+	case !vp.AtBottom():
+		indicator = below
+	}
+	if indicator == "" {
+		return ""
+	}
+	return t.metadata.Width(width).Align(lipgloss.Right).Render(indicator)
 }
 
 // refreshLegacyViewport preserves a real Bubbles viewport between updates.
