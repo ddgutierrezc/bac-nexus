@@ -12,6 +12,7 @@ import (
 	"bac-nexus/internal/profile"
 	"bac-nexus/internal/remote"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type onboardingOperationsStub struct {
@@ -113,5 +114,18 @@ func TestDirectRoutesHaveAuthorityAndRuntimeLocaleMatrix(t *testing.T) {
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
 	if updated.(Model).screen != screenDirectOnboarding {
 		t.Fatal("list New did not route directly")
+	}
+}
+
+func assertProfileFrameBounds(t *testing.T, view string, width, height int) {
+	t.Helper()
+	lines := strings.Split(view, "\n")
+	if len(lines) > height {
+		t.Fatalf("frame has %d lines, limit %d", len(lines), height)
+	}
+	for _, line := range lines {
+		if lipgloss.Width(line) > width {
+			t.Fatalf("frame line width %d exceeds %d: %q", lipgloss.Width(line), width, line)
+		}
 	}
 }
