@@ -7,24 +7,33 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"bac-nexus/internal/app"
 	"bac-nexus/internal/audit"
 	"bac-nexus/internal/configuration"
+	"bac-nexus/internal/connectors/ibmi/catalogados"
 	"bac-nexus/internal/credential"
+	"bac-nexus/internal/localstate"
 	"bac-nexus/internal/mapepire"
 	"bac-nexus/internal/mcp"
+	ownershipsqlite "bac-nexus/internal/ownership/sqlite"
 	"bac-nexus/internal/profile"
 	"bac-nexus/internal/release"
 	"bac-nexus/internal/remote"
 	"bac-nexus/internal/security"
+	"bac-nexus/internal/source"
 	"bac-nexus/internal/tui"
 	"golang.org/x/term"
 )
@@ -32,6 +41,124 @@ import (
 var releaseVersion = "dev"
 var vcsRevision = "unknown"
 var runConfigureTUI = tui.RunWithOnboarding
+var errServeMCPUnavailable = errors.New("serve mcp unavailable")
+
+type ownershipOpenResult struct {
+	Ledger         source.OwnershipLedger
+	RecoveryLedger source.RecoveryLedger
+	Closer         io.Closer
+}
+
+type ownershipState struct {
+	Ledger   source.OwnershipLedger
+	Recovery app.RecoveryCoordinator
+	Closer   io.Closer
+}
+
+var openDurableOwnershipLedger = func(root string) (ownershipOpenResult, error) {
+	ledger, err := ownershipsqlite.Open(root)
+	if err != nil {
+		return ownershipOpenResult{}, err
+	}
+	return ownershipOpenResult{Ledger: ledger, RecoveryLedger: ledger, Closer: ledger}, nil
+}
+
+var loadRecoveryProfile = func(ctx context.Context, name string) (profile.Profile, error) {
+	if err := ctx.Err(); err != nil {
+		return profile.Profile{}, err
+	}
+	root, err := profile.DefaultRoot()
+	if err != nil {
+		return profile.Profile{}, err
+	}
+	loaded, err := (profile.Store{Root: root}).Load(name)
+	if err != nil {
+		return profile.Profile{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return profile.Profile{}, err
+	}
+	return loaded, nil
+}
+
+var newRecoveryCredentialStore = func() credential.CredentialStore {
+	return credential.NewNativeCredentialStore()
+}
+
+var openRecoveryCleanup = func(ctx context.Context, loaded profile.Profile, secret []byte) (source.RecoveryRemote, error) {
+	client, err := remote.Dial(ctx, loaded, secret)
+	if err != nil {
+		return nil, err
+	}
+	return remote.NewRecoveryRemote(client), nil
+}
+
+var loadCatalogProfile = loadRecoveryProfile
+
+var newCatalogCredentialStore = func() credential.CredentialStore {
+	return credential.NewNativeCredentialStore()
+}
+
+var openCatalogSession = func(ctx context.Context, loaded profile.Profile, secret []byte) (catalogados.AuthenticatedSession, error) {
+	client, err := remote.Dial(ctx, loaded, secret)
+	if err != nil {
+		return nil, err
+	}
+	receipt, err := client.EnsureMapepireServerJAR(ctx, loaded.MapepireJAR)
+	if err != nil {
+		_ = client.Close()
+		return nil, err
+	}
+	transport, err := client.StartMapepireTransport(ctx, receipt)
+	if err != nil {
+		_ = client.Close()
+		return nil, err
+	}
+	return catalogados.NewOwnedSession(mapepire.NewMessageSession(transport, "BAC Nexus"), client), nil
+}
+
+var loadSourceProfile = loadRecoveryProfile
+
+var newSourceCredentialStore = func() credential.CredentialStore {
+	return credential.NewNativeCredentialStore()
+}
+
+var openSourceAcquisition = func(ctx context.Context, loaded profile.Profile, secret []byte) (source.AcquisitionRemote, io.Closer, error) {
+	client, err := remote.Dial(ctx, loaded, secret)
+	if err != nil {
+		return nil, nil, err
+	}
+	return remote.NewSourceAcquisitionRemote(client), client, nil
+}
+
+// newProductionCatalogResolver prepares one request-scoped, authenticated
+// Catalogados resolver. Final MCP graph composition remains owned by 6.1e.
+func newProductionCatalogResolver(name string) app.CatalogResolver {
+	return catalogados.Resolver{Executor: catalogados.NewAuthenticatedExecutor(func(ctx context.Context) (catalogados.AuthenticatedSession, string, []byte, error) {
+		loaded, err := loadCatalogProfile(ctx, name)
+		if err != nil || loaded.SchemaVersion != profile.SchemaVersionV3 || loaded.CredentialMode != profile.CredentialModeKeyring || loaded.Name != name {
+			return nil, "", nil, errors.New("catalog profile unavailable")
+		}
+		credentials := newCatalogCredentialStore()
+		if credentials == nil {
+			return nil, "", nil, errors.New("catalog credential unavailable")
+		}
+		secret, err := credentials.Get(loaded.Name)
+		if err != nil {
+			return nil, "", nil, errors.New("catalog credential unavailable")
+		}
+		if err := ctx.Err(); err != nil {
+			credential.Zero(secret)
+			return nil, "", nil, err
+		}
+		session, err := openCatalogSession(ctx, loaded, secret)
+		if err != nil {
+			credential.Zero(secret)
+			return nil, "", nil, err
+		}
+		return session, loaded.Username, secret, nil
+	})}
+}
 
 func main() {
 	err := runCommand(os.Args[1:], os.Stderr)
@@ -46,16 +173,25 @@ func main() {
 
 // mainDeps groups every dependency the composition root needs.
 type mainDeps struct {
-	Profile       string
-	Credentials   credential.CredentialStore
-	Authorizer    security.Authorizer
-	Auditor       audit.Auditor
-	Resolver      app.CatalogResolver
-	Acquirer      app.SnapshotAcquirer
-	Recovery      app.RecoveryCoordinator
-	Leases        app.LeaseStore
-	ServerFactory func(s *service) (runner, error)
-	Now           func() time.Time
+	Profile          string
+	Credentials      credential.CredentialStore
+	Authorizer       security.Authorizer
+	Auditor          audit.Auditor
+	Resolver         app.CatalogResolver
+	Acquirer         app.SnapshotAcquirer
+	Recovery         app.RecoveryCoordinator
+	Leases           app.LeaseStore
+	LoadProfile      func(string) (profile.Profile, error)
+	CheckEligibility func(profile.Profile, profile.EligibilityBinding, bool, time.Time) profile.EligibilityRejection
+	KeyringAvailable func() bool
+	Admission        func(context.Context) error
+	OpenAudit        func(context.Context, profile.Profile) (audit.Auditor, io.Closer, error)
+	OpenOwnership    func(context.Context, profile.Profile) (ownershipState, error)
+	BuildResolver    func(profile.Profile) app.CatalogResolver
+	BuildAcquirer    func(profile.Profile, source.OwnershipLedger, app.RecoveryCoordinator) app.SnapshotAcquirer
+	NewLeases        func() app.LeaseStore
+	ServerFactory    func(s *service) (runner, error)
+	Now              func() time.Time
 }
 
 // service wraps app.Service with the mcp-facing surface so the
@@ -75,26 +211,99 @@ type runner interface {
 // runWithDeps is the composition root. It builds the app service,
 // invokes the pre-acquire recovery gate, constructs the MCP server,
 // and runs the server over the supplied transport.
-func runWithDeps(ctx context.Context, deps mainDeps) error {
+func runWithDeps(ctx context.Context, deps mainDeps) (err error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if strings.TrimSpace(deps.Profile) == "" {
 		return errors.New("nexus serve requires a non-empty profile")
 	}
-	if deps.ServerFactory == nil {
-		deps.ServerFactory = newMCPServer
-	}
 	if deps.Now == nil {
 		deps.Now = time.Now
 	}
+	if deps.Admission != nil {
+		if err := deps.Admission(ctx); err != nil {
+			return fmt.Errorf("serve admission: %w", err)
+		}
+	}
+	loaded, err := admitServeEligibility(deps)
+	if err != nil {
+		return err
+	}
+	if deps.OpenAudit == nil || deps.OpenOwnership == nil {
+		return errors.New("serve local state unavailable")
+	}
+	durableAudit, closeAudit, err := deps.OpenAudit(ctx, loaded)
+	if err != nil || durableAudit == nil || closeAudit == nil {
+		return errors.New("serve audit unavailable")
+	}
+	defer func() {
+		if closeAudit.Close() != nil && err == nil {
+			err = errors.New("serve local state unavailable")
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	ownership, err := deps.OpenOwnership(ctx, loaded)
+	if err != nil || ownership.Ledger == nil || ownership.Recovery == nil || ownership.Closer == nil {
+		return errors.New("serve ownership unavailable")
+	}
+	shutdownReady := false
+	defer func() {
+		if shutdownReady {
+			deps.Leases.EvictAll()
+		}
+		if ownership.Closer.Close() != nil && err == nil {
+			err = errors.New("serve local state unavailable")
+		}
+		if shutdownReady {
+			if auditErr := durableAudit.Record(context.Background(), audit.Event{
+				Capability: audit.CapabilityLifecycleCompletion, Connector: audit.ConnectorIBMi,
+				TargetClass: audit.TargetClassLifecycle, PolicyID: audit.PolicyIDVerifiedReadOnly,
+				Result: audit.ResultClassAllow, Timestamp: deps.Now(), Reason: "service lifecycle completed",
+			}); auditErr != nil && err == nil {
+				err = errors.New("serve lifecycle audit unavailable")
+			}
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := ownership.Recovery.Recover(ctx); err != nil {
+		return errors.New("serve recovery unavailable")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if deps.Resolver == nil {
+		if deps.BuildResolver == nil {
+			return errors.New("serve composition unavailable")
+		}
+		deps.Resolver = deps.BuildResolver(loaded)
+	}
+	if deps.Acquirer == nil {
+		if deps.BuildAcquirer == nil {
+			return errors.New("serve composition unavailable")
+		}
+		deps.Acquirer = deps.BuildAcquirer(loaded, ownership.Ledger, ownership.Recovery)
+	}
+	if deps.Leases == nil {
+		if deps.NewLeases == nil {
+			return errors.New("serve composition unavailable")
+		}
+		deps.Leases = deps.NewLeases()
+	}
+	if deps.ServerFactory == nil {
+		deps.ServerFactory = newMCPServer
+	}
 	svc := app.NewService(app.ServiceDeps{
-		Credentials: deps.Credentials, Authorizer: deps.Authorizer, Auditor: deps.Auditor,
+		Credentials: deps.Credentials, Authorizer: deps.Authorizer, Auditor: durableAudit,
 		Resolver: deps.Resolver, Acquirer: deps.Acquirer, Leases: deps.Leases,
-		Recovery: deps.Recovery, Profile: deps.Profile, Now: deps.Now,
+		Recovery: recoveredCoordinator{}, Profile: deps.Profile, Now: deps.Now,
 	})
 	if err := svc.Startup(ctx); err != nil {
-		return fmt.Errorf("startup: %w", err)
+		return errors.New("serve recovery unavailable")
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -103,8 +312,19 @@ func runWithDeps(ctx context.Context, deps mainDeps) error {
 	if err != nil {
 		return fmt.Errorf("build mcp server: %w", err)
 	}
-	return r.Run(ctx)
+	shutdownReady = true
+	if err := r.Run(ctx); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		return errServeMCPUnavailable
+	}
+	return nil
 }
+
+type recoveredCoordinator struct{}
+
+func (recoveredCoordinator) Recover(context.Context) error { return nil }
 
 // newMCPServer is the production ServerFactory.
 func newMCPServer(s *service) (runner, error) {
@@ -123,13 +343,168 @@ func newMCPServer(s *service) (runner, error) {
 // serve subcommand supplies the profile from flags; the resolver
 // and acquirer are intentionally nil in v1 MCP.
 func defaultDeps() mainDeps {
+	keyring := credential.NewNativeCredentialStore()
+	root, _ := profile.DefaultRoot()
+	profiles := profile.Store{Root: root}
+	eligibilities := profile.EligibilityStore{Root: root}
 	return mainDeps{
-		Credentials:   credential.NewNativeCredentialStore(),
-		Authorizer:    security.NewPolicy(),
-		Auditor:       audit.NewRecorder(),
+		Credentials:      keyring,
+		Authorizer:       security.NewPolicy(),
+		Auditor:          audit.NewRecorder(),
+		LoadProfile:      profiles.Load,
+		CheckEligibility: eligibilities.Check,
+		KeyringAvailable: func() bool { return keyring.Capability() == credential.CapabilitySupported },
+		Admission:        operatorRetentionAdmission,
+		OpenAudit:        openDurableAudit,
+		OpenOwnership:    openDurableOwnership,
+		BuildResolver:    func(loaded profile.Profile) app.CatalogResolver { return newProductionCatalogResolver(loaded.Name) },
+		BuildAcquirer: func(loaded profile.Profile, ledger source.OwnershipLedger, recovery app.RecoveryCoordinator) app.SnapshotAcquirer {
+			return newProductionSourceAcquirer(loaded, ledger, recovery)
+		},
+		NewLeases:     func() app.LeaseStore { return source.NewLeaseStore(time.Now, rand.Reader) },
 		ServerFactory: newMCPServer,
 		Now:           time.Now,
 	}
+}
+
+func admitServeEligibility(deps mainDeps) (profile.Profile, error) {
+	if deps.LoadProfile == nil || deps.CheckEligibility == nil || deps.KeyringAvailable == nil {
+		return profile.Profile{}, errors.New("serve eligibility unavailable")
+	}
+	loaded, err := deps.LoadProfile(deps.Profile)
+	if err != nil {
+		return profile.Profile{}, errors.New("serve profile unavailable")
+	}
+	expected, err := profile.DeriveEligibilityBinding(loaded)
+	if err != nil {
+		return profile.Profile{}, errors.New("serve eligibility rejected")
+	}
+	if deps.CheckEligibility(loaded, expected, deps.KeyringAvailable(), deps.Now()) != profile.EligibilityApproved {
+		return profile.Profile{}, errors.New("serve eligibility rejected")
+	}
+	return loaded, nil
+}
+
+func openDurableAudit(ctx context.Context, _ profile.Profile) (audit.Auditor, io.Closer, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	root, err := os.UserConfigDir()
+	if err != nil {
+		return nil, nil, audit.ErrAuditUnavailable
+	}
+	retention, err := audit.LoadOperatorRetention(root, localstate.NewPlatform(os.UserConfigDir))
+	if err != nil {
+		return nil, nil, audit.ErrAuditUnavailable
+	}
+	store, err := audit.OpenFile(audit.FileConfig{Root: root, RetentionDays: strconv.Itoa(retention), Components: []string{"BAC Nexus", "audit"}, Platform: localstate.NewPlatform(os.UserConfigDir)})
+	if err != nil {
+		return nil, nil, audit.ErrAuditUnavailable
+	}
+	return store, store, nil
+}
+
+func openDurableOwnership(ctx context.Context, _ profile.Profile) (ownershipState, error) {
+	if err := ctx.Err(); err != nil {
+		return ownershipState{}, err
+	}
+	root, err := os.UserConfigDir()
+	if err != nil {
+		return ownershipState{}, errors.New("ownership unavailable")
+	}
+	opened, err := openDurableOwnershipLedger(filepath.Join(root, "BAC Nexus", "ownership"))
+	if err != nil {
+		return ownershipState{}, errors.New("ownership unavailable")
+	}
+	if opened.Ledger == nil || opened.RecoveryLedger == nil || opened.Closer == nil {
+		return ownershipState{}, errors.New("ownership unavailable")
+	}
+	credentials := newRecoveryCredentialStore()
+	if credentials == nil {
+		_ = opened.Closer.Close()
+		return ownershipState{}, errors.New("ownership unavailable")
+	}
+	recovery := source.RecoveryCoordinator{
+		Ledger:         opened.RecoveryLedger,
+		ResolveProfile: loadRecoveryProfile,
+		GetCredential: func(ctx context.Context, name string) ([]byte, error) {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			secret, err := credentials.Get(name)
+			if err != nil {
+				return nil, err
+			}
+			if err := ctx.Err(); err != nil {
+				credential.Zero(secret)
+				return nil, err
+			}
+			return secret, nil
+		},
+		OpenCleanup: openRecoveryCleanup,
+	}
+	return ownershipState{Ledger: opened.Ledger, Recovery: recovery, Closer: opened.Closer}, nil
+}
+
+func newProductionSourceAcquirer(loaded profile.Profile, ledger source.OwnershipLedger, recovery app.RecoveryCoordinator) source.Acquirer {
+	targetDigest := sourceTargetDigest(loaded)
+	return source.Acquirer{
+		Ownership: ledger, Profile: loaded.Name, TargetDigest: targetDigest[:], Recover: recovery.Recover, Random: rand.Reader, Now: time.Now,
+		Open: func(ctx context.Context) (source.AcquisitionRemote, io.Closer, error) {
+			fresh, err := loadSourceProfile(ctx, loaded.Name)
+			if err != nil || fresh.SchemaVersion != profile.SchemaVersionV3 || fresh.CredentialMode != profile.CredentialModeKeyring || fresh.Name != loaded.Name {
+				return nil, nil, errors.New("source profile unavailable")
+			}
+			credentials := newSourceCredentialStore()
+			if credentials == nil {
+				return nil, nil, errors.New("source credential unavailable")
+			}
+			secret, err := credentials.Get(fresh.Name)
+			if err != nil {
+				return nil, nil, errors.New("source credential unavailable")
+			}
+			defer credential.Zero(secret)
+			if err := ctx.Err(); err != nil {
+				return nil, nil, err
+			}
+			return openSourceAcquisition(ctx, fresh, secret)
+		},
+	}
+}
+
+func sourceTargetDigest(loaded profile.Profile) [sha256.Size]byte {
+	hash := sha256.New()
+	_, _ = hash.Write([]byte("BAC Nexus/recovery-target-binding/v1\x00"))
+	writeField := func(value string) {
+		var length [4]byte
+		binary.BigEndian.PutUint32(length[:], uint32(len(value)))
+		_, _ = hash.Write(length[:])
+		_, _ = hash.Write([]byte(value))
+	}
+	writeField(loaded.Host)
+	var port [2]byte
+	binary.BigEndian.PutUint16(port[:], uint16(loaded.Port))
+	_, _ = hash.Write(port[:])
+	writeField(loaded.Username)
+	writeField(loaded.HostKeyFingerprint)
+	writeField(string(loaded.HostKeyTrust))
+	var digest [sha256.Size]byte
+	copy(digest[:], hash.Sum(nil))
+	return digest
+}
+
+func operatorRetentionAdmission(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	root, err := os.UserConfigDir()
+	if err != nil {
+		return errors.New("operator configuration unavailable")
+	}
+	if _, err := audit.LoadOperatorRetention(root, localstate.NewPlatform(os.UserConfigDir)); err != nil {
+		return errors.New("operator configuration unavailable")
+	}
+	return nil
 }
 
 // runCommand is the CLI entry point. It accepts "serve" and "help"
