@@ -7,7 +7,51 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"bac-nexus/internal/localstate"
 )
+
+type approvedEligibilityPlatform struct{}
+
+func (approvedEligibilityPlatform) VerifyManagedDirectory(path string, _ ...string) (localstate.Evidence, error) {
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		return localstate.Evidence{}, err
+	}
+	return localstate.Evidence{Available: true, LinkSafe: true, Local: true, Owned: true, Restrictive: true, HandleStable: true}, nil
+}
+
+func (approvedEligibilityPlatform) CreateManagedFile(string, ...string) (localstate.Evidence, error) {
+	return localstate.Evidence{Available: true, LinkSafe: true, Local: true, Owned: true, Restrictive: true, HandleStable: true}, nil
+}
+
+type rejectedEligibilityPlatform struct{ rejectDirectory, rejectFile bool }
+
+func (p rejectedEligibilityPlatform) VerifyManagedDirectory(path string, _ ...string) (localstate.Evidence, error) {
+	if p.rejectDirectory {
+		return localstate.Evidence{}, localstate.ErrUnsafePath
+	}
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		return localstate.Evidence{}, err
+	}
+	return localstate.Evidence{Available: true, LinkSafe: true, Local: true, Owned: true, Restrictive: true, HandleStable: true}, nil
+}
+
+func (p rejectedEligibilityPlatform) CreateManagedFile(string, ...string) (localstate.Evidence, error) {
+	if p.rejectFile {
+		return localstate.Evidence{}, localstate.ErrUnsafePath
+	}
+	return localstate.Evidence{Available: true, LinkSafe: true, Local: true, Owned: true, Restrictive: true, HandleStable: true}, nil
+}
+
+func newEligibilityStore(t *testing.T) EligibilityStore {
+	t.Helper()
+	configRoot := t.TempDir()
+	return EligibilityStore{
+		Root:          filepath.Join(configRoot, "BAC Nexus", "profiles"),
+		UserConfigDir: func() (string, error) { return configRoot, nil },
+		Platform:      approvedEligibilityPlatform{},
+	}
+}
 
 func approvedEligibility() Eligibility {
 	return Eligibility{
@@ -25,7 +69,7 @@ func approvedEligibility() Eligibility {
 }
 
 func TestEligibilityStoreRoundTripBindsOnlyCanonicalReferences(t *testing.T) {
-	store := EligibilityStore{Root: t.TempDir()}
+	store := newEligibilityStore(t)
 	want := approvedEligibility()
 	if err := store.Save(want); err != nil {
 		t.Fatalf("Save() error = %v", err)
@@ -37,18 +81,11 @@ func TestEligibilityStoreRoundTripBindsOnlyCanonicalReferences(t *testing.T) {
 	if got != want {
 		t.Fatalf("Load() = %#v, want %#v", got, want)
 	}
-	info, err := os.Stat(filepath.Join(store.Root, "production.eligibility.json"))
-	if err != nil {
-		t.Fatalf("Stat() error = %v", err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("eligibility mode = %o, want 600", info.Mode().Perm())
-	}
 }
 
 func TestEligibilityStoreClassifiesMissingStaleMismatchKeyringAndLegacyAsIneligible(t *testing.T) {
 	now := time.Unix(150, 0).UTC()
-	store := EligibilityStore{Root: t.TempDir()}
+	store := newEligibilityStore(t)
 	want := approvedEligibility()
 	if err := store.Save(want); err != nil {
 		t.Fatalf("Save() error = %v", err)
@@ -136,7 +173,7 @@ func TestDeriveEligibilityBindingIsDeterministicAndBindsEveryIdentityDimension(t
 }
 
 func TestEligibilityStoreRejectsUnsafeOrNonCanonicalRecordsAndPreservesPriorRecordOnReplaceFailure(t *testing.T) {
-	store := EligibilityStore{Root: t.TempDir()}
+	store := newEligibilityStore(t)
 	want := approvedEligibility()
 	if err := store.Save(want); err != nil {
 		t.Fatalf("initial Save() error = %v", err)
@@ -149,12 +186,28 @@ func TestEligibilityStoreRejectsUnsafeOrNonCanonicalRecordsAndPreservesPriorReco
 	if got, err := store.Load(want.Profile); err != nil || got != want {
 		t.Fatalf("Load() after invalid Save = %#v, %v; want original", got, err)
 	}
-	broken := EligibilityStore{Root: store.Root, replace: func(string, string) error { return errors.New("replace failed") }}
+	broken := EligibilityStore{Root: store.Root, UserConfigDir: store.UserConfigDir, Platform: store.Platform, replace: func(string, string) error { return errors.New("replace failed") }}
 	if err := broken.Save(want); !errors.Is(err, ErrEligibilityUnavailable) {
 		t.Fatalf("Save(replace failure) error = %v, want ErrEligibilityUnavailable", err)
 	}
 	if got, err := store.Load(want.Profile); err != nil || got != want {
 		t.Fatalf("Load() after replace failure = %#v, %v; want original", got, err)
+	}
+}
+
+func TestEligibilityStoreRejectsUnavailableDirectoryAndFileEvidence(t *testing.T) {
+	store := newEligibilityStore(t)
+	want := approvedEligibility()
+
+	store.Platform = rejectedEligibilityPlatform{rejectDirectory: true}
+	if err := store.Save(want); !errors.Is(err, ErrEligibilityInvalid) {
+		t.Fatalf("Save() with rejected directory evidence = %v, want ErrEligibilityInvalid", err)
+	}
+
+	store = newEligibilityStore(t)
+	store.Platform = rejectedEligibilityPlatform{rejectFile: true}
+	if err := store.Save(want); !errors.Is(err, ErrEligibilityUnavailable) {
+		t.Fatalf("Save() with rejected file evidence = %v, want ErrEligibilityUnavailable", err)
 	}
 }
 

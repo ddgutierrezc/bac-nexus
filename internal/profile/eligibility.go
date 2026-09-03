@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
+	"bac-nexus/internal/localstate"
 	"bac-nexus/internal/mapepire"
 	"bac-nexus/internal/strictjson"
 )
@@ -130,28 +131,31 @@ const (
 // existing profiles therefore remain ineligible until an explicit approval writes
 // this record.
 type EligibilityStore struct {
-	Root    string
-	replace func(string, string) error
+	Root          string
+	UserConfigDir func() (string, error)
+	Platform      localstate.SecurePathPlatform
+	replace       func(string, string) error
 }
 
 func (s EligibilityStore) Save(eligibility Eligibility) error {
-	if eligibility.Validate() != nil || s.verifyRoot() != nil {
+	root, platform, err := s.rootAndPlatform()
+	if eligibility.Validate() != nil || err != nil || s.verifyRoot(root, platform) != nil {
 		return ErrEligibilityInvalid
 	}
 	data, err := json.Marshal(eligibility)
 	if err != nil || len(data) > maxEligibilityBytes {
 		return ErrEligibilityInvalid
 	}
-	temporary, err := s.writeTemp(data)
+	temporary, err := s.writeTemp(root, platform, data)
 	if err != nil {
 		return ErrEligibilityUnavailable
 	}
-	live := s.path(eligibility.Profile)
+	live := filepath.Join(root, eligibility.Profile+".eligibility.json")
 	if err := s.replaceFile(temporary, live); err != nil {
 		_ = os.Remove(temporary)
 		return ErrEligibilityUnavailable
 	}
-	if err := syncEligibilityDirectory(s.Root); err != nil {
+	if err := syncEligibilityDirectory(root); err != nil {
 		return ErrEligibilityUnavailable
 	}
 	confirmed, err := s.Load(eligibility.Profile)
@@ -162,17 +166,22 @@ func (s EligibilityStore) Save(eligibility Eligibility) error {
 }
 
 func (s EligibilityStore) Load(name string) (Eligibility, error) {
-	if ValidateName(name) != nil || s.verifyExistingRoot() != nil {
+	root, platform, err := s.rootAndPlatform()
+	if ValidateName(name) != nil || err != nil || s.verifyExistingRoot(root, platform) != nil {
 		return Eligibility{}, ErrEligibilityMissing
 	}
-	info, err := os.Lstat(s.path(name))
+	path := filepath.Join(root, name+".eligibility.json")
+	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return Eligibility{}, ErrEligibilityMissing
 	}
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 || info.Mode().Perm() != 0o600 {
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 {
 		return Eligibility{}, ErrEligibilityUnavailable
 	}
-	data, err := readEligibility(s.path(name))
+	if _, err := platform.CreateManagedFile(path, "BAC Nexus", "profiles", filepath.Base(path)); err != nil {
+		return Eligibility{}, ErrEligibilityUnavailable
+	}
+	data, err := readEligibility(path)
 	if err != nil || strictjson.ValidateObjectKeys(data, "schemaVersion", "profile", "targetDigest", "policyID", "pinDigest", "credentialRef", "artifactRef", "proofDigest", "approvedAt", "expiresAt") != nil {
 		return Eligibility{}, ErrEligibilityUnavailable
 	}
@@ -213,49 +222,75 @@ func (s EligibilityStore) Check(profile Profile, binding EligibilityBinding, key
 }
 
 func (s EligibilityStore) Revoke(name string) error {
-	if ValidateName(name) != nil || s.verifyExistingRoot() != nil {
+	root, platform, err := s.rootAndPlatform()
+	if ValidateName(name) != nil || err != nil || s.verifyExistingRoot(root, platform) != nil {
 		return ErrEligibilityMissing
 	}
-	if err := os.Remove(s.path(name)); errors.Is(err, os.ErrNotExist) {
+	path := filepath.Join(root, name+".eligibility.json")
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
 		return ErrEligibilityMissing
-	} else if err != nil {
+	}
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 {
 		return ErrEligibilityUnavailable
 	}
-	if err := syncEligibilityDirectory(s.Root); err != nil {
+	if _, err := platform.CreateManagedFile(path, "BAC Nexus", "profiles", filepath.Base(path)); err != nil {
+		return ErrEligibilityUnavailable
+	}
+	if err := os.Remove(path); err != nil {
+		return ErrEligibilityUnavailable
+	}
+	if err := syncEligibilityDirectory(root); err != nil {
 		return ErrEligibilityUnavailable
 	}
 	return nil
 }
 
-func (s EligibilityStore) verifyRoot() error {
-	if s.Root == "" || os.MkdirAll(s.Root, 0o700) != nil {
+func (s EligibilityStore) rootAndPlatform() (string, localstate.SecurePathPlatform, error) {
+	userConfigDir := s.UserConfigDir
+	if userConfigDir == nil {
+		userConfigDir = os.UserConfigDir
+	}
+	configRoot, err := userConfigDir()
+	if err != nil || !filepath.IsAbs(configRoot) {
+		return "", nil, ErrEligibilityInvalid
+	}
+	root := filepath.Join(configRoot, "BAC Nexus", "profiles")
+	if s.Root != "" && filepath.Clean(s.Root) != filepath.Clean(root) {
+		return "", nil, ErrEligibilityInvalid
+	}
+	platform := s.Platform
+	if platform == nil {
+		platform = localstate.NewPlatform(userConfigDir)
+	}
+	return root, platform, nil
+}
+
+func (s EligibilityStore) verifyRoot(root string, platform localstate.SecurePathPlatform) error {
+	if platform == nil {
 		return ErrEligibilityInvalid
 	}
-	if err := os.Chmod(s.Root, 0o700); err != nil {
-		return err
-	}
-	return s.verifyExistingRoot()
-}
-
-func (s EligibilityStore) verifyExistingRoot() error {
-	info, err := os.Lstat(s.Root)
-	if err != nil || !info.IsDir() || info.Mode()&fs.ModeSymlink != 0 || info.Mode().Perm() != 0o700 {
+	if _, err := platform.VerifyManagedDirectory(root, "BAC Nexus", "profiles"); err != nil {
 		return ErrEligibilityUnavailable
 	}
 	return nil
 }
 
-func (s EligibilityStore) path(name string) string {
-	return filepath.Join(s.Root, name+".eligibility.json")
+func (s EligibilityStore) verifyExistingRoot(root string, platform localstate.SecurePathPlatform) error {
+	return s.verifyRoot(root, platform)
 }
 
-func (s EligibilityStore) writeTemp(data []byte) (string, error) {
-	temporary, err := os.CreateTemp(s.Root, ".eligibility-*.tmp")
+func (s EligibilityStore) writeTemp(root string, platform localstate.SecurePathPlatform, data []byte) (string, error) {
+	temporary, err := os.CreateTemp(root, ".eligibility-*.tmp")
 	if err != nil {
 		return "", err
 	}
 	path := temporary.Name()
 	cleanup := func() { _ = temporary.Close(); _ = os.Remove(path) }
+	if _, err := platform.CreateManagedFile(path, "BAC Nexus", "profiles", filepath.Base(path)); err != nil {
+		cleanup()
+		return "", ErrEligibilityUnavailable
+	}
 	if temporary.Chmod(0o600) != nil {
 		cleanup()
 		return "", ErrEligibilityUnavailable
