@@ -30,6 +30,11 @@ type PreparedCreatePhase string
 const (
 	PreparedCreateProvisioning    PreparedCreatePhase = "provisioning"
 	PreparedCreateSaving          PreparedCreatePhase = "saving"
+	PreparedCreateKeyring         PreparedCreatePhase = "keyring"
+	PreparedCreateProfile         PreparedCreatePhase = "profile"
+	PreparedCreatePin             PreparedCreatePhase = "pin"
+	PreparedCreateEligibility     PreparedCreatePhase = "eligibility"
+	PreparedCreateCommittedAudit  PreparedCreatePhase = "committed_audit"
 	PreparedCreateCleanupRequired PreparedCreatePhase = "credential_cleanup_required"
 )
 
@@ -165,7 +170,7 @@ func validPreparedCreateJournal(journal PreparedCreateJournal) error {
 		return ErrPreparedCreateNotFound
 	}
 	switch journal.Phase {
-	case PreparedCreateProvisioning, PreparedCreateSaving:
+	case PreparedCreateProvisioning, PreparedCreateSaving, PreparedCreateKeyring, PreparedCreateProfile, PreparedCreatePin, PreparedCreateEligibility, PreparedCreateCommittedAudit:
 		if journal.CleanupRequired {
 			return ErrPreparedCreateNotFound
 		}
