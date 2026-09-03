@@ -19,6 +19,7 @@ import (
 	"bac-nexus/internal/audit"
 	"bac-nexus/internal/configuration"
 	"bac-nexus/internal/credential"
+	"bac-nexus/internal/mapepire"
 	"bac-nexus/internal/mcp"
 	"bac-nexus/internal/profile"
 	"bac-nexus/internal/release"
@@ -247,7 +248,7 @@ func newDirectOnboardingService(store profile.Store) *configuration.OnboardingSe
 				sshRequest.Profile, sshRequest.FallbackTicket = p, result.FallbackTicket
 				result = service.RunSSH(ctx, sshRequest)
 			}
-			if result.Class != configuration.ResultProofSuccess || !result.Cleanup || (result.Decision != configuration.DecisionWSSSelected && result.Decision != configuration.DecisionSSHEligible) {
+			if result.Class != configuration.ResultProofSuccess || result.ProofRevision != mapepire.FixedProofRevision || !result.Cleanup || (result.Decision != configuration.DecisionWSSSelected && result.Decision != configuration.DecisionSSHEligible) {
 				return errors.New("authenticated proof did not complete")
 			}
 			return nil
@@ -265,6 +266,8 @@ func newDirectOnboardingService(store profile.Store) *configuration.OnboardingSe
 		Commit: func(ctx context.Context, p profile.Profile, secret []byte, auditCommitted func(context.Context) error) profile.OnboardingCommitResult {
 			transactionID := "onboarding-" + p.Name
 			var result profile.OnboardingCommitResult
+			eligibilities := profile.EligibilityStore{Root: store.Root}
+			var prior *profile.Eligibility
 			err := store.WithPreparedCreateLock(ctx, p.Name, func() error {
 				wasExisting := false
 				result = (profile.OnboardingCommit{
@@ -290,7 +293,33 @@ func newDirectOnboardingService(store profile.Store) *configuration.OnboardingSe
 						_, err := store.Save(p)
 						return err
 					},
-					CommitPin: func() error { return nil }, AuditCommitted: auditCommitted, RollbackPin: func() error { return nil },
+					CommitPin: func() error { return nil },
+					RevokePriorEligibility: func() error {
+						existing, err := eligibilities.Load(p.Name)
+						if errors.Is(err, profile.ErrEligibilityMissing) {
+							return nil
+						}
+						if err != nil {
+							return err
+						}
+						prior = &existing
+						return eligibilities.Revoke(p.Name)
+					},
+					SaveEligibility: func() error {
+						eligibility, err := profile.NewEligibility(p, time.Now())
+						if err != nil {
+							return err
+						}
+						return eligibilities.Save(eligibility)
+					},
+					RollbackEligibility: func() error { return eligibilities.Revoke(p.Name) },
+					RestorePriorEligibility: func() error {
+						if prior == nil {
+							return nil
+						}
+						return eligibilities.Save(*prior)
+					},
+					AuditCommitted: auditCommitted, RollbackPin: func() error { return nil },
 					RollbackProfile: func() error {
 						if wasExisting {
 							return store.Restore(p.Name)
