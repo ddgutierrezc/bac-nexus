@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -106,6 +107,8 @@ type Model struct {
 	onboardingRunning    bool
 	onboardingCompletion configuration.OnboardingResult
 	onboardingFeedback   string
+	profileViewport      viewport.Model
+	profileViewportText  string
 }
 
 // BuildInfo is the build identity supplied by the composition root. The TUI
@@ -150,7 +153,7 @@ func NewModelWithBuildInfoAndLocalizer(store configuration.ProfilesStore, buildI
 	if localizer == nil {
 		panic("nil localizer")
 	}
-	m := Model{store: store, screen: screenHome, homeSelected: actionCreate, noColor: noColorEnabled(), buildInfo: buildInfo, localizer: localizer}
+	m := Model{store: store, screen: screenHome, homeSelected: actionCreate, noColor: noColorEnabled(), buildInfo: buildInfo, localizer: localizer, profileViewport: newProfileViewport()}
 	m.form = m.newFields(profile.Profile{})
 	m.onboardingContext = context.Background()
 	return m
@@ -675,26 +678,6 @@ func (m Model) renderLegacyViewport(content string) string {
 	return responsive(strings.Join(lines, "\n"), width, m.height)
 }
 
-// wizardOverflowIndicator is retained for the Security viewport, which
-// continues to disclose content outside the visible page.
-func wizardOverflowIndicator(vp interface {
-	AtTop() bool
-	AtBottom() bool
-}, width int, t homeTheme, above, below string) string {
-	indicator := ""
-	switch {
-	case !vp.AtTop() && !vp.AtBottom():
-		indicator = above + "  " + below
-	case !vp.AtTop():
-		indicator = above
-	case !vp.AtBottom():
-		indicator = below
-	}
-	if indicator == "" {
-		return ""
-	}
-	return t.metadata.Width(width).Align(lipgloss.Right).Render(indicator)
-}
 func sanitizeError(err error) string { return strings.Join(strings.Fields(err.Error()), " ") }
 
 func (m Model) reload() tea.Cmd {
