@@ -211,6 +211,23 @@ func TestEligibilityStoreRejectsUnavailableDirectoryAndFileEvidence(t *testing.T
 	}
 }
 
+func TestEligibilityStoreRevokeRemovesApprovedRecordAndThenReportsMissing(t *testing.T) {
+	store := newEligibilityStore(t)
+	want := approvedEligibility()
+	if err := store.Save(want); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	if err := store.Revoke(want.Profile); err != nil {
+		t.Fatalf("Revoke() error = %v", err)
+	}
+	if _, err := store.Load(want.Profile); !errors.Is(err, ErrEligibilityMissing) {
+		t.Fatalf("Load() after Revoke() error = %v, want ErrEligibilityMissing", err)
+	}
+	if err := store.Revoke(want.Profile); !errors.Is(err, ErrEligibilityMissing) {
+		t.Fatalf("second Revoke() error = %v, want ErrEligibilityMissing", err)
+	}
+}
+
 func eligibleProfile() Profile {
 	return Profile{SchemaVersion: SchemaVersionV3, Name: "production", Host: "127.0.0.1", Port: 22, Username: "operator", HostKeyFingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", HostKeyTrust: HostKeyTrustTOFU, CredentialMode: CredentialModeKeyring}
 }

@@ -9,6 +9,16 @@ func syncEligibilityPublication(root, _ string) error {
 	if err != nil {
 		return err
 	}
-	defer directory.Close()
-	return directory.Sync()
+	if err := directory.Sync(); err != nil {
+		_ = directory.Close()
+		return err
+	}
+	return directory.Close()
+}
+
+func removeEligibility(root, path string) error {
+	if err := os.Remove(path); err != nil {
+		return err
+	}
+	return syncEligibilityPublication(root, path)
 }

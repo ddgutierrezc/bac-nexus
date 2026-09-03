@@ -237,10 +237,7 @@ func (s EligibilityStore) Revoke(name string) error {
 	if _, err := platform.CreateManagedFile(path, "BAC Nexus", "profiles", filepath.Base(path)); err != nil {
 		return ErrEligibilityUnavailable
 	}
-	if err := os.Remove(path); err != nil {
-		return ErrEligibilityUnavailable
-	}
-	if err := syncEligibilityPublication(root, path); err != nil {
+	if err := removeEligibility(root, path); err != nil {
 		return ErrEligibilityUnavailable
 	}
 	return nil
