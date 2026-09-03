@@ -1,12 +1,120 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"testing"
 
+	"bac-nexus/internal/configuration"
 	"bac-nexus/internal/profile"
+	"bac-nexus/internal/remote"
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+func TestProfileScreenRendersDirectOnboardingLifecycleInBACShell(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		prepare func(*Model)
+		want    string
+	}{
+		{"entry", func(m *Model) { m.beginDirectOnboarding() }, "SIGUIENTE"},
+		{"running", func(m *Model) { m.screen = screenDirectOnboardingRunning }, "Conectando y guardando"},
+		{"failed", func(m *Model) { m.screen = screenDirectOnboardingCompletion }, "No se pudo guardar"},
+		{"cleanup", func(m *Model) {
+			m.screen, m.onboardingCompletion = screenDirectOnboardingCompletion, configuration.OnboardingResult{CleanupRequired: true}
+		}, "limpieza"},
+		{"saved", func(m *Model) {
+			m.screen, m.onboardingCompletion = screenDirectOnboardingCompletion, configuration.OnboardingResult{Code: configuration.OnboardingSaved}
+		}, "Perfil conectado y guardado"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewModelWithOnboarding(&profileStoreStub{}, context.Background(), &onboardingOperationsStub{}, remote.SecretPrompt{})
+			tt.prepare(&m)
+			updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+			view := updated.(Model).View()
+			for _, want := range []string{"BAC NEXUS", tt.want, "Esc"} {
+				if !strings.Contains(view, want) {
+					t.Fatalf("%s frame missing %q: %q", tt.name, want, view)
+				}
+			}
+			if !strings.Contains(view, "┌") || (tt.name == "entry" && !strings.Contains(view, "▸")) {
+				t.Fatalf("%s frame is missing the centered panel or focus marker: %q", tt.name, view)
+			}
+			assertProfileFrameBounds(t, view, 120, 40)
+		})
+	}
+}
+
+func TestProfileScreenKeepsNarrowDirectOnboardingReachable(t *testing.T) {
+	for _, frame := range []struct {
+		width, height int
+		noColor       bool
+	}{{80, 24, true}, {40, 16, false}} {
+		m := NewModelWithOnboarding(&profileStoreStub{}, context.Background(), &onboardingOperationsStub{}, remote.SecretPrompt{})
+		m.noColor = frame.noColor
+		m.beginDirectOnboarding()
+		m.onboardingFeedback = "Ingresa un host válido y vuelve a intentar la conexión."
+		updated, _ := m.Update(tea.WindowSizeMsg{Width: frame.width, Height: frame.height})
+		m = updated.(Model)
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m = updated.(Model)
+		view := updated.(Model).View()
+		if !strings.Contains(view, "SIGUIENTE") || !strings.Contains(view, "▼ más") || (frame.noColor && strings.Contains(view, "\x1b[")) {
+			t.Fatalf("direct onboarding frame is not reachable at %dx%d: %q", frame.width, frame.height, view)
+		}
+		assertProfileFrameBounds(t, view, frame.width, frame.height)
+	}
+}
+
+func TestProfileScreenRendersEveryDirectOnboardingLifecycleAtRequiredFrames(t *testing.T) {
+	for _, lifecycle := range []struct {
+		name    string
+		prepare func(*Model)
+		want    []string
+	}{
+		{"entry", func(m *Model) { m.beginDirectOnboarding() }, []string{"Nombre"}},
+		{"running", func(m *Model) { m.screen = screenDirectOnboardingRunning }, []string{"Conectando y guardando"}},
+		{"failed", func(m *Model) { m.screen = screenDirectOnboardingCompletion }, []string{"No se pudo guardar"}},
+		{"cleanup", func(m *Model) {
+			m.screen, m.onboardingCompletion = screenDirectOnboardingCompletion, configuration.OnboardingResult{CleanupRequired: true}
+		}, []string{"El perfil no se guardó"}},
+		{"saved", func(m *Model) {
+			m.screen, m.onboardingCompletion = screenDirectOnboardingCompletion, configuration.OnboardingResult{Code: configuration.OnboardingSaved}
+		}, []string{"Perfil conectado y"}},
+	} {
+		t.Run(lifecycle.name, func(t *testing.T) {
+			for _, frame := range []struct {
+				width, height int
+				noColor       bool
+			}{{120, 40, false}, {80, 24, true}, {40, 16, false}} {
+				m := NewModelWithOnboarding(&profileStoreStub{}, context.Background(), &onboardingOperationsStub{}, remote.SecretPrompt{})
+				m.noColor = frame.noColor
+				lifecycle.prepare(&m)
+				updated, _ := m.Update(tea.WindowSizeMsg{Width: frame.width, Height: frame.height})
+				m = updated.(Model)
+				view := m.View()
+				seen := make(map[string]bool, len(lifecycle.want))
+				for range 12 {
+					for _, want := range lifecycle.want {
+						seen[want] = seen[want] || strings.Contains(view, want)
+					}
+					updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+					m = updated.(Model)
+					view = m.View()
+				}
+				for _, want := range lifecycle.want {
+					if !seen[want] {
+						t.Fatalf("%s did not render %q at %dx%d after viewport traversal: %q", lifecycle.name, want, frame.width, frame.height, view)
+					}
+				}
+				if frame.noColor && strings.Contains(view, "\x1b[") {
+					t.Fatalf("NO_COLOR %s frame contains ANSI: %q", lifecycle.name, view)
+				}
+				assertProfileFrameBounds(t, view, frame.width, frame.height)
+			}
+		})
+	}
+}
 
 func TestProfileScreenPrimitivesRenderFieldsActionsAndSemanticFeedback(t *testing.T) {
 	m := NewModel(nil)
