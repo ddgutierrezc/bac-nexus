@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"bac-nexus/internal/localstate"
 	"bac-nexus/internal/source"
 
 	sqliteDriver "modernc.org/sqlite"
@@ -149,7 +150,18 @@ type filesystemEvidence struct {
 
 var queryFilesystemEvidence = filesystemEvidenceFor
 
+var securePathPlatform localstate.SecurePathPlatform = localstate.NewPlatform(os.UserConfigDir)
+
 func Open(root string) (*Ledger, error) {
+	if securePathPlatform == nil {
+		return nil, source.ErrOwnershipInvalid
+	}
+	if _, err := securePathPlatform.VerifyManagedDirectory(root, "BAC Nexus", "ownership"); err != nil {
+		return nil, source.ErrOwnershipInvalid
+	}
+	if _, err := securePathPlatform.CreateManagedFile(filepath.Join(root, "ownership.db"), "BAC Nexus", "ownership", "ownership.db"); err != nil {
+		return nil, source.ErrOwnershipInvalid
+	}
 	return open(root, queryFilesystemEvidence(root))
 }
 
