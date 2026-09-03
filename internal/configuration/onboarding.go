@@ -3,8 +3,9 @@ package configuration
 import (
 	"context"
 	"fmt"
-	"strings"
+	"os"
 	"sync"
+	"time"
 
 	"bac-nexus/internal/credential"
 	"bac-nexus/internal/profile"
@@ -27,7 +28,10 @@ type OperationIdentity struct {
 	ID         string
 	Generation uint64
 }
-type OnboardingRequest struct{ Host, Username string }
+type OnboardingRequest struct {
+	Name, Host, Username string
+	Port                 int
+}
 type OnboardingResult struct {
 	Code            OnboardingCode
 	Profile         profile.Profile
@@ -52,6 +56,7 @@ type OnboardingDeps struct {
 	Audit      func(context.Context, OnboardingAuditEvent) error
 	Capability func() credential.Capability
 	Keyring    credential.CredentialStore
+	Now        func() time.Time
 	// Commit is the production persistence boundary. When set it owns the
 	// prepared journal, ordered mutations, compensation, and committed audit.
 	// Tests may omit it to exercise the small in-memory seam below.
@@ -62,32 +67,86 @@ type onboardingCall struct {
 	result OnboardingResult
 	cancel context.CancelFunc
 }
+type secretLease struct {
+	secret     []byte
+	expiresAt  time.Time
+	generation uint64
+}
 type OnboardingService struct {
-	deps  OnboardingDeps
-	mu    sync.Mutex
-	next  uint64
-	calls map[string]*onboardingCall
+	deps   OnboardingDeps
+	mu     sync.Mutex
+	next   uint64
+	calls  map[string]*onboardingCall
+	leases map[string]*secretLease
 }
 
 func NewOnboardingService(deps OnboardingDeps) *OnboardingService {
-	return &OnboardingService{deps: deps, calls: map[string]*onboardingCall{}}
+	if deps.Now == nil {
+		deps.Now = time.Now
+	}
+	return &OnboardingService{deps: deps, calls: map[string]*onboardingCall{}, leases: map[string]*secretLease{}}
 }
-func (s *OnboardingService) StartCaptured(parent context.Context, request OnboardingRequest, secret []byte) (OperationIdentity, OnboardingCode) {
-	if s == nil || parent == nil || parent.Err() != nil || len(secret) == 0 || profile.ValidateHost(request.Host) != nil || profile.ValidateUsername(request.Username) != nil || s.deps.Inspect == nil || s.deps.Proof == nil || s.deps.Save == nil || s.deps.Audit == nil {
+func validOnboardingRequest(request OnboardingRequest) bool {
+	return profile.ValidateName(request.Name) == nil && profile.ValidateHost(request.Host) == nil && profile.ValidateUsername(request.Username) == nil && profile.ValidatePort(request.Port) == nil
+}
+
+// Capture moves terminal bytes directly into an application-owned, expiring
+// lease. Its result contains only an opaque identity and a secret-free code.
+func (s *OnboardingService) Capture(ctx context.Context, request OnboardingRequest, prompt remote.SecretPrompt, input, output *os.File, label string) (OperationIdentity, remote.PromptCode) {
+	if s == nil || !validOnboardingRequest(request) {
+		return OperationIdentity{}, remote.PromptUnavailable
+	}
+	secret, code := prompt.Capture(ctx, input, output, label)
+	if code != remote.PromptCaptured || len(secret) < 1 || len(secret) > 1024 {
 		remote.Zero(secret)
-		return OperationIdentity{}, OnboardingRejected
+		if code == remote.PromptCaptured {
+			code = remote.PromptUnavailable
+		}
+		return OperationIdentity{}, code
 	}
 	owned := append([]byte(nil), secret...)
 	remote.Zero(secret)
-	ctx, cancel := context.WithCancel(parent)
 	s.mu.Lock()
+	for id, lease := range s.leases {
+		remote.Zero(lease.secret)
+		delete(s.leases, id)
+	}
 	s.next++
 	id := OperationIdentity{ID: fmt.Sprintf("onboarding-%d", s.next), Generation: s.next}
+	s.leases[id.ID] = &secretLease{secret: owned, expiresAt: s.deps.Now().Add(2 * time.Minute), generation: id.Generation}
+	s.mu.Unlock()
+	return id, remote.PromptCaptured
+}
+
+// StartCaptured atomically consumes a lease. The worker owns the bytes until
+// it returns; its done channel closes only after the buffer is zeroed.
+func (s *OnboardingService) StartCaptured(parent context.Context, request OnboardingRequest, id OperationIdentity) OnboardingCode {
+	if s == nil || parent == nil || parent.Err() != nil || !validOnboardingRequest(request) {
+		return OnboardingRejected
+	}
+	s.mu.Lock()
+	lease := s.leases[id.ID]
+	if lease == nil || lease.generation != id.Generation || !s.deps.Now().Before(lease.expiresAt) {
+		if lease != nil {
+			remote.Zero(lease.secret)
+			delete(s.leases, id.ID)
+		}
+		s.mu.Unlock()
+		return OnboardingRejected
+	}
+	owned := lease.secret
+	delete(s.leases, id.ID)
+	if s.deps.Inspect == nil || s.deps.Proof == nil || s.deps.Save == nil || s.deps.Audit == nil {
+		remote.Zero(owned)
+		s.mu.Unlock()
+		return OnboardingRejected
+	}
+	ctx, cancel := context.WithCancel(parent)
 	call := &onboardingCall{done: make(chan struct{}), cancel: cancel}
 	s.calls[id.ID] = call
 	s.mu.Unlock()
-	go func() { defer remote.Zero(owned); defer close(call.done); call.result = s.run(ctx, request, owned) }()
-	return id, OnboardingStarted
+	go func() { defer close(call.done); defer remote.Zero(owned); call.result = s.run(ctx, request, owned) }()
+	return OnboardingStarted
 }
 func (s *OnboardingService) Wait(ctx context.Context, id string) OnboardingResult {
 	s.mu.Lock()
@@ -110,22 +169,50 @@ func (s *OnboardingService) Cancel(id string) {
 	if call != nil {
 		call.cancel()
 	}
+	s.mu.Lock()
+	if lease := s.leases[id]; lease != nil {
+		remote.Zero(lease.secret)
+		delete(s.leases, id)
+	}
+	s.mu.Unlock()
 }
+func (s *OnboardingService) Revoke(id OperationIdentity) { s.Cancel(id.ID) }
+
+// Shutdown revokes every unconsumed lease, cancels active workers, and waits
+// until each worker has zeroed its owned secret buffer.
+func (s *OnboardingService) Shutdown() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	calls := make([]*onboardingCall, 0, len(s.calls))
+	for _, call := range s.calls {
+		calls = append(calls, call)
+	}
+	for id, lease := range s.leases {
+		remote.Zero(lease.secret)
+		delete(s.leases, id)
+	}
+	s.mu.Unlock()
+	for _, call := range calls {
+		call.cancel()
+	}
+	for _, call := range calls {
+		<-call.done
+	}
+}
+
 func (s *OnboardingService) run(ctx context.Context, request OnboardingRequest, secret []byte) OnboardingResult {
-	observation, err := s.deps.Inspect(ctx, request.Host, 22)
+	observation, err := s.deps.Inspect(ctx, request.Host, request.Port)
 	if ctx.Err() != nil {
 		return OnboardingResult{Code: OnboardingCancelled}
 	}
 	if err != nil || observation.Verified || profile.ValidateHostKey(observation.Fingerprint, profile.HostKeyTrustTOFU) != nil {
 		return OnboardingResult{Code: OnboardingFailed}
 	}
-	name := strings.ReplaceAll(strings.ToLower(request.Username+"-"+request.Host), ".", "-")
-	if len(name) > 64 {
-		name = name[:64]
-	}
-	p := profile.Profile{SchemaVersion: profile.SchemaVersionV3, Name: name, Host: request.Host, Port: 22, Username: request.Username, HostKeyFingerprint: observation.Fingerprint, HostKeyTrust: profile.HostKeyTrustTOFU, HostKeyProvenance: automaticTOFUProvenance, CredentialMode: profile.CredentialModePrompt}
+	p := profile.Profile{SchemaVersion: profile.SchemaVersionV3, Name: request.Name, Host: request.Host, Port: request.Port, Username: request.Username, HostKeyFingerprint: observation.Fingerprint, HostKeyTrust: profile.HostKeyTrustTOFU, HostKeyProvenance: automaticTOFUProvenance, CredentialMode: profile.CredentialModePrompt}
 	if s.deps.Existing != nil {
-		existing, existingErr := s.deps.Existing(ctx, name)
+		existing, existingErr := s.deps.Existing(ctx, p.Name)
 		if existingErr != nil || existing != nil && !sameOnboardingIdentity(*existing, p) {
 			_ = s.deps.Audit(ctx, OnboardingAuditEvent{Code: "identity_changed", Profile: p.Name})
 			return OnboardingResult{Code: OnboardingFailed}
@@ -134,6 +221,12 @@ func (s *OnboardingService) run(ctx context.Context, request OnboardingRequest, 
 			p = *existing
 		}
 	}
+	if err := s.deps.Proof(ctx, p, secret); err != nil {
+		if ctx.Err() != nil {
+			return OnboardingResult{Code: OnboardingCancelled}
+		}
+		return OnboardingResult{Code: OnboardingFailed}
+	}
 	if p.HostKeyProvenance == automaticTOFUProvenance {
 		if s.deps.Audit(ctx, OnboardingAuditEvent{Code: "identity_bootstrap_allowed", Profile: p.Name}) != nil {
 			if ctx.Err() != nil {
@@ -141,12 +234,6 @@ func (s *OnboardingService) run(ctx context.Context, request OnboardingRequest, 
 			}
 			return OnboardingResult{Code: OnboardingFailed}
 		}
-	}
-	if err := s.deps.Proof(ctx, p, secret); err != nil {
-		if ctx.Err() != nil {
-			return OnboardingResult{Code: OnboardingCancelled}
-		}
-		return OnboardingResult{Code: OnboardingFailed}
 	}
 	committedAudit := func(ctx context.Context) error {
 		return s.deps.Audit(ctx, OnboardingAuditEvent{Code: "identity_pin_committed", Profile: p.Name})

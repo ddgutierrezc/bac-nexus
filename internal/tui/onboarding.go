@@ -17,7 +17,8 @@ import (
 // OnboardingOperations is the secret-free application boundary used by the
 // direct TUI route. The service takes ownership of captured bytes immediately.
 type OnboardingOperations interface {
-	StartCaptured(context.Context, configuration.OnboardingRequest, []byte) (configuration.OperationIdentity, configuration.OnboardingCode)
+	Capture(context.Context, configuration.OnboardingRequest, remote.SecretPrompt, *os.File, *os.File, string) (configuration.OperationIdentity, remote.PromptCode)
+	StartCaptured(context.Context, configuration.OnboardingRequest, configuration.OperationIdentity) configuration.OnboardingCode
 	Wait(context.Context, string) configuration.OnboardingResult
 	Cancel(string)
 }
@@ -72,13 +73,12 @@ func (c *onboardingExecCommand) Run() error {
 		c.message.Code = remote.PromptTerminalUnavailable
 		return nil
 	}
-	secret, code := c.prompt.Capture(c.ctx, input, output, "IBM i password")
+	identity, code := c.operations.Capture(c.ctx, c.request, c.prompt, input, output, "IBM i password")
 	c.message.Code = code
 	if code != remote.PromptCaptured {
 		return nil
 	}
-	identity, start := c.operations.StartCaptured(c.ctx, c.request, secret)
-	remote.Zero(secret)
+	start := c.operations.StartCaptured(c.ctx, c.request, identity)
 	if start != configuration.OnboardingStarted {
 		c.message.Code = remote.PromptUnavailable
 		return nil
@@ -141,7 +141,7 @@ func (m Model) updateDirectOnboarding(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.onboardingRunning, m.onboardingFeedback = true, ""
-		command := newOnboardingExecCommand(m.onboardingContext, m.onboardingPrompt, m.onboardingOperations, configuration.OnboardingRequest{Host: host, Username: username})
+		command := newOnboardingExecCommand(m.onboardingContext, m.onboardingPrompt, m.onboardingOperations, configuration.OnboardingRequest{Name: "direct-onboarding", Host: host, Port: 22, Username: username})
 		return m, tea.Exec(command, func(error) tea.Msg { return command.result() })
 	}
 	var cmd tea.Cmd

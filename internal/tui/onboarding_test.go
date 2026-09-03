@@ -16,15 +16,33 @@ import (
 )
 
 type onboardingOperationsStub struct {
-	starts  int
-	cancels []string
-	result  configuration.OnboardingResult
+	captures       int
+	captureCode    remote.PromptCode
+	captureRequest configuration.OnboardingRequest
+	starts         int
+	startRequest   configuration.OnboardingRequest
+	startIdentity  configuration.OperationIdentity
+	startCode      configuration.OnboardingCode
+	cancels        []string
+	result         configuration.OnboardingResult
 }
 
-func (s *onboardingOperationsStub) StartCaptured(_ context.Context, _ configuration.OnboardingRequest, secret []byte) (configuration.OperationIdentity, configuration.OnboardingCode) {
+func (s *onboardingOperationsStub) Capture(_ context.Context, request configuration.OnboardingRequest, _ remote.SecretPrompt, _, _ *os.File, _ string) (configuration.OperationIdentity, remote.PromptCode) {
+	s.captures++
+	s.captureRequest = request
+	if s.captureCode != "" && s.captureCode != remote.PromptCaptured {
+		return configuration.OperationIdentity{}, s.captureCode
+	}
+	return configuration.OperationIdentity{ID: "operation-1", Generation: 1}, remote.PromptCaptured
+}
+
+func (s *onboardingOperationsStub) StartCaptured(_ context.Context, request configuration.OnboardingRequest, identity configuration.OperationIdentity) configuration.OnboardingCode {
 	s.starts++
-	remote.Zero(secret)
-	return configuration.OperationIdentity{ID: "operation-1", Generation: 1}, configuration.OnboardingStarted
+	s.startRequest, s.startIdentity = request, identity
+	if s.startCode != "" {
+		return s.startCode
+	}
+	return configuration.OnboardingStarted
 }
 
 func (s *onboardingOperationsStub) Wait(context.Context, string) configuration.OnboardingResult {
@@ -32,6 +50,56 @@ func (s *onboardingOperationsStub) Wait(context.Context, string) configuration.O
 }
 
 func (s *onboardingOperationsStub) Cancel(id string) { s.cancels = append(s.cancels, id) }
+
+func TestOnboardingExecCommandStartsOpaqueLeaseAndPropagatesLegacyRequest(t *testing.T) {
+	input, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer input.Close()
+	output, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer output.Close()
+	operations := &onboardingOperationsStub{}
+	request := configuration.OnboardingRequest{Name: "direct-onboarding", Host: "ibmi.example.test", Port: 22, Username: "USER"}
+	command := newOnboardingExecCommand(context.Background(), remote.SecretPrompt{}, operations, request)
+	command.SetStdin(input)
+	command.SetStderr(output)
+	if err := command.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if operations.captures != 1 || operations.starts != 1 || operations.captureRequest != request || operations.startRequest != request || operations.startIdentity != (configuration.OperationIdentity{ID: "operation-1", Generation: 1}) {
+		t.Fatalf("capture/start bridge = captures:%d starts:%d capture:%#v start:%#v identity:%#v", operations.captures, operations.starts, operations.captureRequest, operations.startRequest, operations.startIdentity)
+	}
+	if got := command.result(); got != (onboardingPromptMsg{ID: "operation-1", Generation: 1, Code: remote.PromptCaptured}) {
+		t.Fatalf("secret-free result = %#v", got)
+	}
+}
+
+func TestOnboardingExecCommandDoesNotReturnLeaseWhenStartIsRejected(t *testing.T) {
+	input, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer input.Close()
+	output, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer output.Close()
+	operations := &onboardingOperationsStub{startCode: configuration.OnboardingRejected}
+	command := newOnboardingExecCommand(context.Background(), remote.SecretPrompt{}, operations, configuration.OnboardingRequest{Name: "direct-onboarding", Host: "ibmi.example.test", Port: 22, Username: "USER"})
+	command.SetStdin(input)
+	command.SetStderr(output)
+	if err := command.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if operations.captures != 1 || operations.starts != 1 || command.result() != (onboardingPromptMsg{Code: remote.PromptUnavailable}) {
+		t.Fatalf("rejected start = captures:%d starts:%d result:%#v", operations.captures, operations.starts, command.result())
+	}
+}
 
 func TestOnboardingExecCommandPromptFailureStartsNoOperation(t *testing.T) {
 	input, err := os.Open(os.DevNull)
@@ -44,7 +112,7 @@ func TestOnboardingExecCommandPromptFailureStartsNoOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer output.Close()
-	operations := &onboardingOperationsStub{}
+	operations := &onboardingOperationsStub{captureCode: remote.PromptTerminalUnavailable}
 	command := newOnboardingExecCommand(context.Background(), remote.SecretPrompt{}, operations, configuration.OnboardingRequest{Host: "ibmi.example.test", Username: "USER"})
 	command.SetStdin(input)
 	command.SetStdout(io.Discard)
@@ -53,8 +121,8 @@ func TestOnboardingExecCommandPromptFailureStartsNoOperation(t *testing.T) {
 	if err := command.Run(); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	if operations.starts != 0 {
-		t.Fatalf("operations started = %d, want 0", operations.starts)
+	if operations.captures != 1 || operations.starts != 0 {
+		t.Fatalf("operations captures/started = %d/%d, want 1/0", operations.captures, operations.starts)
 	}
 	if got := command.result(); got.Code != remote.PromptTerminalUnavailable || got.ID != "" || got.Generation != 0 {
 		t.Fatalf("secret-free prompt result = %+v", got)
