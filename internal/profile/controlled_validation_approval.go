@@ -119,7 +119,10 @@ func (s ControlledValidationApprovalStore) load(name string) (ControlledValidati
 	if errors.Is(err, os.ErrNotExist) {
 		return ControlledValidationApproval{}, ControlledValidationMissing
 	}
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 || info.Mode().Perm() != 0o600 {
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 {
+		return ControlledValidationApproval{}, ControlledValidationUnavailable
+	}
+	if _, err := platform.CreateManagedFile(path, "BAC Nexus", "controlled-validation-approvals", filepath.Base(path)); err != nil {
 		return ControlledValidationApproval{}, ControlledValidationUnavailable
 	}
 	data, err := readControlledValidationApproval(path)
