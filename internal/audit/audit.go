@@ -13,6 +13,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"bac-nexus/internal/configuration"
 )
 
 // Errors returned by the audit boundary. Each error is a deterministic
@@ -36,8 +38,10 @@ var (
 type Capability string
 
 const (
-	CapabilityCatalogResolve Capability = "catalog_resolve"
-	CapabilitySourceRead     Capability = "source_read"
+	CapabilityCatalogResolve          Capability = "catalog_resolve"
+	CapabilitySourceRead              Capability = "source_read"
+	CapabilityLifecycleCompletion     Capability = "lifecycle_completion"
+	CapabilityConfigurationDiagnostic Capability = "configuration_diagnostic"
 )
 
 // Connector is the allowlisted connector classification. The audit
@@ -53,8 +57,10 @@ const (
 type TargetClass string
 
 const (
-	TargetClassIBMiCatalog TargetClass = "ibmi_catalog"
-	TargetClassIBMiSource  TargetClass = "ibmi_source"
+	TargetClassIBMiCatalog             TargetClass = "ibmi_catalog"
+	TargetClassIBMiSource              TargetClass = "ibmi_source"
+	TargetClassLifecycle               TargetClass = "lifecycle"
+	TargetClassConfigurationDiagnostic TargetClass = "configuration_diagnostic"
 )
 
 // PolicyID identifies the specific allowlisted client-policy
@@ -69,9 +75,13 @@ const PolicyIDVerifiedReadOnly PolicyID = "verified-readonly"
 type ResultClass string
 
 const (
-	ResultClassAllow ResultClass = "allow"
-	ResultClassDeny  ResultClass = "deny"
-	ResultClassError ResultClass = "error"
+	ResultClassAllow     ResultClass = "allow"
+	ResultClassDeny      ResultClass = "deny"
+	ResultClassError     ResultClass = "error"
+	ResultClassSucceeded ResultClass = "succeeded"
+	ResultClassCancelled ResultClass = "cancelled"
+	ResultClassTimedOut  ResultClass = "timed_out"
+	ResultClassFailed    ResultClass = "failed"
 )
 
 // Event is the allowlisted structured audit outcome. Every field is
@@ -140,6 +150,54 @@ type Auditor interface {
 	Record(ctx context.Context, event Event) error
 }
 
+// NewPersistentDiagnosticAuditor maps configuration diagnostics to the durable
+// audit's fixed, metadata-only schema. It has no external-client mutation seam.
+func NewPersistentDiagnosticAuditor(sink Auditor, now func() time.Time) configuration.DiagnosticAuditor {
+	if now == nil {
+		now = time.Now
+	}
+	return persistentDiagnosticAuditor{sink: sink, now: now}
+}
+
+type persistentDiagnosticAuditor struct {
+	sink Auditor
+	now  func() time.Time
+}
+
+func (a persistentDiagnosticAuditor) Record(ctx context.Context, event configuration.DiagnosticAuditEvent) error {
+	if a.sink == nil {
+		return ErrAuditUnavailable
+	}
+	result, ok := diagnosticAuditResult(event.Classification)
+	if !ok {
+		return ErrAuditUnavailable
+	}
+	return a.sink.Record(ctx, Event{
+		Capability:  CapabilityConfigurationDiagnostic,
+		Connector:   ConnectorIBMi,
+		TargetClass: TargetClassConfigurationDiagnostic,
+		PolicyID:    PolicyIDVerifiedReadOnly,
+		Result:      result,
+		Timestamp:   a.now().UTC(),
+		Duration:    event.Duration,
+	})
+}
+
+func diagnosticAuditResult(classification configuration.DiagnosticClassification) (ResultClass, bool) {
+	switch classification {
+	case configuration.DiagnosticSucceeded:
+		return ResultClassSucceeded, true
+	case configuration.DiagnosticCancelled:
+		return ResultClassCancelled, true
+	case configuration.DiagnosticTimedOut:
+		return ResultClassTimedOut, true
+	case configuration.DiagnosticFailed:
+		return ResultClassFailed, true
+	default:
+		return "", false
+	}
+}
+
 // Recorder is an in-memory test/dev Auditor. It stores every accepted
 // event in submission order and exposes a defensive copy.
 type Recorder struct {
@@ -194,7 +252,21 @@ func (Noop) Record(ctx context.Context, event Event) error {
 // reflected in the error message.
 func ValidateEvent(event Event) error {
 	switch event.Capability {
-	case CapabilityCatalogResolve, CapabilitySourceRead:
+	case CapabilityCatalogResolve, CapabilitySourceRead, CapabilityLifecycleCompletion:
+		switch event.Result {
+		case ResultClassAllow, ResultClassDeny, ResultClassError:
+		default:
+			return ErrResultRejected
+		}
+	case CapabilityConfigurationDiagnostic:
+		if event.TargetClass != TargetClassConfigurationDiagnostic {
+			return ErrTargetRejected
+		}
+		switch event.Result {
+		case ResultClassSucceeded, ResultClassCancelled, ResultClassTimedOut, ResultClassFailed:
+		default:
+			return ErrResultRejected
+		}
 	default:
 		return ErrCapabilityRejected
 	}
@@ -205,14 +277,9 @@ func ValidateEvent(event Event) error {
 		return ErrPolicyRejected
 	}
 	switch event.TargetClass {
-	case TargetClassIBMiCatalog, TargetClassIBMiSource:
+	case TargetClassIBMiCatalog, TargetClassIBMiSource, TargetClassLifecycle, TargetClassConfigurationDiagnostic:
 	default:
 		return ErrTargetRejected
-	}
-	switch event.Result {
-	case ResultClassAllow, ResultClassDeny, ResultClassError:
-	default:
-		return ErrResultRejected
 	}
 	if event.Requested < 0 || event.Returned < 0 {
 		return ErrCountRejected
