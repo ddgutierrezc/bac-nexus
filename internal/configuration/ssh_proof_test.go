@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"sync"
 	"testing"
 
@@ -15,7 +16,7 @@ import (
 type proofRuntimeClientFake struct {
 	transport mapepire.MessageTransport
 	launchErr error
-	policy    mapepirestdio.LaunchPolicy
+	receipt   mapepirestdio.VerifiedMapepireArtifactReceipt
 	closes    int
 	closeErr  error
 }
@@ -24,9 +25,16 @@ func (f *proofRuntimeClientFake) Close() error {
 	f.closes++
 	return f.closeErr
 }
-func (*proofRuntimeClientFake) RemoteFiles() mapepirestdio.RemoteFiles { return nil }
-func (f *proofRuntimeClientFake) FixedMapepireProof(_ context.Context, policy mapepirestdio.LaunchPolicy, username string, secret []byte) (remote.FixedProofMetadata, error) {
-	f.policy = policy
+func TestProofRuntimeClientFakeExposesOnlyNarrowRuntimeClientSurface(t *testing.T) {
+	if _, ok := reflect.TypeOf((*proofRuntimeClientFake)(nil)).MethodByName("RemoteFiles"); ok {
+		t.Fatal("proof runtime fake exposes obsolete raw remote-files adapter")
+	}
+}
+func (*proofRuntimeClientFake) EnsureMapepireServerJAR(context.Context, string) (mapepirestdio.VerifiedMapepireArtifactReceipt, error) {
+	return mapepirestdio.VerifiedMapepireArtifactReceipt{}, nil
+}
+func (f *proofRuntimeClientFake) FixedMapepireProof(_ context.Context, receipt mapepirestdio.VerifiedMapepireArtifactReceipt, username string, secret []byte) (remote.FixedProofMetadata, error) {
+	f.receipt = receipt
 	if f.launchErr != nil {
 		return remote.FixedProofMetadata{}, &remote.FixedProofError{Stage: remote.FixedProofLaunchStage, Err: f.launchErr}
 	}
@@ -93,7 +101,7 @@ func (f *proofTransportFake) snapshot() []mapepire.Request {
 func TestSSHRuntimeProveUsesOnlyFixedSingleSessionAndMetadata(t *testing.T) {
 	transport := newProofTransportFake()
 	client := &proofRuntimeClientFake{transport: transport}
-	runtime := &SSHRuntime{client: client, remoteJAR: "/tmp/pinned.jar"}
+	runtime := &SSHRuntime{client: client}
 	metadata, result := runtime.Prove(context.Background(), savedStep8Profile(t), []byte("opaque"))
 	if result.Decision != DecisionSSHEligible || result.Class != ResultProofSuccess || result.ProofRevision != ProofRevision {
 		t.Fatalf("result=%+v", result)
@@ -101,8 +109,8 @@ func TestSSHRuntimeProveUsesOnlyFixedSingleSessionAndMetadata(t *testing.T) {
 	if metadata != (ProofMetadata{Rows: 1, ProofRevision: ProofRevision}) {
 		t.Fatalf("metadata=%+v", metadata)
 	}
-	if client.policy.RemoteJAR != runtime.remoteJAR || !client.policy.Consented {
-		t.Fatalf("launch policy=%+v", client.policy)
+	if client.receipt != runtime.receipt {
+		t.Fatal("proof did not receive the runtime receipt")
 	}
 	requests := transport.snapshot()
 	if len(requests) != 4 {
@@ -127,9 +135,9 @@ func TestSSHRuntimeProveMapsLaunchSessionAndProofFailures(t *testing.T) {
 		runtime   *SSHRuntime
 		wantClass ResultClass
 	}{
-		{name: "launch", runtime: &SSHRuntime{client: &proofRuntimeClientFake{launchErr: errors.New("launch")}, remoteJAR: "/tmp/pinned.jar"}, wantClass: ResultLaunchFailure},
-		{name: "session", runtime: &SSHRuntime{client: &proofRuntimeClientFake{}, remoteJAR: "/tmp/pinned.jar"}, wantClass: ResultSessionFailure},
-		{name: "proof", runtime: &SSHRuntime{client: &proofRuntimeClientFake{transport: failingProofTransport{}}, remoteJAR: "/tmp/pinned.jar"}, wantClass: ResultProofFailure},
+		{name: "launch", runtime: &SSHRuntime{client: &proofRuntimeClientFake{launchErr: errors.New("launch")}}, wantClass: ResultLaunchFailure},
+		{name: "session", runtime: &SSHRuntime{client: &proofRuntimeClientFake{}}, wantClass: ResultSessionFailure},
+		{name: "proof", runtime: &SSHRuntime{client: &proofRuntimeClientFake{transport: failingProofTransport{}}}, wantClass: ResultProofFailure},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -180,7 +188,7 @@ func TestSSHRuntimeProveSettlesClientBeforeZeroingCredentials(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			secret := []byte("opaque")
-			runtime := &SSHRuntime{client: tt.client, remoteJAR: "/tmp/pinned.jar", requestID: "req-6d"}
+			runtime := &SSHRuntime{client: tt.client, requestID: "req-6d"}
 			_, result := runtime.Prove(tt.ctx, savedStep8Profile(t), secret)
 			if result.Class != tt.wantClass || result.Cleanup != tt.cleanup {
 				t.Fatalf("result=%+v", result)

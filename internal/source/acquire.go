@@ -25,7 +25,7 @@ type AcquisitionRemote interface {
 	PreparePrivateDirectory(context.Context, string) error
 	CreateExclusive(context.Context, string) error
 	Lstat(context.Context, string) (os.FileInfo, error)
-	CopyToUTF8(context.Context, string, string) error
+	CopySourceMember(context.Context, catalog.Candidate, string) error
 	Stat(context.Context, string) (os.FileInfo, error)
 	Download(context.Context, string) (io.ReadCloser, error)
 	Remove(context.Context, string) error
@@ -76,8 +76,7 @@ func (a Acquirer) Acquire(ctx context.Context, candidate catalog.Candidate) (sna
 	if err != nil {
 		return nil, err
 	}
-	qsysPath, err := candidate.QSYSPath()
-	if err != nil {
+	if _, err := candidate.QSYSPath(); err != nil {
 		return nil, err
 	}
 	createdAt := time.Now()
@@ -102,7 +101,7 @@ func (a Acquirer) Acquire(ctx context.Context, candidate catalog.Candidate) (sna
 		return nil, err
 	}
 	owned = true // CPYTOSTMF may create the fixed Nexus path even when it reports failure.
-	if err = remote.CopyToUTF8(ctx, qsysPath, path); err != nil {
+	if err = remote.CopySourceMember(ctx, candidate, path); err != nil {
 		return nil, err
 	}
 	if err = ctx.Err(); err != nil {
@@ -124,6 +123,9 @@ func (a Acquirer) Acquire(ctx context.Context, candidate catalog.Candidate) (sna
 	}
 	data, readErr := io.ReadAll(io.LimitReader(file, AbsoluteMaxBytes+1))
 	closeErr := file.Close()
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
 	if readErr != nil || closeErr != nil {
 		return nil, errors.Join(readErr, closeErr)
 	}

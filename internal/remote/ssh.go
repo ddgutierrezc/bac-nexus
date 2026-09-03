@@ -7,8 +7,12 @@ import (
 	"io"
 	"net"
 	"os"
+	"path"
+	"strings"
+	"sync"
 	"time"
 
+	"bac-nexus/internal/catalog"
 	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
 	"bac-nexus/internal/mapepire"
 	"bac-nexus/internal/mapepire/sshstdio"
@@ -24,6 +28,8 @@ var ErrUnknownHostKey = errors.New("SSH host key fingerprint is not configured")
 var ErrHostKeyCaptured = errors.New("SSH host key captured; stop before authentication")
 var ErrProbeDeadlineRequired = errors.New("SSH host-key inspection requires a context deadline")
 var ErrHostKeyChanged = errors.New("host_key_changed")
+
+const sftpStatusNoSuchFile = 2
 
 type HostKeyObservation struct {
 	Algorithm      string               `json:"algorithm"`
@@ -208,6 +214,9 @@ func (p SecretPrompt) Capture(ctx context.Context, input, output *os.File, label
 	if input == nil || output == nil || p.Input != input || p.Output != output || p.IsTerminal == nil || p.Read == nil || !p.IsTerminal(int(input.Fd())) || !p.IsTerminal(int(output.Fd())) {
 		return nil, PromptTerminalUnavailable
 	}
+	if _, err := fmt.Fprint(output, label); err != nil {
+		return nil, PromptUnavailable
+	}
 	secret, err := p.Read(int(input.Fd()))
 	if err != nil || ctx.Err() != nil || len(secret) == 0 {
 		Zero(secret)
@@ -259,82 +268,203 @@ func Zero(bytes []byte) {
 }
 
 type Client struct {
-	ssh  *ssh.Client
-	sftp *sftp.Client
+	ssh          *ssh.Client
+	sftp         *sftp.Client
+	hostIdentity string
+	newSession   func() (mapepireSession, error)
 }
 
-// SourceAcquisitionRemote adapts a dialed Client to the bounded source acquisition contract.
-type SourceAcquisitionRemote struct{ client *Client }
+// recoveryRemote exposes only the exact cleanup operations required by
+// ownership recovery; callers cannot use it as a general SSH or SFTP client.
+type recoveryRemote struct{ client *Client }
 
-var _ source.AcquisitionRemote = (*SourceAcquisitionRemote)(nil)
+var _ source.RecoveryRemote = (*recoveryRemote)(nil)
 
-func NewSourceAcquisitionRemote(client *Client) *SourceAcquisitionRemote {
-	return &SourceAcquisitionRemote{client: client}
+// NewRecoveryRemote adapts one authenticated client to exact ownership cleanup.
+func NewRecoveryRemote(client *Client) source.RecoveryRemote {
+	return &recoveryRemote{client: client}
 }
-func (r *SourceAcquisitionRemote) AuthenticatedHome(ctx context.Context) (string, error) {
+
+func (r *recoveryRemote) Remove(ctx context.Context, path string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if r == nil || r.client == nil {
+		return errors.New("ownership recovery client is unavailable")
+	}
+	return normalizeSourceNotFound(sanitizeSourceSFTPError(r.client.remove(path)))
+}
+
+func (r *recoveryRemote) Stat(ctx context.Context, path string) (os.FileInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if r == nil || r.client == nil {
+		return nil, errors.New("ownership recovery client is unavailable")
+	}
+	info, err := r.client.stat(path)
+	return info, normalizeSourceNotFound(sanitizeSourceSFTPError(err))
+}
+
+func (r *recoveryRemote) Close() error {
+	if r == nil {
+		return nil
+	}
+	return r.client.Close()
+}
+
+// sourceAcquisitionRemote adapts a dialed Client to the bounded source acquisition contract.
+// It is intentionally private so callers receive only source.AcquisitionRemote.
+type sourceAcquisitionRemote struct {
+	client      *Client
+	home        string
+	reservation sourceTemporaryReservation
+}
+
+type sourceTemporaryReservation struct {
+	home     string
+	path     string
+	reserved bool
+}
+
+var _ source.AcquisitionRemote = (*sourceAcquisitionRemote)(nil)
+
+func NewSourceAcquisitionRemote(client *Client) source.AcquisitionRemote {
+	return &sourceAcquisitionRemote{client: client}
+}
+
+// AcquireSource retrieves one validated source member through the legacy
+// bounded result shape without exposing file or command primitives.
+func (c *Client) AcquireSource(ctx context.Context, candidate catalog.Candidate, maxBytes, maxLines int) (source.Result, error) {
+	if err := ctx.Err(); err != nil {
+		return source.Result{}, err
+	}
+	adapter := &sourceRetrievalRemote{client: c}
+	return source.Retriever{Files: adapter, Runner: adapter}.Retrieve(ctx, candidate, maxBytes, maxLines)
+}
+
+// EnsureMapepireServerJAR activates the fixed verified Mapepire artifact and
+// returns its immutable receipt without exposing its remote-files capability.
+func (c *Client) EnsureMapepireServerJAR(ctx context.Context, verifiedLocalPath string) (mapepirestdio.VerifiedMapepireArtifactReceipt, error) {
+	if err := ctx.Err(); err != nil {
+		return mapepirestdio.VerifiedMapepireArtifactReceipt{}, err
+	}
+	return mapepirestdio.EnsureServerJAR(mapepireArtifactRemote{client: c}, verifiedLocalPath)
+}
+
+type sourceRetrievalRemote struct{ client *Client }
+
+func (r *sourceRetrievalRemote) Stat(path string) (os.FileInfo, error) { return r.client.stat(path) }
+func (r *sourceRetrievalRemote) OpenRead(path string) (io.ReadCloser, error) {
+	return r.client.openRead(path)
+}
+func (r *sourceRetrievalRemote) Remove(path string) error { return r.client.remove(path) }
+func (r *sourceRetrievalRemote) CopyToUTF8(ctx context.Context, qsysPath, temporary string) error {
+	command, err := source.BuildCopyCommand(qsysPath, temporary)
+	if err != nil {
+		return errors.New("fixed IBM i command is invalid")
+	}
+	return r.client.runFixedSourceCopy(ctx, command)
+}
+
+func (r *sourceAcquisitionRemote) AuthenticatedHome(ctx context.Context) (string, error) {
 	if err := r.ready(ctx); err != nil {
 		return "", err
 	}
-	return r.client.WorkingDirectory()
+	home, err := r.client.workingDirectory()
+	if err = sanitizeSourceSFTPError(err); err != nil {
+		return "", err
+	}
+	r.home = home
+	return home, nil
 }
-func (r *SourceAcquisitionRemote) PreparePrivateDirectory(ctx context.Context, directory string) error {
+func (r *sourceAcquisitionRemote) PreparePrivateDirectory(ctx context.Context, directory string) error {
 	if err := r.ready(ctx); err != nil {
 		return err
 	}
-	if err := r.client.MkdirAll(directory); err != nil {
+	if !r.ownsPrivateDirectory(directory) {
+		return errors.New("Nexus source temporary is invalid")
+	}
+	if err := sanitizeSourceSFTPError(r.client.mkdirAll(directory)); err != nil {
 		return err
 	}
-	return r.client.Chmod(directory, 0o700)
+	return sanitizeSourceSFTPError(r.client.chmod(directory, 0o700))
 }
-func (r *SourceAcquisitionRemote) CreateExclusive(ctx context.Context, path string) error {
+func (r *sourceAcquisitionRemote) CreateExclusive(ctx context.Context, path string) error {
 	if err := r.ready(ctx); err != nil {
 		return err
 	}
-	file, err := r.client.OpenWriteExclusive(path)
+	if !r.ownsTemporaryPath(path) {
+		return errors.New("Nexus source temporary is invalid")
+	}
+	file, err := r.client.openWriteExclusive(path)
+	if err = sanitizeSourceSFTPError(err); err != nil {
+		return err
+	}
+	if err := sanitizeSourceSFTPError(file.Close()); err != nil {
+		return err
+	}
+	if err := sanitizeSourceSFTPError(r.client.chmod(path, 0o600)); err != nil {
+		return err
+	}
+	r.reservation = sourceTemporaryReservation{home: r.home, path: path, reserved: true}
+	return nil
+}
+func (r *sourceAcquisitionRemote) Lstat(ctx context.Context, path string) (os.FileInfo, error) {
+	if err := r.ready(ctx); err != nil {
+		return nil, err
+	}
+	info, err := r.client.lstat(path)
+	return info, sanitizeSourceSFTPError(err)
+}
+func (r *sourceAcquisitionRemote) CopySourceMember(ctx context.Context, candidate catalog.Candidate, temporary string) error {
+	if err := r.ready(ctx); err != nil {
+		return err
+	}
+	if r.reservation.path != temporary {
+		return errors.New("Nexus source temporary is invalid")
+	}
+	command, err := fixedSourceCopyCommand(candidate, r.reservation)
 	if err != nil {
 		return err
 	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	return r.client.Chmod(path, 0o600)
+	return r.client.runFixedSourceCopy(ctx, command)
 }
-func (r *SourceAcquisitionRemote) Lstat(ctx context.Context, path string) (os.FileInfo, error) {
+func (r *sourceAcquisitionRemote) Stat(ctx context.Context, path string) (os.FileInfo, error) {
 	if err := r.ready(ctx); err != nil {
 		return nil, err
 	}
-	return r.client.Lstat(path)
+	info, err := r.client.stat(path)
+	return info, normalizeSourceNotFound(sanitizeSourceSFTPError(err))
 }
-func (r *SourceAcquisitionRemote) CopyToUTF8(ctx context.Context, qsysPath, temporary string) error {
-	if err := r.ready(ctx); err != nil {
-		return err
-	}
-	return r.client.CopyToUTF8(ctx, qsysPath, temporary)
-}
-func (r *SourceAcquisitionRemote) Stat(ctx context.Context, path string) (os.FileInfo, error) {
+
+func (r *sourceAcquisitionRemote) Download(ctx context.Context, path string) (io.ReadCloser, error) {
 	if err := r.ready(ctx); err != nil {
 		return nil, err
 	}
-	info, err := r.client.Stat(path)
-	return info, normalizeSourceNotFound(err)
-}
-
-func (r *SourceAcquisitionRemote) Download(ctx context.Context, path string) (io.ReadCloser, error) {
-	if err := r.ready(ctx); err != nil {
+	file, err := r.client.openRead(path)
+	if err = normalizeSourceNotFound(sanitizeSourceSFTPError(err)); err != nil {
 		return nil, err
 	}
-	file, err := r.client.OpenRead(path)
-	return file, normalizeSourceNotFound(err)
+	return newSourceDownload(ctx, file), nil
 }
 
-func (r *SourceAcquisitionRemote) Remove(ctx context.Context, path string) error {
+func (r *sourceAcquisitionRemote) Remove(ctx context.Context, path string) error {
 	if err := r.ready(ctx); err != nil {
 		return err
 	}
-	return normalizeSourceNotFound(r.client.Remove(path))
+	return normalizeSourceNotFound(sanitizeSourceSFTPError(r.client.remove(path)))
 }
 
-func (r *SourceAcquisitionRemote) ready(ctx context.Context) error {
+func (r *sourceAcquisitionRemote) ownsPrivateDirectory(directory string) bool {
+	return r != nil && r.home != "" && path.IsAbs(r.home) && path.Clean(r.home) == r.home && directory == path.Join(r.home, ".bac-nexus", "tmp")
+}
+
+func (r *sourceAcquisitionRemote) ownsTemporaryPath(temporary string) bool {
+	return r.ownsPrivateDirectory(path.Dir(temporary)) && strings.HasSuffix(temporary, ".utf8") && path.Base(temporary) != ".utf8"
+}
+
+func (r *sourceAcquisitionRemote) ready(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -345,9 +475,64 @@ func (r *SourceAcquisitionRemote) ready(ctx context.Context) error {
 }
 
 func normalizeSourceNotFound(err error) error {
-	if errors.Is(err, os.ErrNotExist) {
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, source.ErrRemoteNotFound) {
 		return source.ErrRemoteNotFound
 	}
+	return err
+}
+
+func sanitizeSourceSFTPError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var status *sftp.StatusError
+	if errors.Is(err, os.ErrNotExist) || (errors.As(err, &status) && status.Code == sftpStatusNoSuchFile) {
+		return source.ErrRemoteNotFound
+	}
+	return errors.New("source transfer failed")
+}
+
+func fixedSourceCopyCommand(candidate catalog.Candidate, reservation sourceTemporaryReservation) (string, error) {
+	qsysPath, err := candidate.QSYSPath()
+	if err != nil {
+		return "", errors.New("approved source selection is invalid")
+	}
+	if !reservation.reserved || !path.IsAbs(reservation.home) || path.Clean(reservation.home) != reservation.home || path.Dir(reservation.path) != path.Join(reservation.home, ".bac-nexus", "tmp") || path.Clean(reservation.path) != reservation.path || !strings.HasSuffix(reservation.path, ".utf8") {
+		return "", errors.New("Nexus source temporary is invalid")
+	}
+	command, err := source.BuildCopyCommand(qsysPath, reservation.path)
+	if err != nil {
+		return "", errors.New("Nexus source temporary is invalid")
+	}
+	return command, nil
+}
+
+type sourceDownload struct {
+	file io.ReadCloser
+	done chan struct{}
+	once sync.Once
+}
+
+func newSourceDownload(ctx context.Context, file io.ReadCloser) io.ReadCloser {
+	download := &sourceDownload{file: file, done: make(chan struct{})}
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = download.Close()
+		case <-download.done:
+		}
+	}()
+	return download
+}
+
+func (d *sourceDownload) Read(p []byte) (int, error) { return d.file.Read(p) }
+
+func (d *sourceDownload) Close() error {
+	var err error
+	d.once.Do(func() {
+		close(d.done)
+		err = d.file.Close()
+	})
 	return err
 }
 
@@ -399,7 +584,7 @@ func Dial(ctx context.Context, p profile.Profile, password []byte) (*Client, err
 		_ = sshClient.Close()
 		return nil, fmt.Errorf("SFTP startup failed: %w", err)
 	}
-	client := &Client{ssh: sshClient, sftp: sftpClient}
+	client := &Client{ssh: sshClient, sftp: sftpClient, hostIdentity: p.HostKeyFingerprint}
 	keep = true
 	go func() {
 		<-ctx.Done()
@@ -421,26 +606,43 @@ func (c *Client) Close() error {
 	return nil
 }
 
-func (c *Client) SFTP() *sftp.Client { return c.sftp }
-
-// RemoteFiles exposes only the bounded artifact upload surface to consumers.
-func (c *Client) RemoteFiles() mapepirestdio.RemoteFiles { return c }
-
-func (c *Client) WorkingDirectory() (string, error) { return c.sftp.Getwd() }
-func (c *Client) MkdirAll(path string) error        { return c.sftp.MkdirAll(path) }
-func (c *Client) Chmod(path string, mode os.FileMode) error {
+func (c *Client) workingDirectory() (string, error) { return c.sftp.Getwd() }
+func (c *Client) mkdirAll(path string) error        { return c.sftp.MkdirAll(path) }
+func (c *Client) chmod(path string, mode os.FileMode) error {
 	return c.sftp.Chmod(path, mode)
 }
-func (c *Client) Stat(path string) (os.FileInfo, error)  { return c.sftp.Stat(path) }
-func (c *Client) Lstat(path string) (os.FileInfo, error) { return c.sftp.Lstat(path) }
-func (c *Client) OpenRead(path string) (io.ReadCloser, error) {
+func (c *Client) stat(path string) (os.FileInfo, error)  { return c.sftp.Stat(path) }
+func (c *Client) lstat(path string) (os.FileInfo, error) { return c.sftp.Lstat(path) }
+func (c *Client) openRead(path string) (io.ReadCloser, error) {
 	return c.sftp.Open(path)
 }
-func (c *Client) OpenWriteExclusive(path string) (io.WriteCloser, error) {
+func (c *Client) openWriteExclusive(path string) (io.WriteCloser, error) {
 	return c.sftp.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL)
 }
-func (c *Client) Rename(oldPath, newPath string) error { return c.sftp.Rename(oldPath, newPath) }
-func (c *Client) Remove(path string) error             { return c.sftp.Remove(path) }
+func (c *Client) rename(oldPath, newPath string) error { return c.sftp.Rename(oldPath, newPath) }
+func (c *Client) remove(path string) error             { return c.sftp.Remove(path) }
+
+type mapepireArtifactRemote struct{ client *Client }
+
+func (r mapepireArtifactRemote) WorkingDirectory() (string, error) {
+	return r.client.workingDirectory()
+}
+func (r mapepireArtifactRemote) MkdirAll(path string) error { return r.client.mkdirAll(path) }
+func (r mapepireArtifactRemote) Chmod(path string, mode os.FileMode) error {
+	return r.client.chmod(path, mode)
+}
+func (r mapepireArtifactRemote) Stat(path string) (os.FileInfo, error) { return r.client.stat(path) }
+func (r mapepireArtifactRemote) OpenRead(path string) (io.ReadCloser, error) {
+	return r.client.openRead(path)
+}
+func (r mapepireArtifactRemote) OpenWriteExclusive(path string) (io.WriteCloser, error) {
+	return r.client.openWriteExclusive(path)
+}
+func (r mapepireArtifactRemote) Rename(oldPath, newPath string) error {
+	return r.client.rename(oldPath, newPath)
+}
+func (r mapepireArtifactRemote) Remove(path string) error     { return r.client.remove(path) }
+func (r mapepireArtifactRemote) MapepireHostIdentity() string { return r.client.hostIdentity }
 
 type Channel interface {
 	io.Reader
@@ -505,53 +707,125 @@ func ClassifyFixedProofError(err error) FixedProofFailure {
 }
 
 type sessionChannel struct {
-	stdin  io.WriteCloser
-	stdout io.Reader
-	sess   *ssh.Session
+	stdin   io.WriteCloser
+	stdout  io.Reader
+	sess    mapepireSession
+	done    chan struct{}
+	watcher <-chan struct{}
+	close   sync.Once
+}
+
+type mapepireSession interface {
+	StdinPipe() (io.WriteCloser, error)
+	StdoutPipe() (io.Reader, error)
+	Start(string) error
+	Close() error
+	SetStderr(io.Writer)
+}
+
+type sshMapepireSession struct{ *ssh.Session }
+
+func (s sshMapepireSession) SetStderr(writer io.Writer) { s.Stderr = writer }
+
+type MapepireLaunchStage string
+
+const (
+	MapepireLaunchSession MapepireLaunchStage = "session"
+	MapepireLaunchStdin   MapepireLaunchStage = "stdin"
+	MapepireLaunchStdout  MapepireLaunchStage = "stdout"
+	MapepireLaunchStart   MapepireLaunchStage = "start"
+)
+
+type MapepireLaunchError struct{ Stage MapepireLaunchStage }
+
+func (e *MapepireLaunchError) Error() string {
+	return "Mapepire SSH launch unavailable: " + string(e.Stage)
 }
 
 func (c *sessionChannel) Read(p []byte) (int, error)  { return c.stdout.Read(p) }
 func (c *sessionChannel) Write(p []byte) (int, error) { return c.stdin.Write(p) }
 func (c *sessionChannel) Close() error {
-	_ = c.stdin.Close()
-	return c.sess.Close()
+	var err error
+	c.close.Do(func() {
+		close(c.done)
+		_ = c.stdin.Close()
+		err = c.sess.Close()
+	})
+	return err
 }
 
-func (c *Client) StartMapepire(ctx context.Context, policy mapepirestdio.LaunchPolicy) (Channel, error) {
-	command, err := mapepirestdio.BuildCommand(policy)
-	if err != nil {
-		return nil, err
+func closeOnCancellation(ctx context.Context, done <-chan struct{}, closeProcess func()) <-chan struct{} {
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		select {
+		case <-ctx.Done():
+			closeProcess()
+		case <-done:
+		}
+	}()
+	return finished
+}
+
+func (c *Client) mapepireSession() (mapepireSession, error) {
+	if c != nil && c.newSession != nil {
+		return c.newSession()
+	}
+	if c == nil || c.ssh == nil {
+		return nil, errors.New("SSH session client is unavailable")
 	}
 	session, err := c.ssh.NewSession()
 	if err != nil {
 		return nil, err
 	}
+	return sshMapepireSession{session}, nil
+}
+
+func (c *Client) StartMapepire(ctx context.Context, receipt mapepirestdio.VerifiedMapepireArtifactReceipt) (Channel, error) {
+	if c == nil || c.hostIdentity == "" {
+		return nil, errors.New("Mapepire SSH launch identity is invalid")
+	}
+	var launch sshstdio.Launch
+	if err := receipt.AdmitFixedStart(mapepireArtifactRemote{client: c}, func() error {
+		var renderErr error
+		launch, renderErr = sshstdio.VerifiedSingleMode(receipt)
+		return renderErr
+	}); err != nil {
+		return nil, &MapepireLaunchError{Stage: MapepireLaunchSession}
+	}
+	return c.startMapepireSession(ctx, launch.Command)
+}
+
+func (c *Client) startMapepireSession(ctx context.Context, command string) (Channel, error) {
+	session, err := c.mapepireSession()
+	if err != nil {
+		return nil, &MapepireLaunchError{Stage: MapepireLaunchSession}
+	}
 	stdin, err := session.StdinPipe()
 	if err != nil {
 		_ = session.Close()
-		return nil, err
+		return nil, &MapepireLaunchError{Stage: MapepireLaunchStdin}
 	}
 	stdout, err := session.StdoutPipe()
 	if err != nil {
+		_ = stdin.Close()
 		_ = session.Close()
-		return nil, err
+		return nil, &MapepireLaunchError{Stage: MapepireLaunchStdout}
 	}
-	session.Stderr = io.Discard
+	session.SetStderr(io.Discard)
 	if err := session.Start(command); err != nil {
+		_ = stdin.Close()
 		_ = session.Close()
-		return nil, fmt.Errorf("Mapepire launch failed: %w", err)
+		return nil, &MapepireLaunchError{Stage: MapepireLaunchStart}
 	}
-	channel := &sessionChannel{stdin: stdin, stdout: stdout, sess: session}
-	go func() {
-		<-ctx.Done()
-		_ = channel.Close()
-	}()
+	channel := &sessionChannel{stdin: stdin, stdout: stdout, sess: session, done: make(chan struct{})}
+	channel.watcher = closeOnCancellation(ctx, channel.done, func() { _ = channel.Close() })
 	return channel, nil
 }
 
 // StartMapepireTransport exposes only the typed transport boundary to callers.
-func (c *Client) StartMapepireTransport(ctx context.Context, policy mapepirestdio.LaunchPolicy) (mapepire.MessageTransport, error) {
-	channel, err := c.StartMapepire(ctx, policy)
+func (c *Client) StartMapepireTransport(ctx context.Context, receipt mapepirestdio.VerifiedMapepireArtifactReceipt) (mapepire.MessageTransport, error) {
+	channel, err := c.StartMapepire(ctx, receipt)
 	if err != nil {
 		return nil, err
 	}
@@ -559,8 +833,8 @@ func (c *Client) StartMapepireTransport(ctx context.Context, policy mapepirestdi
 }
 
 // FixedMapepireProof exposes only the release-owned typed proof lifecycle.
-func (c *Client) FixedMapepireProof(ctx context.Context, policy mapepirestdio.LaunchPolicy, username string, password []byte) (FixedProofMetadata, error) {
-	transport, err := c.StartMapepireTransport(ctx, policy)
+func (c *Client) FixedMapepireProof(ctx context.Context, receipt mapepirestdio.VerifiedMapepireArtifactReceipt, username string, password []byte) (FixedProofMetadata, error) {
+	transport, err := c.StartMapepireTransport(ctx, receipt)
 	if err != nil {
 		return FixedProofMetadata{}, &FixedProofError{Stage: FixedProofLaunchStage, Err: err}
 	}
@@ -574,14 +848,16 @@ func (c *Client) FixedMapepireProof(ctx context.Context, policy mapepirestdio.La
 	return FixedProofMetadata{Rows: proof.Rows, Revision: proof.Revision}, nil
 }
 
-func (c *Client) CopyToUTF8(ctx context.Context, qsysPath, temporary string) error {
-	command, err := source.BuildCopyCommand(qsysPath, temporary)
-	if err != nil {
+func (c *Client) runFixedSourceCopy(ctx context.Context, command string) error {
+	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if c == nil || c.ssh == nil {
+		return errors.New("fixed IBM i command unavailable")
 	}
 	session, err := c.ssh.NewSession()
 	if err != nil {
-		return err
+		return errors.New("fixed IBM i command unavailable")
 	}
 	defer session.Close()
 	session.Stdout = io.Discard

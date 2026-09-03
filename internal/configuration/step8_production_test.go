@@ -44,7 +44,7 @@ func TestNewStep8ProductionRoutesOnlyEligibleObservationsToGatedSSH(t *testing.T
 		t.Run(string(reason), func(t *testing.T) {
 			gate := &gateFake{credential: []byte("opaque")}
 			client := &serviceSSHClient{}
-			ssh := &serviceSSHFactory{runtime: &SSHRuntime{client: client, remoteJAR: "/tmp/pinned.jar"}}
+			ssh := &serviceSSHFactory{runtime: &SSHRuntime{client: client}}
 			service := NewStep8Production(Step8ProductionDependencies{
 				Observe: step8ObserveFunc(func(context.Context, profile.Profile) Observation {
 					return Observation{Decision: DecisionSSHEligible, Reason: reason}

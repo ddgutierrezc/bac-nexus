@@ -11,6 +11,7 @@ import (
 	"io"
 	"sync"
 
+	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
 	"bac-nexus/internal/mapepire"
 )
 
@@ -18,6 +19,23 @@ var (
 	ErrInvalidFrame = errors.New("Mapepire SSH frame is invalid")
 	ErrFrameLimit   = errors.New("Mapepire SSH frame exceeds the release limit")
 )
+
+// Launch is the one validated command string accepted by the SSH exec protocol.
+// SSH does not offer native argv, so it is rendered only after every token is
+// validated by the release-owned Mapepire launch policy.
+type Launch struct {
+	Command string
+}
+
+// VerifiedSingleMode binds the approved artifact and host identity to the
+// release-owned Java JAR invocation before any SSH session is created.
+func VerifiedSingleMode(receipt mapepirestdio.VerifiedMapepireArtifactReceipt) (Launch, error) {
+	command, err := mapepirestdio.BuildCommand(receipt)
+	if err != nil {
+		return Launch{}, errors.New("Mapepire SSH launch identity is invalid")
+	}
+	return Launch{Command: command}, nil
+}
 
 type Channel interface {
 	io.Reader

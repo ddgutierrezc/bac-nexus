@@ -312,6 +312,20 @@ func (s *LeaseStore) Evict(cursor Cursor) error {
 	return nil
 }
 
+// EvictAll hides every lease owned by this process. Existing readers retain
+// their immutable snapshot until Close, while every later cursor lookup fails.
+// It is the shutdown boundary for process-owned source snapshots.
+func (s *LeaseStore) EvictAll() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, ls := range s.leases {
+		ls.hidden = true
+		if ls.refCount == 0 {
+			s.retireLocked(ls)
+		}
+	}
+}
+
 // Restart simulates a process restart: it rotates the process epoch and retires
 // every lease with no active readers.
 func (s *LeaseStore) Restart() {

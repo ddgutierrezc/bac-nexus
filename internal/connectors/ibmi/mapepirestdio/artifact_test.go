@@ -52,6 +52,7 @@ func newMemoryRemote() *memoryRemote {
 }
 
 func (m *memoryRemote) WorkingDirectory() (string, error) { return "/home/NEXUS", nil }
+func (*memoryRemote) MapepireHostIdentity() string        { return "SHA256:approved-host" }
 func (m *memoryRemote) MkdirAll(string) error             { return nil }
 func (m *memoryRemote) Chmod(remotePath string, _ os.FileMode) error {
 	if m.chmodErr != nil && strings.Contains(remotePath, ".upload-") {
@@ -171,6 +172,85 @@ func TestEnsureServerJARUsesExclusiveRandomUploadAndBoundedBytes(t *testing.T) {
 		if strings.HasSuffix(remoteName, ".upload") {
 			t.Fatalf("fixed upload path used: %s", remoteName)
 		}
+	}
+}
+
+func TestEnsureServerJARIssuesReceiptBoundToVerifiedRemoteCapability(t *testing.T) {
+	data := []byte("test JAR bytes")
+	local, expected := localJAR(t, data)
+	remote := newMemoryRemote()
+	receipt, err := ensureServerJARReceiptWith(remote, local, expected, fixedRandom(), artifactHooks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := receipt.Reverify(remote); err != nil {
+		t.Fatalf("verified receipt rejected: %v", err)
+	}
+	remote.files["/home/NEXUS/"+RemoteJar] = []byte("mutated after receipt")
+	if err := receipt.Reverify(remote); err == nil {
+		t.Fatal("receipt accepted a mutated remote artifact")
+	}
+}
+
+func TestVerifiedMapepireArtifactReceiptRejectsZeroAndMismatchedCapabilities(t *testing.T) {
+	var zero VerifiedMapepireArtifactReceipt
+	if err := zero.Reverify(newMemoryRemote()); err == nil {
+		t.Fatal("zero receipt was accepted")
+	}
+	data := []byte("test JAR bytes")
+	local, expected := localJAR(t, data)
+	remote := newMemoryRemote()
+	receipt, err := ensureServerJARReceiptWith(remote, local, expected, fixedRandom(), artifactHooks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := receipt.Reverify(newMemoryRemote()); err == nil {
+		t.Fatal("receipt accepted a different remote capability")
+	}
+}
+
+func TestVerifiedMapepireArtifactReceiptBlocksFixedStartBeforeSessionAllocation(t *testing.T) {
+	data := []byte("test JAR bytes")
+	local, expected := localJAR(t, data)
+	remote := newMemoryRemote()
+	receipt, err := ensureServerJARReceiptWith(remote, local, expected, fixedRandom(), artifactHooks{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name    string
+		receipt VerifiedMapepireArtifactReceipt
+		remote  MapepireArtifactRemote
+		mutate  func()
+	}{
+		{name: "zero receipt", receipt: VerifiedMapepireArtifactReceipt{}, remote: remote},
+		{name: "different capability", receipt: receipt, remote: newMemoryRemote()},
+		{name: "host mismatch", receipt: newArtifactReceipt(remote, "SHA256:other-host", "/home/NEXUS/"+RemoteJar, expected), remote: remote},
+		{name: "policy revision mismatch", receipt: VerifiedMapepireArtifactReceipt{files: remote, hostIdentity: remote.MapepireHostIdentity(), remotePath: "/home/NEXUS/" + RemoteJar, sha256: expected, policyRevision: "other"}, remote: remote},
+		{name: "path mismatch", receipt: newArtifactReceipt(remote, remote.MapepireHostIdentity(), "/home/NEXUS/other.jar", expected), remote: remote},
+		{name: "SHA mismatch", receipt: newArtifactReceipt(remote, remote.MapepireHostIdentity(), "/home/NEXUS/"+RemoteJar, strings.Repeat("0", 64)), remote: remote},
+		{name: "prelaunch rehash mismatch", receipt: receipt, remote: remote, mutate: func() { remote.files["/home/NEXUS/"+RemoteJar] = []byte("changed") }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.mutate != nil {
+				tt.mutate()
+				defer func() { remote.files["/home/NEXUS/"+RemoteJar] = data }()
+			}
+			starts := 0
+			err := tt.receipt.AdmitFixedStart(tt.remote, func() error {
+				starts++
+				return nil
+			})
+			if err == nil {
+				t.Fatal("invalid receipt was admitted")
+			}
+			if starts != 0 {
+				t.Fatalf("fixed start calls = %d, want 0", starts)
+			}
+		})
 	}
 }
 

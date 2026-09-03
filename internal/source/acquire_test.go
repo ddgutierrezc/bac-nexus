@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"bac-nexus/internal/catalog"
 )
 
 type acquisitionRemote struct {
@@ -32,11 +34,12 @@ type acquisitionRemote struct {
 	created                string
 	creates                int
 	directoryInfo          acquisitionInfo
+	download               func(context.Context) (io.ReadCloser, error)
 }
 
-func (r *acquisitionRemote) CopyToUTF8(ctx context.Context, source, path string) error {
+func (r *acquisitionRemote) CopySourceMember(ctx context.Context, candidate catalog.Candidate, path string) error {
 	r.copies++
-	r.copySource = source
+	r.copySource, _ = candidate.QSYSPath()
 	r.copyPath = path
 	if r.events != nil {
 		*r.events = append(*r.events, "copy")
@@ -59,11 +62,14 @@ func (r *acquisitionRemote) Stat(_ context.Context, _ string) (os.FileInfo, erro
 	}
 	return r.info, nil
 }
-func (r *acquisitionRemote) Download(context.Context, string) (io.ReadCloser, error) {
+func (r *acquisitionRemote) Download(ctx context.Context, _ string) (io.ReadCloser, error) {
 	r.downloads++
 	*r.events = append(*r.events, "download")
 	if r.downloadErr != nil {
 		return nil, r.downloadErr
+	}
+	if r.download != nil {
+		return r.download(ctx)
 	}
 	return readCloser{Reader: bytes.NewReader(r.data), readErr: r.readErr, closeErr: r.closeErr}, nil
 }
@@ -400,6 +406,58 @@ func TestAcquirerFailsClosedAndCleansOwnedTemporary(t *testing.T) {
 				t.Fatalf("Acquire() = %v, %v; copy/remove = %d/%d", snap, err, fixture.request.copies, fixture.cleanup.removes)
 			}
 		})
+	}
+}
+
+type cancellationReader struct {
+	started chan struct{}
+	closed  chan struct{}
+}
+
+func (r *cancellationReader) Read([]byte) (int, error) {
+	close(r.started)
+	<-r.closed
+	return 0, errors.New("blocked read closed")
+}
+
+func (r *cancellationReader) Close() error {
+	select {
+	case <-r.closed:
+	default:
+		close(r.closed)
+	}
+	return nil
+}
+
+func TestAcquirerCancellationReturnsNoPartialSnapshotAndCleansOwnedTemporary(t *testing.T) {
+	events := []string{}
+	fixture := newAcquisitionFixture(&events)
+	ctx, cancel := context.WithCancel(context.Background())
+	reader := &cancellationReader{started: make(chan struct{}), closed: make(chan struct{})}
+	fixture.request.download = func(context.Context) (io.ReadCloser, error) { return reader, nil }
+	result := make(chan struct {
+		snap *Snapshot
+		err  error
+	}, 1)
+	go func() {
+		snap, err := fixture.acquirer.Acquire(ctx, candidate())
+		result <- struct {
+			snap *Snapshot
+			err  error
+		}{snap, err}
+	}()
+	<-reader.started
+	cancel()
+	if err := reader.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-result:
+		if !errors.Is(got.err, context.Canceled) || got.snap != nil || fixture.cleanup.removes != 1 || fixture.ledger.deletes != 1 {
+			t.Fatalf("Acquire() = %v, %v; cleanup/delete = %d/%d", got.snap, got.err, fixture.cleanup.removes, fixture.ledger.deletes)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Acquire() did not return after cancellation")
 	}
 }
 

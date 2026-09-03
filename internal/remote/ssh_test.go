@@ -8,14 +8,20 @@ import (
 	"io"
 	"net"
 	"os"
+	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 
+	"bac-nexus/internal/catalog"
+	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
 	"bac-nexus/internal/profile"
+	"bac-nexus/internal/source"
 )
 
 type dialerFunc func(context.Context, string, string) (net.Conn, error)
@@ -72,6 +78,136 @@ func TestSourceAcquisitionRemoteRejectsCancelledContextBeforeSFTP(t *testing.T) 
 	_, err := NewSourceAcquisitionRemote(&Client{}).Stat(ctx, "/tmp/nexus")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Stat() error = %v, want context cancellation", err)
+	}
+}
+
+func TestClientPublishesOnlyNarrowSourceAndMapepireOperations(t *testing.T) {
+	clientType := reflect.TypeFor[*Client]()
+	for _, forbidden := range []string{"CopyToUTF8", "MapepireArtifactFiles"} {
+		if _, ok := clientType.MethodByName(forbidden); ok {
+			t.Fatalf("Client exposes forbidden generic method %q", forbidden)
+		}
+	}
+
+	var acquire func(*Client, context.Context, catalog.Candidate, int, int) (source.Result, error) = (*Client).AcquireSource
+	var ensure func(*Client, context.Context, string) (mapepirestdio.VerifiedMapepireArtifactReceipt, error) = (*Client).EnsureMapepireServerJAR
+	if acquire == nil || ensure == nil {
+		t.Fatal("Client narrow business operations are unavailable")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := acquire(&Client{}, ctx, catalog.Candidate{}, source.DefaultMaxBytes, source.DefaultMaxLines); !errors.Is(err, context.Canceled) {
+		t.Fatalf("AcquireSource() error = %v, want context cancellation", err)
+	}
+	if _, err := ensure(&Client{}, ctx, "verified.jar"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("EnsureMapepireServerJAR() error = %v, want context cancellation", err)
+	}
+}
+
+func TestFixedSourceCopyCommandAcceptsOnlyValidatedMemberAndNexusTemporary(t *testing.T) {
+	candidate := catalog.Candidate{
+		Item: "PISA061", SourceLibrary: "APP", SourceFileBase: "QRPG", ObjectType: "LESRC", SourceType: "RPGLE",
+	}
+	temporary := "/home/NEXUS/.bac-nexus/tmp/0123456789abcdef0123456789abcdef.utf8"
+
+	command, err := fixedSourceCopyCommand(candidate, sourceTemporaryReservation{
+		home:     "/home/NEXUS",
+		path:     temporary,
+		reserved: true,
+	})
+	if err != nil {
+		t.Fatalf("fixedSourceCopyCommand() error = %v", err)
+	}
+	if want := "'/QOpenSys/usr/bin/system' 'CPYTOSTMF FROMMBR(" + "'\"'\"'" + "/QSYS.LIB/APP.LIB/QRPGLESRC.FILE/PISA061.MBR" + "'\"'\"'" + ") TOSTMF(" + "'\"'\"'" + temporary + "'\"'\"'" + ") STMFOPT(*REPLACE) STMFCCSID(1208)'"; command != want {
+		t.Fatalf("fixedSourceCopyCommand() = %q, want %q", command, want)
+	}
+
+	unsafe := candidate
+	unsafe.Item = "bad member"
+	if _, err := fixedSourceCopyCommand(unsafe, sourceTemporaryReservation{}); err == nil || strings.Contains(err.Error(), "bad member") || strings.Contains(err.Error(), "attacker") {
+		t.Fatalf("unsafe fixed source copy error = %v, want sanitized rejection", err)
+	}
+}
+
+func TestFixedSourceCopyCommandRequiresAuthenticatedReservedTemporary(t *testing.T) {
+	candidate := catalog.Candidate{Item: "PISA061", SourceLibrary: "APP", SourceFileBase: "QRPG", ObjectType: "LESRC", SourceType: "RPGLE"}
+	for _, reservation := range []sourceTemporaryReservation{
+		{home: "/home/nexus", path: "/attacker/.bac-nexus/tmp/x.utf8", reserved: true},
+		{home: "/home/nexus", path: "/home/nexus/.bac-nexus/tmp/x.utf8"},
+	} {
+		if _, err := fixedSourceCopyCommand(candidate, reservation); err == nil {
+			t.Fatalf("fixedSourceCopyCommand() accepted unowned reservation %#v", reservation)
+		}
+	}
+}
+
+type blockingReadCloser struct {
+	started chan struct{}
+	closed  chan struct{}
+	once    sync.Once
+}
+
+func (r *blockingReadCloser) Read([]byte) (int, error) {
+	select {
+	case <-r.started:
+	default:
+		close(r.started)
+	}
+	<-r.closed
+	return 0, errors.New("reader closed")
+}
+
+func (r *blockingReadCloser) Close() error {
+	r.once.Do(func() { close(r.closed) })
+	return nil
+}
+
+func TestSourceDownloadCancellationClosesBlockedReader(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	reader := &blockingReadCloser{started: make(chan struct{}), closed: make(chan struct{})}
+	download := newSourceDownload(ctx, reader)
+	result := make(chan error, 1)
+	go func() {
+		_, err := io.ReadAll(download)
+		result <- err
+	}()
+	<-reader.started
+	cancel()
+	select {
+	case err := <-result:
+		if err == nil {
+			t.Fatal("blocked source reader completed without an error")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancellation did not unblock the source reader")
+	}
+	select {
+	case <-reader.closed:
+	default:
+		t.Fatal("cancellation did not close the blocked source reader")
+	}
+}
+
+func TestRunFixedSourceCopyReturnsCancellationWithoutCommandDetails(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := (&Client{}).runFixedSourceCopy(ctx, "secret-host /secret/path")
+	if !errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "secret") {
+		t.Fatalf("runFixedSourceCopy() error = %v, want sanitized cancellation", err)
+	}
+}
+
+func TestSanitizeSourceSFTPErrorPreservesOnlyNotFoundClassification(t *testing.T) {
+	if err := sanitizeSourceSFTPError(errors.New("secret-host /secret/path")); err == nil || err.Error() != "source transfer failed" {
+		t.Fatalf("sanitizeSourceSFTPError(secret) = %v, want deterministic sanitized error", err)
+	}
+	if err := sanitizeSourceSFTPError(os.ErrNotExist); !errors.Is(err, source.ErrRemoteNotFound) {
+		t.Fatalf("sanitizeSourceSFTPError(not found) = %v, want ErrRemoteNotFound", err)
+	}
+	if err := sanitizeSourceSFTPError(&sftp.StatusError{Code: 2}); !errors.Is(err, source.ErrRemoteNotFound) {
+		t.Fatalf("sanitizeSourceSFTPError(SFTP not found) = %v, want ErrRemoteNotFound", err)
 	}
 }
 
@@ -338,3 +474,160 @@ func TestPasswordBytesAreZeroed(t *testing.T) {
 		t.Fatal("password bytes were not zeroed")
 	}
 }
+
+func TestMapepireLaunchRejectsMismatchedHostIdentityBeforeSessionUse(t *testing.T) {
+	client := &Client{hostIdentity: "SHA256:observed-host"}
+	if _, err := client.StartMapepire(context.Background(), mapepirestdio.VerifiedMapepireArtifactReceipt{}); err == nil {
+		t.Fatal("zero receipt was accepted before session use")
+	}
+}
+
+func TestCloseOnCancellationStopsWatchingAfterChannelCloses(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	closed := make(chan struct{}, 1)
+	watcher := closeOnCancellation(ctx, done, func() { closed <- struct{}{} })
+	close(done)
+	select {
+	case <-watcher:
+	case <-time.After(time.Second):
+		t.Fatal("cancellation watcher did not stop after channel close")
+	}
+	select {
+	case <-closed:
+		t.Fatal("channel close triggered a second process close")
+	default:
+	}
+}
+
+func TestCloseOnCancellationClosesProcessWhenContextCancels(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	closed := make(chan struct{}, 1)
+	watcher := closeOnCancellation(ctx, done, func() { closed <- struct{}{} })
+	cancel()
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("context cancellation did not close the process")
+	}
+	select {
+	case <-watcher:
+	case <-time.After(time.Second):
+		t.Fatal("cancellation watcher did not exit")
+	}
+}
+
+func TestStartMapepireSessionClosesResources(t *testing.T) {
+	session := &fakeMapepireSession{closeObserved: make(chan struct{})}
+	client := &Client{newSession: func() (mapepireSession, error) { return session, nil }}
+	channel, err := client.startMapepireSession(context.Background(), "verified command")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.command != "verified command" {
+		t.Fatalf("Start command = %q", session.command)
+	}
+	if err := channel.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !session.stdin.closed || !session.closed {
+		t.Fatalf("resources not closed: stdin=%t session=%t", session.stdin.closed, session.closed)
+	}
+	select {
+	case <-channel.(*sessionChannel).watcher:
+	case <-time.After(time.Second):
+		t.Fatal("normal close leaked the cancellation watcher")
+	}
+}
+
+func TestStartMapepireCancellationClosesSessionAndWatcher(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	session := &fakeMapepireSession{closeObserved: make(chan struct{})}
+	client := &Client{newSession: func() (mapepireSession, error) { return session, nil }}
+	channel, err := client.startMapepireSession(ctx, "verified command")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	select {
+	case <-session.closeObserved:
+	case <-time.After(time.Second):
+		t.Fatal("cancellation did not close the SSH session")
+	}
+	if err := channel.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-channel.(*sessionChannel).watcher:
+	case <-time.After(time.Second):
+		t.Fatal("cancellation leaked the watcher")
+	}
+}
+
+func TestStartMapepireSanitizesFailuresAndClosesPartialResources(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		make func() *fakeMapepireSession
+		want MapepireLaunchStage
+	}{
+		{"session", func() *fakeMapepireSession { return nil }, MapepireLaunchSession},
+		{"stdin", func() *fakeMapepireSession { return &fakeMapepireSession{stdinErr: errors.New("secret stdin failure")} }, MapepireLaunchStdin},
+		{"stdout", func() *fakeMapepireSession {
+			return &fakeMapepireSession{stdoutErr: errors.New("secret stdout failure")}
+		}, MapepireLaunchStdout},
+		{"start", func() *fakeMapepireSession { return &fakeMapepireSession{startErr: errors.New("secret start failure")} }, MapepireLaunchStart},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			session := tt.make()
+			client := &Client{newSession: func() (mapepireSession, error) {
+				if session == nil {
+					return nil, errors.New("secret session failure")
+				}
+				return session, nil
+			}}
+			_, err := client.startMapepireSession(context.Background(), "verified command")
+			var launchErr *MapepireLaunchError
+			if !errors.As(err, &launchErr) || launchErr.Stage != tt.want || strings.Contains(err.Error(), "secret") {
+				t.Fatalf("error = %#v", err)
+			}
+			if session != nil && !session.closed {
+				t.Fatal("failed launch left session open")
+			}
+		})
+	}
+}
+
+type fakeMapepireSession struct {
+	stdin         fakeMapepireStdin
+	stdinErr      error
+	stdoutErr     error
+	startErr      error
+	command       string
+	closed        bool
+	closeObserved chan struct{}
+}
+
+func (s *fakeMapepireSession) StdinPipe() (io.WriteCloser, error) { return &s.stdin, s.stdinErr }
+func (s *fakeMapepireSession) StdoutPipe() (io.Reader, error) {
+	return strings.NewReader(""), s.stdoutErr
+}
+func (s *fakeMapepireSession) Start(command string) error { s.command = command; return s.startErr }
+func (s *fakeMapepireSession) SetStderr(io.Writer)        {}
+func (s *fakeMapepireSession) Close() error {
+	s.closed = true
+	if s.closeObserved != nil {
+		select {
+		case <-s.closeObserved:
+		default:
+			close(s.closeObserved)
+		}
+	}
+	return nil
+}
+
+type fakeMapepireStdin struct{ closed bool }
+
+func (s *fakeMapepireStdin) Write(p []byte) (int, error) { return len(p), nil }
+func (s *fakeMapepireStdin) Close() error                { s.closed = true; return nil }

@@ -149,11 +149,12 @@ func runOffline(args []string) error {
 
 func writeOfflineOutput(writer io.Writer, search catalog.Search, verified bool) error {
 	_, parameters, rowLimit := catalogados.PreparedSearch(search)
+	launchEnvironment, javaArguments := mapepirestdio.SingleModeDiagnostic()
 	result := diagnostic{
 		Status: "offline-diagnostic", Query: queryDiagnostic{Statement: "catalogados.search.v1", ParameterCount: len(parameters), RowCap: rowLimit},
 		MapepireVersion: mapepirestdio.ServerVersion, MapepireSHA256: mapepirestdio.ServerSHA256,
 		RemoteComponent: mapepirestdio.RemoteJar, ProtocolRequests: protocolDiagnostics(rowLimit, len(parameters)),
-		LaunchEnvironment: mapepirestdio.SingleModeEnvironment, JavaArguments: mapepirestdio.SingleModeJavaArguments,
+		LaunchEnvironment: launchEnvironment, JavaArguments: javaArguments,
 		ArtifactVerified:   verified,
 		LiveOperationBlock: "use the explicit live subcommand after configuration and approvals",
 	}
@@ -265,15 +266,15 @@ func runLive(args []string) error {
 		return err
 	}
 	defer client.Close()
-	remoteJar, err := mapepirestdio.EnsureServerJAR(client, jarPath)
+	receipt, err := client.EnsureMapepireServerJAR(ctx, jarPath)
 	if err != nil {
 		return err
 	}
-	channel, err := client.StartMapepire(ctx, mapepirestdio.LaunchPolicy{JavaHome: p.JavaHome, RemoteJAR: remoteJar})
+	channel, err := client.StartMapepire(ctx, receipt)
 	if err != nil {
 		return err
 	}
-	candidates, err := (catalogados.Resolver{Executor: mapepire.NewSession(channel, "BAC Nexus catalog spike")}).Resolve(ctx, search)
+	candidates, err := (catalogados.Resolver{Executor: catalogados.NewFixedSessionExecutor(mapepire.NewSession(channel, "BAC Nexus catalog spike"))}).Resolve(ctx, search)
 	if err != nil {
 		return err
 	}
@@ -294,7 +295,7 @@ func runLive(args []string) error {
 	}
 	output.Classification = "selected"
 	output.Selected = &selected
-	result, err := (source.Retriever{Files: client, Runner: client}).Retrieve(ctx, selected, *maxBytes, *maxLines)
+	result, err := client.AcquireSource(ctx, selected, *maxBytes, *maxLines)
 	if err != nil {
 		return err
 	}

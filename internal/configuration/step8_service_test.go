@@ -147,7 +147,7 @@ func TestStep8ServiceFallsBackForExactlyFiveEligibleReasonsWithGateCredential(t 
 			secret := []byte("opaque")
 			gate := &gateFake{credential: secret}
 			client := &serviceSSHClient{}
-			factory := &serviceSSHFactory{runtime: &SSHRuntime{client: client, remoteJAR: "/tmp/pinned.jar"}}
+			factory := &serviceSSHFactory{runtime: &SSHRuntime{client: client}}
 			markers := &step8Markers{}
 			audit := Step8AuditEvent{}
 			service := Step8Service{
@@ -200,7 +200,7 @@ func TestStep8ServiceFallbackKeepsPrimaryFailureAndSuppressesMarker(t *testing.T
 	secret := []byte("opaque")
 	gate := &gateFake{credential: secret}
 	client := &serviceSSHClient{proofErr: errors.New("proof"), closeErr: errors.New("cleanup")}
-	factory := &serviceSSHFactory{runtime: &SSHRuntime{client: client, remoteJAR: "/tmp/pinned.jar"}}
+	factory := &serviceSSHFactory{runtime: &SSHRuntime{client: client}}
 	markers := &step8Markers{}
 	audit := Step8AuditEvent{}
 	service := Step8Service{
@@ -303,7 +303,7 @@ func TestStep8ServiceRequiresExplicitWSSConsentBeforeTrustCredentialsOrNetwork(t
 func TestStep8ServiceIssuesTicketThenRequiresSeparateSSHConsent(t *testing.T) {
 	now := time.Date(2026, time.August, 29, 12, 0, 0, 0, time.UTC)
 	client := &serviceSSHClient{}
-	factory := &serviceSSHFactory{runtime: &SSHRuntime{client: client, remoteJAR: "/tmp/pinned.jar"}}
+	factory := &serviceSSHFactory{runtime: &SSHRuntime{client: client}}
 	gate := &gateFake{credential: []byte("opaque")}
 	service := Step8Service{
 		Observe: step8ObserveFunc(func(context.Context, profile.Profile) Observation {
@@ -360,7 +360,7 @@ func TestStep8ServiceRejectedTicketAdmissionsHaveZeroSSHEffects(t *testing.T) {
 			tt.prepare(tickets, ticket)
 			gate := &gateFake{credential: []byte("opaque")}
 			client := &serviceSSHClient{}
-			factory := &serviceSSHFactory{runtime: &SSHRuntime{client: client, remoteJAR: "/tmp/pinned.jar"}}
+			factory := &serviceSSHFactory{runtime: &SSHRuntime{client: client}}
 			service := Step8Service{Gate: PostObservationGate{Policy: gate, Trust: gate, Credentials: gate}, SSH: factory, Tickets: tickets}
 			result := service.RunSSH(context.Background(), tt.request(ticket))
 			if result.Class != ResultDowngradeBlocked || factory.calls != 0 || client.proofs != 0 || len(gate.calls) != 0 {
@@ -395,9 +395,11 @@ type serviceSSHClient struct {
 	closeErr error
 }
 
-func (f *serviceSSHClient) Close() error                         { f.closes++; return f.closeErr }
-func (*serviceSSHClient) RemoteFiles() mapepirestdio.RemoteFiles { return nil }
-func (f *serviceSSHClient) FixedMapepireProof(_ context.Context, _ mapepirestdio.LaunchPolicy, _ string, secret []byte) (remote.FixedProofMetadata, error) {
+func (f *serviceSSHClient) Close() error { f.closes++; return f.closeErr }
+func (*serviceSSHClient) EnsureMapepireServerJAR(context.Context, string) (mapepirestdio.VerifiedMapepireArtifactReceipt, error) {
+	return mapepirestdio.VerifiedMapepireArtifactReceipt{}, nil
+}
+func (f *serviceSSHClient) FixedMapepireProof(_ context.Context, _ mapepirestdio.VerifiedMapepireArtifactReceipt, _ string, secret []byte) (remote.FixedProofMetadata, error) {
 	f.proofs++
 	if len(secret) > 0 {
 		f.secret = &secret[0]

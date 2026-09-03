@@ -79,10 +79,7 @@ func TestSSHTransportHarnessAuthenticatesSFTP(t *testing.T) {
 	t.Run("authenticates with observed exact fingerprint and starts SFTP", func(t *testing.T) {
 		client := dialSSHHarness(t, ctx, config, candidate.Fingerprint, password)
 		t.Cleanup(func() { _ = client.Close() })
-		if client.SFTP() == nil {
-			t.Fatal("Dial() returned a nil SFTP client")
-		}
-		if _, err := client.WorkingDirectory(); err != nil {
+		if _, err := client.workingDirectory(); err != nil {
 			_ = client.Close()
 			t.Fatalf("authenticated SFTP WorkingDirectory() error = %v", err)
 		}
