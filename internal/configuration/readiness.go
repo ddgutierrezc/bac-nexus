@@ -68,6 +68,7 @@ type DiagnosticResult struct {
 type DiagnosticAuditEvent struct {
 	Classification DiagnosticClassification
 	Detail         string
+	Duration       time.Duration
 }
 
 type DiagnosticAuditor interface {
@@ -84,14 +85,15 @@ func RunRemoteDiagnostic(parent context.Context, runner DiagnosticRunner, timeou
 		parent = context.Background()
 	}
 	if runner == nil {
-		return finishDiagnostic(base, DiagnosticFailed, "diagnostic unavailable", auditor)
+		return finishDiagnostic(base, DiagnosticFailed, "diagnostic unavailable", 0, auditor)
 	}
 	if err := parent.Err(); err != nil {
-		return finishDiagnostic(base, DiagnosticCancelled, "diagnostic cancelled", auditor)
+		return finishDiagnostic(base, DiagnosticCancelled, "diagnostic cancelled", 0, auditor)
 	}
 	if timeout <= 0 {
 		timeout = 15 * time.Second
 	}
+	started := time.Now()
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	done := make(chan error, 1)
@@ -99,27 +101,29 @@ func RunRemoteDiagnostic(parent context.Context, runner DiagnosticRunner, timeou
 	select {
 	case err := <-done:
 		if err == nil {
-			return finishDiagnostic(base, DiagnosticSucceeded, "diagnostic completed", auditor)
+			return finishDiagnostic(base, DiagnosticSucceeded, "diagnostic completed", time.Since(started), auditor)
 		}
 		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-			return finishDiagnostic(base, DiagnosticCancelled, "diagnostic cancelled", auditor)
+			return finishDiagnostic(base, DiagnosticCancelled, "diagnostic cancelled", time.Since(started), auditor)
 		}
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return finishDiagnostic(base, DiagnosticTimedOut, "diagnostic timed out", auditor)
+			return finishDiagnostic(base, DiagnosticTimedOut, "diagnostic timed out", time.Since(started), auditor)
 		}
-		return finishDiagnostic(base, DiagnosticFailed, "diagnostic failed", auditor)
+		return finishDiagnostic(base, DiagnosticFailed, "diagnostic failed", time.Since(started), auditor)
 	case <-ctx.Done():
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return finishDiagnostic(base, DiagnosticTimedOut, "diagnostic timed out", auditor)
+			return finishDiagnostic(base, DiagnosticTimedOut, "diagnostic timed out", time.Since(started), auditor)
 		}
-		return finishDiagnostic(base, DiagnosticCancelled, "diagnostic cancelled", auditor)
+		return finishDiagnostic(base, DiagnosticCancelled, "diagnostic cancelled", time.Since(started), auditor)
 	}
 }
 
-func finishDiagnostic(result DiagnosticResult, classification DiagnosticClassification, detail string, auditor DiagnosticAuditor) DiagnosticResult {
+func finishDiagnostic(result DiagnosticResult, classification DiagnosticClassification, detail string, duration time.Duration, auditor DiagnosticAuditor) DiagnosticResult {
 	result.Classification, result.Detail = classification, detail
 	if auditor != nil {
-		_ = auditor.Record(context.Background(), DiagnosticAuditEvent{Classification: classification, Detail: detail})
+		if auditor.Record(context.Background(), DiagnosticAuditEvent{Classification: classification, Detail: detail, Duration: duration}) != nil {
+			result.Classification, result.Detail = DiagnosticFailed, "diagnostic evidence unavailable"
+		}
 	}
 	return result
 }
