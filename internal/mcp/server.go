@@ -8,6 +8,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -15,6 +16,11 @@ import (
 	"bac-nexus/internal/security"
 	"bac-nexus/internal/source"
 )
+
+// ErrLifecycleUnavailable is the stable public classification for MCP
+// transport and session lifecycle failures. Raw peer or SDK errors must not
+// cross the process diagnostic boundary.
+var ErrLifecycleUnavailable = errors.New("mcp lifecycle unavailable")
 
 // Service is the narrow dependency surface the MCP server requires.
 type Service interface {
@@ -42,6 +48,11 @@ type Server struct {
 	service   Service
 	transport mcp.Transport
 	toolNames []string
+
+	lifecycleMu sync.Mutex
+	running     bool
+	stopping    bool
+	handlers    sync.WaitGroup
 }
 
 // ResolveCatalogInput is the typed MCP request for
@@ -105,18 +116,57 @@ func (s *Server) ToolNames() []string {
 	return out
 }
 
-// Run blocks until the context is cancelled or the transport
-// disconnects. The server uses the official StdioTransport by
-// default; tests may inject a different transport through Config.
+// Run blocks until the context is cancelled or the transport disconnects.
+// It stops intake before waiting for accepted handlers so cancellation cannot
+// truncate a source response that was already admitted. The server uses the
+// official StdioTransport by default; tests may inject a different transport
+// through Config.
 func (s *Server) Run(ctx context.Context) error {
 	transport := s.transport
 	if transport == nil {
 		transport = &mcp.StdioTransport{}
 	}
-	return s.impl.Run(ctx, transport)
+	if err := s.start(); err != nil {
+		return err
+	}
+	defer s.stop()
+
+	session, err := s.impl.Connect(ctx, transport, nil)
+	if err != nil {
+		return ErrLifecycleUnavailable
+	}
+	ended := make(chan error, 1)
+	go func() { ended <- session.Wait() }()
+
+	select {
+	case err := <-ended:
+		s.stopIntake()
+		if closeErr := session.Close(); closeErr != nil {
+			return ErrLifecycleUnavailable
+		}
+		s.handlers.Wait()
+		if err != nil {
+			return ErrLifecycleUnavailable
+		}
+		return nil
+	case <-ctx.Done():
+		s.stopIntake()
+		// The session inherits ctx, so cancellation reaches accepted request
+		// contexts before Close waits for them. Its raw lifecycle result is not
+		// safe to expose; the caller receives the deterministic context result.
+		_ = session.Close()
+		<-ended
+		s.handlers.Wait()
+		return ctx.Err()
+	}
 }
 
 func (s *Server) resolveCatalog(ctx context.Context, _ *mcp.CallToolRequest, input ResolveCatalogInput) (*mcp.CallToolResult, ResolveCatalogOutput, error) {
+	accepted := s.acceptHandler()
+	if !accepted {
+		return nil, ResolveCatalogOutput{}, errors.New("mcp server unavailable")
+	}
+	defer s.finishHandler()
 	if err := ctx.Err(); err != nil {
 		return nil, ResolveCatalogOutput{}, err
 	}
@@ -132,6 +182,11 @@ func (s *Server) resolveCatalog(ctx context.Context, _ *mcp.CallToolRequest, inp
 }
 
 func (s *Server) readSelectedSource(ctx context.Context, _ *mcp.CallToolRequest, input ReadSelectedSourceInput) (*mcp.CallToolResult, ReadSelectedSourceOutput, error) {
+	accepted := s.acceptHandler()
+	if !accepted {
+		return nil, ReadSelectedSourceOutput{}, errors.New("mcp server unavailable")
+	}
+	defer s.finishHandler()
 	if err := ctx.Err(); err != nil {
 		return nil, ReadSelectedSourceOutput{}, err
 	}
@@ -140,4 +195,50 @@ func (s *Server) readSelectedSource(ctx context.Context, _ *mcp.CallToolRequest,
 		return nil, ReadSelectedSourceOutput{}, err
 	}
 	return nil, ReadSelectedSourceOutput{Page: page}, nil
+}
+
+func (s *Server) start() error {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	if s.running {
+		return errors.New("mcp server already running")
+	}
+	s.running = true
+	s.stopping = false
+	return nil
+}
+
+func (s *Server) stopIntake() {
+	s.lifecycleMu.Lock()
+	s.stopping = true
+	s.lifecycleMu.Unlock()
+}
+
+func (s *Server) stop() {
+	s.stopIntake()
+	s.lifecycleMu.Lock()
+	s.running = false
+	s.lifecycleMu.Unlock()
+}
+
+func (s *Server) acceptHandler() bool {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	if !s.running {
+		return true
+	}
+	if s.stopping {
+		return false
+	}
+	s.handlers.Add(1)
+	return true
+}
+
+func (s *Server) finishHandler() {
+	s.lifecycleMu.Lock()
+	running := s.running
+	s.lifecycleMu.Unlock()
+	if running {
+		s.handlers.Done()
+	}
 }
