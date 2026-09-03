@@ -308,6 +308,29 @@ func TestStoreEvictionAndZeroization(t *testing.T) {
 	}
 }
 
+func TestStoreEvictAllHidesEveryLeaseAndReleasesResidentBytes(t *testing.T) {
+	store := newTestStoreAt(nil, 0, nil)
+	first, firstSelection := acquireLease(t, store, "one\n")
+	second, secondSelection := acquireLease(t, store, "two\n")
+
+	store.EvictAll()
+
+	if got := store.Resident(); got != 0 {
+		t.Fatalf("resident after EvictAll = %d, want 0", got)
+	}
+	for _, lease := range []struct {
+		cursor    Cursor
+		selection catalog.Candidate
+	}{
+		{first, firstSelection},
+		{second, secondSelection},
+	} {
+		if _, err := store.OpenReader(lease.cursor, lease.selection, "test-policy"); !errors.Is(err, ErrInvalidCursor) {
+			t.Fatalf("OpenReader after EvictAll error = %v, want ErrInvalidCursor", err)
+		}
+	}
+}
+
 // --- restart / process epoch --------------------------------------------------
 
 func TestStoreEpochAndRestartInvalidateCursors(t *testing.T) {

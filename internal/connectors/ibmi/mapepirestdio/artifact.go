@@ -23,12 +23,81 @@ type RemoteFiles interface {
 	Remove(string) error
 }
 
+// MapepireArtifactRemote is the authenticated remote-files capability that
+// owns a verified Mapepire artifact receipt.
+type MapepireArtifactRemote interface {
+	RemoteFiles
+	MapepireHostIdentity() string
+}
+
+// VerifiedMapepireArtifactReceipt is issued only after the fixed artifact is
+// active and hashed through the authenticated remote capability.
+type VerifiedMapepireArtifactReceipt struct {
+	files          MapepireArtifactRemote
+	hostIdentity   string
+	remotePath     string
+	sha256         string
+	policyRevision string
+}
+
 type artifactHooks struct {
 	afterLocalHash func(string, *os.File) error
 }
 
-func EnsureServerJAR(files RemoteFiles, localPath string) (string, error) {
-	return ensureServerJARWith(files, localPath, ServerSHA256, rand.Reader, artifactHooks{})
+func EnsureServerJAR(files MapepireArtifactRemote, localPath string) (VerifiedMapepireArtifactReceipt, error) {
+	receipt, err := ensureServerJARReceiptWith(files, localPath, ServerSHA256, rand.Reader, artifactHooks{})
+	if err != nil {
+		return VerifiedMapepireArtifactReceipt{}, err
+	}
+	if _, err := receipt.commandPath(); err != nil {
+		return VerifiedMapepireArtifactReceipt{}, err
+	}
+	return receipt, nil
+}
+
+func ensureServerJARReceiptWith(files MapepireArtifactRemote, localPath, expected string, random io.Reader, hooks artifactHooks) (VerifiedMapepireArtifactReceipt, error) {
+	remotePath, err := ensureServerJARWith(files, localPath, expected, random, hooks)
+	if err != nil {
+		return VerifiedMapepireArtifactReceipt{}, err
+	}
+	return newArtifactReceipt(files, files.MapepireHostIdentity(), remotePath, expected), nil
+}
+
+func newArtifactReceipt(files MapepireArtifactRemote, hostIdentity, remotePath, expected string) VerifiedMapepireArtifactReceipt {
+	return VerifiedMapepireArtifactReceipt{files: files, hostIdentity: hostIdentity, remotePath: remotePath, sha256: expected, policyRevision: mapepireLaunchPolicyRevision}
+}
+
+// Reverify confirms the receipt remains bound to the same authenticated
+// remote capability and immediately rehashes the exact receipt path.
+func (r VerifiedMapepireArtifactReceipt) Reverify(files MapepireArtifactRemote) error {
+	if r.files == nil || files == nil || r.files != files || r.hostIdentity == "" || files.MapepireHostIdentity() != r.hostIdentity || r.policyRevision != mapepireLaunchPolicyRevision || !safeRemoteJARPath(r.remotePath) {
+		return errors.New("Mapepire artifact receipt is invalid")
+	}
+	actual, err := remoteSHA256(files, r.remotePath)
+	if err != nil || actual != r.sha256 {
+		return errors.New("Mapepire artifact receipt verification failed")
+	}
+	return nil
+}
+
+// AdmitFixedStart rehashes an issued receipt before invoking the only
+// injectable fixed-start seam. The callback deliberately receives no command
+// or launch inputs, so it cannot become a caller-controlled execution API.
+func (r VerifiedMapepireArtifactReceipt) AdmitFixedStart(files MapepireArtifactRemote, start func() error) error {
+	if start == nil || r.Reverify(files) != nil {
+		return errors.New("Mapepire artifact receipt is invalid")
+	}
+	if _, err := BuildCommand(r); err != nil {
+		return errors.New("Mapepire artifact receipt is invalid")
+	}
+	return start()
+}
+
+func (r VerifiedMapepireArtifactReceipt) commandPath() (string, error) {
+	if r.files == nil || r.hostIdentity == "" || r.sha256 != ServerSHA256 || r.policyRevision != mapepireLaunchPolicyRevision || !safeRemoteJARPath(r.remotePath) {
+		return "", errors.New("Mapepire artifact receipt is invalid")
+	}
+	return r.remotePath, nil
 }
 
 func ensureServerJAR(files RemoteFiles, localPath, expected string) (string, error) {

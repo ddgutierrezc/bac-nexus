@@ -47,6 +47,7 @@ type LeaseStore interface {
 	Acquire(snap *source.Snapshot, selection catalog.Candidate, policy source.ClientPolicy) (source.Cursor, error)
 	Lookup(cursor source.Cursor) (catalog.Candidate, error)
 	OpenReader(cursor source.Cursor, selection catalog.Candidate, policy source.ClientPolicy) (*source.LeaseReader, error)
+	EvictAll()
 }
 
 // RecoveryCoordinator runs the bounded ownership-recovery gate before

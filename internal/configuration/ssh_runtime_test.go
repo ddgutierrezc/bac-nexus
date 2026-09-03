@@ -12,13 +12,16 @@ import (
 )
 
 type runtimeClientFake struct {
-	closes   int
-	closeErr error
+	closes    int
+	closeErr  error
+	ensureErr error
 }
 
-func (f *runtimeClientFake) Close() error                         { f.closes++; return f.closeErr }
-func (*runtimeClientFake) RemoteFiles() mapepirestdio.RemoteFiles { return nil }
-func (*runtimeClientFake) FixedMapepireProof(context.Context, mapepirestdio.LaunchPolicy, string, []byte) (remote.FixedProofMetadata, error) {
+func (f *runtimeClientFake) Close() error { f.closes++; return f.closeErr }
+func (f *runtimeClientFake) EnsureMapepireServerJAR(context.Context, string) (mapepirestdio.VerifiedMapepireArtifactReceipt, error) {
+	return mapepirestdio.VerifiedMapepireArtifactReceipt{}, f.ensureErr
+}
+func (*runtimeClientFake) FixedMapepireProof(context.Context, mapepirestdio.VerifiedMapepireArtifactReceipt, string, []byte) (remote.FixedProofMetadata, error) {
 	return remote.FixedProofMetadata{}, nil
 }
 
@@ -60,7 +63,7 @@ func TestSSHRuntimeFactoryClosesClientAfterJavaOrUploadFailure(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client := &runtimeClientFake{}
+			client := &runtimeClientFake{ensureErr: tt.upload}
 			factory := SSHRuntimeFactory{
 				VerifyArtifact: func(string) error { return nil },
 				Dial: func(ctx context.Context, _ profile.Profile, _ []byte) (SSHRuntimeClient, error) {
@@ -70,12 +73,6 @@ func TestSSHRuntimeFactoryClosesClientAfterJavaOrUploadFailure(t *testing.T) {
 					return client, nil
 				},
 				JavaReady: func(context.Context, profile.Profile) error { return tt.java },
-				Upload: func(ctx context.Context, _ mapepirestdio.RemoteFiles, _ string) (string, error) {
-					if _, ok := ctx.Deadline(); !ok {
-						t.Fatal("upload is unbounded")
-					}
-					return "", tt.upload
-				},
 			}
 			_, result := factory.Open(context.Background(), admittedSSH(), savedStep8Profile(t), []byte("opaque"))
 			if result.Decision != DecisionTerminal || result.Class != tt.want || !result.Cleanup {
@@ -114,9 +111,6 @@ func TestSSHRuntimeFactoryRetainsGateCredentialUntilProofSettlement(t *testing.T
 		VerifyArtifact: func(string) error { return nil },
 		Dial:           func(context.Context, profile.Profile, []byte) (SSHRuntimeClient, error) { return client, nil },
 		JavaReady:      func(context.Context, profile.Profile) error { return nil },
-		Upload: func(context.Context, mapepirestdio.RemoteFiles, string) (string, error) {
-			return "/tmp/pinned.jar", nil
-		},
 	}
 	runtime, result := factory.Open(context.Background(), admittedSSH(), savedStep8Profile(t), secret)
 	if result.Class != ResultProofSuccess || runtime == nil {
@@ -146,9 +140,6 @@ func TestSSHRuntimeFactoryKeepsPrimaryFailureAndAssignsUniqueTraceIDs(t *testing
 			return client, nil
 		},
 		JavaReady: func(context.Context, profile.Profile) error { return errors.New("java") },
-		Upload: func(context.Context, mapepirestdio.RemoteFiles, string) (string, error) {
-			return "/tmp/pinned.jar", nil
-		},
 	}
 	for i := range clients[:2] {
 		clients[i].closeErr = errors.New("cleanup")

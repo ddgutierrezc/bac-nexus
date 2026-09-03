@@ -80,6 +80,7 @@ func (fakeLeaseStore) Lookup(source.Cursor) (catalog.Candidate, error) {
 func (fakeLeaseStore) OpenReader(source.Cursor, catalog.Candidate, source.ClientPolicy) (*source.LeaseReader, error) {
 	return nil, errors.New("unused")
 }
+func (fakeLeaseStore) EvictAll() {}
 
 func fixedClock() func() time.Time { return func() time.Time { return time.Unix(0, 0).UTC() } }
 

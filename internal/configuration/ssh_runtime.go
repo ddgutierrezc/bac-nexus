@@ -22,14 +22,14 @@ var sshRuntimeTraceSequence atomic.Uint64
 // SSHRuntimeClient is the only remote surface the fallback runtime consumes.
 type SSHRuntimeClient interface {
 	Close() error
-	RemoteFiles() mapepirestdio.RemoteFiles
-	FixedMapepireProof(context.Context, mapepirestdio.LaunchPolicy, string, []byte) (remote.FixedProofMetadata, error)
+	EnsureMapepireServerJAR(context.Context, string) (mapepirestdio.VerifiedMapepireArtifactReceipt, error)
+	FixedMapepireProof(context.Context, mapepirestdio.VerifiedMapepireArtifactReceipt, string, []byte) (remote.FixedProofMetadata, error)
 }
 
 type SSHRuntime struct {
 	mu        sync.Mutex
 	client    SSHRuntimeClient
-	remoteJAR string
+	receipt   mapepirestdio.VerifiedMapepireArtifactReceipt
 	requestID string
 	traceID   uint64
 	settled   bool
@@ -63,7 +63,6 @@ type SSHRuntimeFactory struct {
 	Dial           func(context.Context, profile.Profile, []byte) (SSHRuntimeClient, error)
 	VerifyArtifact func(string) error
 	JavaReady      func(context.Context, profile.Profile) error
-	Upload         func(context.Context, mapepirestdio.RemoteFiles, string) (string, error)
 }
 
 func NewSSHRuntimeFactory() SSHRuntimeFactory {
@@ -77,12 +76,6 @@ func NewSSHRuntimeFactory() SSHRuntimeFactory {
 				return err
 			}
 			return mapepirestdio.ValidateJavaHome(p.JavaHome)
-		},
-		Upload: func(ctx context.Context, files mapepirestdio.RemoteFiles, localPath string) (string, error) {
-			if err := ctx.Err(); err != nil {
-				return "", err
-			}
-			return mapepirestdio.EnsureServerJAR(files, localPath)
 		},
 	}
 }
@@ -120,15 +113,12 @@ func (f SSHRuntimeFactory) Open(ctx context.Context, admission Step8Result, p pr
 	if err := f.JavaReady(operation, p); err != nil {
 		return nil, terminalGateResult(result, runtimeErrorClass(ctx, err, ResultJavaFailure))
 	}
-	if f.Upload == nil {
-		return nil, terminalGateResult(result, ResultDowngradeBlocked)
-	}
-	remoteJAR, err := f.Upload(operation, client.RemoteFiles(), p.MapepireJAR)
+	receipt, err := client.EnsureMapepireServerJAR(operation, p.MapepireJAR)
 	if err != nil {
 		return nil, terminalGateResult(result, runtimeErrorClass(ctx, err, ResultUploadFailure))
 	}
 	cleanup = false
-	return &SSHRuntime{client: client, remoteJAR: remoteJAR, requestID: admission.RequestID, traceID: sshRuntimeTraceSequence.Add(1)}, Step8Result{RequestID: admission.RequestID, Decision: DecisionSSHEligible, Class: ResultProofSuccess}
+	return &SSHRuntime{client: client, receipt: receipt, requestID: admission.RequestID, traceID: sshRuntimeTraceSequence.Add(1)}, Step8Result{RequestID: admission.RequestID, Decision: DecisionSSHEligible, Class: ResultProofSuccess}
 }
 
 // Prove starts only the release-owned single-mode process and fixed proof.
@@ -139,7 +129,7 @@ func (r *SSHRuntime) Prove(ctx context.Context, p profile.Profile, secret []byte
 	}
 	result = Step8Result{RequestID: r.requestID}
 	client := r.activeClient()
-	if client == nil || r.remoteJAR == "" {
+	if client == nil {
 		return ProofMetadata{}, terminalGateResult(result, ResultSessionFailure)
 	}
 	proofContext, cancel := context.WithTimeout(ctx, SSHRuntimeProofTimeout)
@@ -149,7 +139,7 @@ func (r *SSHRuntime) Prove(ctx context.Context, p profile.Profile, secret []byte
 			result.Cleanup = true
 		}
 	}()
-	proof, err := client.FixedMapepireProof(proofContext, mapepirestdio.LaunchPolicy{JavaHome: p.JavaHome, RemoteJAR: r.remoteJAR, Consented: true}, p.Username, secret)
+	proof, err := client.FixedMapepireProof(proofContext, r.receipt, p.Username, secret)
 	if err != nil {
 		return ProofMetadata{}, terminalGateResult(result, proofErrorClass(proofContext, err))
 	}

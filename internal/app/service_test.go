@@ -139,6 +139,7 @@ func (f *fakeLeaseStore) Lookup(cursor source.Cursor) (catalog.Candidate, error)
 func (f *fakeLeaseStore) OpenReader(cursor source.Cursor, selection catalog.Candidate, policy source.ClientPolicy) (*source.LeaseReader, error) {
 	return f.store.OpenReader(cursor, selection, policy)
 }
+func (f *fakeLeaseStore) EvictAll() { f.store.EvictAll() }
 
 // countingAuthorizer records each call via a callback so tests can assert
 // whether the authorizer was reached.
