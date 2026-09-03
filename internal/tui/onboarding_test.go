@@ -16,32 +16,24 @@ import (
 )
 
 type onboardingOperationsStub struct {
-	captures       int
-	captureCode    remote.PromptCode
-	captureRequest configuration.OnboardingRequest
-	starts         int
-	startRequest   configuration.OnboardingRequest
-	startIdentity  configuration.OperationIdentity
-	startCode      configuration.OnboardingCode
-	cancels        []string
-	result         configuration.OnboardingResult
+	captures    int
+	captureCode remote.PromptCode
+	starts      int
+	cancels     []string
+	revokes     []configuration.OperationIdentity
+	result      configuration.OnboardingResult
 }
 
-func (s *onboardingOperationsStub) Capture(_ context.Context, request configuration.OnboardingRequest, _ remote.SecretPrompt, _, _ *os.File, _ string) (configuration.OperationIdentity, remote.PromptCode) {
+func (s *onboardingOperationsStub) Capture(_ context.Context, _ configuration.OnboardingRequest, _ remote.SecretPrompt, _, _ *os.File, _ string) (configuration.OperationIdentity, remote.PromptCode) {
 	s.captures++
-	s.captureRequest = request
 	if s.captureCode != "" && s.captureCode != remote.PromptCaptured {
 		return configuration.OperationIdentity{}, s.captureCode
 	}
 	return configuration.OperationIdentity{ID: "operation-1", Generation: 1}, remote.PromptCaptured
 }
 
-func (s *onboardingOperationsStub) StartCaptured(_ context.Context, request configuration.OnboardingRequest, identity configuration.OperationIdentity) configuration.OnboardingCode {
+func (s *onboardingOperationsStub) StartCaptured(_ context.Context, _ configuration.OnboardingRequest, _ configuration.OperationIdentity) configuration.OnboardingCode {
 	s.starts++
-	s.startRequest, s.startIdentity = request, identity
-	if s.startCode != "" {
-		return s.startCode
-	}
 	return configuration.OnboardingStarted
 }
 
@@ -50,8 +42,23 @@ func (s *onboardingOperationsStub) Wait(context.Context, string) configuration.O
 }
 
 func (s *onboardingOperationsStub) Cancel(id string) { s.cancels = append(s.cancels, id) }
+func (s *onboardingOperationsStub) Revoke(id configuration.OperationIdentity) {
+	s.revokes = append(s.revokes, id)
+}
 
-func TestOnboardingExecCommandStartsOpaqueLeaseAndPropagatesLegacyRequest(t *testing.T) {
+func TestOnboardingBackRevokesCapturedLease(t *testing.T) {
+	operations := &onboardingOperationsStub{}
+	m := NewModelWithOnboarding(&profileStoreStub{}, context.Background(), operations, remote.SecretPrompt{})
+	m.screen, m.onboardingStep, m.onboardingCaptured = screenDirectOnboarding, onboardingStepReview, true
+	m.onboardingOperation, m.directFocus = configuration.OperationIdentity{ID: "lease-1", Generation: 2}, onboardingFocusReviewBack
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if len(operations.revokes) != 1 || operations.revokes[0] != (configuration.OperationIdentity{ID: "lease-1", Generation: 2}) || m.onboardingCaptured {
+		t.Fatalf("Back revoke/capture state = %#v/%t", operations.revokes, m.onboardingCaptured)
+	}
+}
+
+func TestOnboardingExecCommandDelegatesCaptureWithoutSecretArgument(t *testing.T) {
 	input, err := os.Open(os.DevNull)
 	if err != nil {
 		t.Fatal(err)
@@ -63,41 +70,17 @@ func TestOnboardingExecCommandStartsOpaqueLeaseAndPropagatesLegacyRequest(t *tes
 	}
 	defer output.Close()
 	operations := &onboardingOperationsStub{}
-	request := configuration.OnboardingRequest{Name: "direct-onboarding", Host: "ibmi.example.test", Port: 22, Username: "USER"}
-	command := newOnboardingExecCommand(context.Background(), remote.SecretPrompt{}, operations, request)
+	command := newOnboardingExecCommand(context.Background(), remote.SecretPrompt{}, operations, configuration.OnboardingRequest{Name: "test-profile", Host: "ibmi.example.test", Port: 2222, Username: "USER"})
 	command.SetStdin(input)
 	command.SetStderr(output)
 	if err := command.Run(); err != nil {
 		t.Fatal(err)
 	}
-	if operations.captures != 1 || operations.starts != 1 || operations.captureRequest != request || operations.startRequest != request || operations.startIdentity != (configuration.OperationIdentity{ID: "operation-1", Generation: 1}) {
-		t.Fatalf("capture/start bridge = captures:%d starts:%d capture:%#v start:%#v identity:%#v", operations.captures, operations.starts, operations.captureRequest, operations.startRequest, operations.startIdentity)
+	if operations.captures != 1 || operations.starts != 0 {
+		t.Fatalf("capture/start calls = %d/%d, want 1/0", operations.captures, operations.starts)
 	}
-	if got := command.result(); got != (onboardingPromptMsg{ID: "operation-1", Generation: 1, Code: remote.PromptCaptured}) {
+	if got := command.result(); got.ID != "operation-1" || got.Generation != 1 || got.Code != remote.PromptCaptured {
 		t.Fatalf("secret-free result = %#v", got)
-	}
-}
-
-func TestOnboardingExecCommandDoesNotReturnLeaseWhenStartIsRejected(t *testing.T) {
-	input, err := os.Open(os.DevNull)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer input.Close()
-	output, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer output.Close()
-	operations := &onboardingOperationsStub{startCode: configuration.OnboardingRejected}
-	command := newOnboardingExecCommand(context.Background(), remote.SecretPrompt{}, operations, configuration.OnboardingRequest{Name: "direct-onboarding", Host: "ibmi.example.test", Port: 22, Username: "USER"})
-	command.SetStdin(input)
-	command.SetStderr(output)
-	if err := command.Run(); err != nil {
-		t.Fatal(err)
-	}
-	if operations.captures != 1 || operations.starts != 1 || command.result() != (onboardingPromptMsg{Code: remote.PromptUnavailable}) {
-		t.Fatalf("rejected start = captures:%d starts:%d result:%#v", operations.captures, operations.starts, command.result())
 	}
 }
 
@@ -122,7 +105,7 @@ func TestOnboardingExecCommandPromptFailureStartsNoOperation(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 	if operations.captures != 1 || operations.starts != 0 {
-		t.Fatalf("operations captures/started = %d/%d, want 1/0", operations.captures, operations.starts)
+		t.Fatalf("operations capture/start = %d/%d, want 1/0", operations.captures, operations.starts)
 	}
 	if got := command.result(); got.Code != remote.PromptTerminalUnavailable || got.ID != "" || got.Generation != 0 {
 		t.Fatalf("secret-free prompt result = %+v", got)
@@ -153,8 +136,8 @@ func TestOnboardingExecCommandCapturesOnlyAtTheFixedBoundary(t *testing.T) {
 	if err := command.Run(); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	if operations.starts != 1 {
-		t.Fatalf("operations started = %d, want 1", operations.starts)
+	if operations.captures != 1 || operations.starts != 0 {
+		t.Fatalf("operations capture/start = %d/%d, want 1/0", operations.captures, operations.starts)
 	}
 	got := command.result()
 	if got.Code != remote.PromptCaptured || got.ID != "operation-1" || got.Generation != 1 {
@@ -163,6 +146,45 @@ func TestOnboardingExecCommandCapturesOnlyAtTheFixedBoundary(t *testing.T) {
 	if strings.Contains(fmt.Sprintf("%+v", got), "opaque-password") {
 		t.Fatalf("command result leaked password: %+v", got)
 	}
+}
+
+func TestOnboardingExecCommandReturnsRetryableSecretFreeCaptureStatuses(t *testing.T) {
+	input, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer input.Close()
+	output, err := os.CreateTemp(t.TempDir(), "prompt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer output.Close()
+	for _, tt := range []struct {
+		name string
+		ctx  context.Context
+		read func(int) ([]byte, error)
+		want remote.PromptCode
+	}{
+		{"eof", context.Background(), func(int) ([]byte, error) { return nil, io.EOF }, remote.PromptEOF},
+		{"cancelled", canceledContext(), func(int) ([]byte, error) { return nil, context.Canceled }, remote.PromptCancelled},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			operations := &onboardingOperationsStub{captureCode: tt.want}
+			prompt := remote.SecretPrompt{Input: input, Output: output, IsTerminal: func(int) bool { return true }, Read: tt.read}
+			command := newOnboardingExecCommand(tt.ctx, prompt, operations, configuration.OnboardingRequest{Host: "ibmi.example.test", Username: "USER"}, "localized prompt")
+			command.SetStdin(input)
+			command.SetStderr(output)
+			if err := command.Run(); err != nil || command.result().Code != tt.want || operations.starts != 0 {
+				t.Fatalf("Run err=%v result=%+v starts=%d", err, command.result(), operations.starts)
+			}
+		})
+	}
+}
+
+func canceledContext() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return ctx
 }
 
 func TestDirectOnboardingEscapeCancelsAndRejectsStaleResult(t *testing.T) {
@@ -174,13 +196,65 @@ func TestDirectOnboardingEscapeCancelsAndRejectsStaleResult(t *testing.T) {
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	m = updated.(Model)
-	if len(operations.cancels) != 1 || operations.cancels[0] != "operation-1" || m.screen != screenDirectOnboarding {
-		t.Fatalf("escape did not cancel and return to form: cancels=%v screen=%d", operations.cancels, m.screen)
+	if len(operations.revokes) != 1 || operations.revokes[0].ID != "operation-1" || m.screen != screenDirectOnboarding {
+		t.Fatalf("escape did not revoke and return to form: revokes=%v screen=%d", operations.revokes, m.screen)
 	}
 	updated, _ = m.Update(onboardingResultMsg{ID: "operation-1", Generation: 2, Result: configuration.OnboardingResult{Code: configuration.OnboardingSaved}})
 	m = updated.(Model)
 	if m.screen != screenDirectOnboarding || m.onboardingCompletion.Code == configuration.OnboardingSaved {
 		t.Fatalf("stale result changed cancelled form: screen=%d result=%+v", m.screen, m.onboardingCompletion)
+	}
+}
+
+func TestFourStepOnboardingGuardsPreserveValuesAndKeepBlockedActionsFocusable(t *testing.T) {
+	m := NewModelWithOnboarding(&profileStoreStub{}, context.Background(), &onboardingOperationsStub{}, remote.SecretPrompt{})
+	m.profiles, m.profilesLoaded = []profile.Profile{testProfile("existing")}, true
+	m.beginDirectOnboarding()
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if m.onboardingStep != onboardingStepName || m.directFocus != onboardingFocusName || m.onboardingValidationFeedback == "" {
+		t.Fatalf("empty name advanced or lost blocked focus: step=%d focus=%d feedback=%q", m.onboardingStep, m.directFocus, m.onboardingValidationFeedback)
+	}
+	m.directName.SetValue("new-profile")
+	m.directFocus = onboardingFocusNameNext
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if m.onboardingStep != onboardingStepConnection {
+		t.Fatalf("valid name step = %d, want connection", m.onboardingStep)
+	}
+	m.directHost.SetValue("ibmi.example.test")
+	m.directUsername.SetValue("USER")
+	m.directPort.SetValue("2222")
+	m.directFocus = onboardingFocusConnectionNext
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+	if m.onboardingStep != onboardingStepCredentials {
+		t.Fatalf("valid endpoint step = %d, want credentials", m.onboardingStep)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(Model)
+	if m.onboardingStep != onboardingStepConnection || m.directName.Value() != "new-profile" || m.directPort.Value() != "2222" {
+		t.Fatalf("Back did not preserve safe values: step=%d name=%q port=%q", m.onboardingStep, m.directName.Value(), m.directPort.Value())
+	}
+}
+
+func TestSecurePasswordActionUsesLocalizedPromptAndReturnsToReview(t *testing.T) {
+	operations := &onboardingOperationsStub{}
+	m := NewModelWithOnboarding(&profileStoreStub{}, context.Background(), operations, remote.SecretPrompt{})
+	m.localizer = localization.English()
+	m.beginDirectOnboarding()
+	m.onboardingStep = onboardingStepCredentials
+	m.directName.SetValue("new-profile")
+	m.directHost.SetValue("ibmi.example.test")
+	m.directUsername.SetValue("USER")
+	m.directPort.SetValue("22")
+	m.directFocus = onboardingFocusCapture
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil || updated.(Model).onboardingRunning {
+		t.Fatal("secure capture must issue tea.Exec without starting a backend operation")
+	}
+	if got := updated.(Model).text("onboarding.password_prompt", nil); got != "IBM i password: " {
+		t.Fatalf("localized terminal prompt = %q", got)
 	}
 }
 
@@ -210,7 +284,7 @@ func TestDirectOnboardingViewContainsNoSecretAndHasSpanishAction(t *testing.T) {
 	m.directUsername.SetValue("USER")
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	view := updated.(Model).View()
-	if !strings.Contains(view, "CONECTAR Y GUARDAR") || strings.Contains(view, "password") || strings.Contains(view, "secret") {
+	if !strings.Contains(view, "SIGUIENTE") || strings.Contains(view, "password") || strings.Contains(view, "secret") {
 		t.Fatalf("direct onboarding view is not safe Spanish-first output: %q", view)
 	}
 }
@@ -227,10 +301,14 @@ func TestDirectOnboardingRuntimeFramesRemainReachable(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			m := NewModelWithOnboarding(&profileStoreStub{}, context.Background(), &onboardingOperationsStub{}, remote.SecretPrompt{})
-			m.screen, m.noColor = screenDirectOnboarding, tt.noColor
+			m.beginDirectOnboarding()
+			m.noColor = tt.noColor
 			updated, _ := m.Update(tea.WindowSizeMsg{Width: tt.width, Height: tt.height})
+			if tt.width == 40 {
+				updated, _ = updated.(Model).Update(tea.KeyMsg{Type: tea.KeyDown})
+			}
 			view := updated.(Model).View()
-			if !strings.Contains(view, "CONECTAR Y GUARDAR") || (tt.noColor && strings.Contains(view, "\x1b[")) {
+			if !strings.Contains(view, "SIGUIENTE") || (tt.noColor && strings.Contains(view, "\x1b[")) {
 				t.Fatalf("direct action is not reachable: %q", view)
 			}
 			assertProfileFrameBounds(t, view, tt.width, tt.height)
@@ -242,7 +320,7 @@ func TestDirectOnboardingHasEnglishParity(t *testing.T) {
 	m := NewModelWithOnboarding(&profileStoreStub{}, context.Background(), &onboardingOperationsStub{}, remote.SecretPrompt{})
 	m.screen, m.localizer = screenDirectOnboarding, localization.English()
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	if view := updated.(Model).View(); !strings.Contains(view, "CONNECT AND SAVE") {
+	if view := updated.(Model).View(); !strings.Contains(view, "NEXT") {
 		t.Fatalf("English direct onboarding action missing: %q", view)
 	}
 }
@@ -318,6 +396,62 @@ func TestOnboardingFeedbackIsClearedWhenAnotherContextStarts(t *testing.T) {
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	if view := updated.(Model).View(); strings.Contains(view, "failed") {
 		t.Fatalf("feedback leaked into unrelated screen: %q", view)
+	}
+}
+
+func TestDirectOnboardingValidationBlocksTheFirstInvalidField(t *testing.T) {
+	for _, tt := range []struct {
+		name, host, username, want string
+		focus                      onboardingFocus
+	}{
+		{"host before username", "host:22", "bad user", "host válido", onboardingFocusHost},
+		{"username after valid host", "ibmi.example.test", "bad user", "usuario IBM i válido", onboardingFocusUsername},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			operations := &onboardingOperationsStub{}
+			m := NewModelWithOnboarding(&profileStoreStub{}, context.Background(), operations, remote.SecretPrompt{})
+			m.beginDirectOnboarding()
+			m.profilesLoaded, m.onboardingStep = true, onboardingStepConnection
+			m.directName.SetValue("new-profile")
+			m.directHost.SetValue(tt.host)
+			m.directUsername.SetValue(tt.username)
+			m.directPort.SetValue("22")
+			m.directFocus = onboardingFocusConnectionNext
+
+			updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			got := updated.(Model)
+			if cmd != nil || operations.starts != 0 || got.directFocus != tt.focus || !strings.Contains(got.directOnboardingFeedback(), tt.want) {
+				t.Fatalf("validation result cmd=%v starts=%d focus=%d feedback=%q", cmd, operations.starts, got.directFocus, got.directOnboardingFeedback())
+			}
+		})
+	}
+}
+
+func TestDirectOnboardingValidationClearsOnlyTheEditedFieldAndDefersToOperationFeedback(t *testing.T) {
+	m := NewModelWithOnboarding(&profileStoreStub{}, context.Background(), &onboardingOperationsStub{}, remote.SecretPrompt{})
+	m.beginDirectOnboarding()
+	m.onboardingValidationFeedback = "host validation"
+	m.onboardingFeedback = "operation failure"
+	m.directFocus = onboardingFocusUsername
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("U")})
+	got := updated.(Model)
+	if got.onboardingValidationFeedback != "host validation" || got.directOnboardingFeedback() != "operation failure" {
+		t.Fatalf("username edit cleared unrelated validation or changed feedback precedence: validation=%q feedback=%q", got.onboardingValidationFeedback, got.directOnboardingFeedback())
+	}
+}
+
+func TestDirectOnboardingEditingInvalidFieldClearsItsOwnValidation(t *testing.T) {
+	m := NewModelWithOnboarding(&profileStoreStub{}, context.Background(), &onboardingOperationsStub{}, remote.SecretPrompt{})
+	m.beginDirectOnboarding()
+	m.onboardingValidationFeedback = "host validation"
+	m.onboardingValidationFocus = onboardingFocusHost
+	m.directFocus = onboardingFocusHost
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("i")})
+	got := updated.(Model)
+	if got.onboardingValidationFeedback != "" {
+		t.Fatalf("editing invalid host retained local validation: %q", got.onboardingValidationFeedback)
 	}
 }
 

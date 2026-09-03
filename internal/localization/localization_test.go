@@ -1,6 +1,7 @@
 package localization
 
 import (
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -27,6 +28,31 @@ func TestLocalesAreCompleteAndDeterministic(t *testing.T) {
 			for _, id := range MessageIDs() {
 				if got := l.Text(id, map[string]any{"Count": 2}); got == "" {
 					t.Fatalf("%s is empty", id)
+				}
+			}
+		})
+	}
+}
+
+func TestFourStepOnboardingCatalogsRemainPairedWithoutLanguageLeakage(t *testing.T) {
+	for _, tt := range []struct {
+		name, required, forbidden string
+		localizer                 Localizer
+	}{
+		{"spanish", "Paso", "Step", Spanish()},
+		{"english", "Step", "Paso", English()},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			for step := 1; step <= 4; step++ {
+				id := "onboarding.step." + string(rune('0'+step))
+				text := tt.localizer.Text(id, nil)
+				if !strings.Contains(text, tt.required) || strings.Contains(text, tt.forbidden) || !strings.Contains(text, "4") {
+					t.Fatalf("%s = %q, want localized four-step label", id, text)
+				}
+			}
+			for _, id := range []string{"onboarding.name.description", "onboarding.connection.description", "onboarding.credentials.description", "onboarding.review.description"} {
+				if text := tt.localizer.Text(id, nil); text == "" || strings.Contains(text, tt.forbidden) {
+					t.Fatalf("%s = %q, want paired %s copy without language leakage", id, text, tt.name)
 				}
 			}
 		})

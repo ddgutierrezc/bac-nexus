@@ -72,47 +72,53 @@ type field struct {
 // Model is the deterministic shell model. It contains profile metadata only;
 // credential material is intentionally not accepted by this adapter.
 type Model struct {
-	store                 profileStore
-	screen                screen
-	profiles              []profile.Profile
-	selected              int
-	homeSelected          homeActionID
-	homeFocus             homeFocus
-	menuOffset            int
-	readinessOffset       int
-	homeMenuRows          []homeMenuRow
-	homeReadinessRows     []string
-	profilesLoaded        bool
-	profilesLoadFailed    bool
-	form                  []field
-	formEdit              string
-	formReturn            screen
-	formOriginal          profile.Profile
-	formFocus             int
-	formValidation        *profileValidation
-	formOperationFeedback string
-	confirm               string
-	confirmInput          textinput.Model
-	width                 int
-	height                int
-	noColor               bool
-	buildInfo             BuildInfo
-	status                string
-	err                   error
-	security              *SecurityModel
-	localizer             localization.Localizer
-	directHost            textinput.Model
-	directUsername        textinput.Model
-	directFocus           onboardingFocus
-	onboardingContext     context.Context
-	onboardingPrompt      remote.SecretPrompt
-	onboardingOperations  OnboardingOperations
-	onboardingOperation   configuration.OperationIdentity
-	onboardingRunning     bool
-	onboardingCompletion  configuration.OnboardingResult
-	onboardingFeedback    string
-	profileViewport       viewport.Model
-	profileViewportText   string
+	store                        profileStore
+	screen                       screen
+	profiles                     []profile.Profile
+	selected                     int
+	homeSelected                 homeActionID
+	homeFocus                    homeFocus
+	menuOffset                   int
+	readinessOffset              int
+	homeMenuRows                 []homeMenuRow
+	homeReadinessRows            []string
+	profilesLoaded               bool
+	profilesLoadFailed           bool
+	form                         []field
+	formEdit                     string
+	formReturn                   screen
+	formOriginal                 profile.Profile
+	formFocus                    int
+	formValidation               *profileValidation
+	formOperationFeedback        string
+	confirm                      string
+	confirmInput                 textinput.Model
+	width                        int
+	height                       int
+	noColor                      bool
+	buildInfo                    BuildInfo
+	status                       string
+	err                          error
+	security                     *SecurityModel
+	localizer                    localization.Localizer
+	directHost                   textinput.Model
+	directUsername               textinput.Model
+	directName                   textinput.Model
+	directPort                   textinput.Model
+	onboardingStep               onboardingStep
+	directFocus                  onboardingFocus
+	onboardingContext            context.Context
+	onboardingPrompt             remote.SecretPrompt
+	onboardingOperations         OnboardingOperations
+	onboardingOperation          configuration.OperationIdentity
+	onboardingRunning            bool
+	onboardingCaptured           bool
+	onboardingCompletion         configuration.OnboardingResult
+	onboardingFeedback           string
+	onboardingValidationFeedback string
+	onboardingValidationFocus    onboardingFocus
+	profileViewport              viewport.Model
+	profileViewportText          string
 }
 
 // BuildInfo is the build identity supplied by the composition root. The TUI
@@ -221,7 +227,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		if m.screen == screenForm {
+		if m.screen == screenDirectOnboarding {
+			m.refreshDirectOnboardingViewport()
+		} else if m.screen == screenDirectOnboardingRunning || m.screen == screenDirectOnboardingCompletion {
+			m.refreshDirectOnboardingLifecycleViewport()
+		} else if m.screen == screenForm {
 			m.refreshProfileFormViewport()
 		}
 		if m.screen == screenSecurity && m.security != nil {
@@ -258,17 +268,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case onboardingPromptMsg:
-		if !m.onboardingRunning || msg.Code != remote.PromptCaptured || msg.ID == "" {
-			m.onboardingRunning = false
-			m.onboardingFeedback = m.text("onboarding.prompt_failed", nil)
+		if msg.Code != remote.PromptCaptured || msg.ID == "" {
+			m.onboardingFeedback = m.text("onboarding.capture_failed", nil)
 			m.screen = screenDirectOnboarding
 			return m, nil
 		}
 		m.onboardingOperation = configuration.OperationIdentity{ID: msg.ID, Generation: msg.Generation}
-		m.screen = screenDirectOnboardingRunning
-		return m, func() tea.Msg {
-			return onboardingResultMsg{ID: msg.ID, Generation: msg.Generation, Result: m.onboardingOperations.Wait(m.onboardingContext, msg.ID)}
-		}
+		m.onboardingCaptured, m.onboardingStep, m.directFocus, m.screen = true, onboardingStepReview, onboardingFocusReviewBack, screenDirectOnboarding
+		return m, nil
 	case onboardingResultMsg:
 		if !m.onboardingRunning || msg.ID != m.onboardingOperation.ID || msg.Generation != m.onboardingOperation.Generation {
 			return m, nil
@@ -279,9 +286,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.screen == screenDirectOnboarding {
 			return m.updateDirectOnboarding(msg)
 		}
+		if m.screen == screenDirectOnboardingRunning || m.screen == screenDirectOnboardingCompletion {
+			switch msg.String() {
+			case "down", "j":
+				m.profileViewport.SetYOffset(m.profileViewport.YOffset + 1)
+				return m, nil
+			case "up", "k":
+				m.profileViewport.SetYOffset(max(m.profileViewport.YOffset-1, 0))
+				return m, nil
+			}
+		}
 		if m.screen == screenDirectOnboardingRunning && (msg.String() == "esc" || msg.String() == "ctrl+c") {
 			if m.onboardingOperations != nil && m.onboardingOperation.ID != "" {
-				m.onboardingOperations.Cancel(m.onboardingOperation.ID)
+				m.onboardingOperations.Revoke(m.onboardingOperation)
 			}
 			m.onboardingRunning = false
 			m.screen = screenDirectOnboarding
