@@ -155,7 +155,7 @@ func (s EligibilityStore) Save(eligibility Eligibility) error {
 		_ = os.Remove(temporary)
 		return ErrEligibilityUnavailable
 	}
-	if err := syncEligibilityDirectory(root); err != nil {
+	if err := syncEligibilityPublication(root, live); err != nil {
 		return ErrEligibilityUnavailable
 	}
 	confirmed, err := s.Load(eligibility.Profile)
@@ -240,7 +240,7 @@ func (s EligibilityStore) Revoke(name string) error {
 	if err := os.Remove(path); err != nil {
 		return ErrEligibilityUnavailable
 	}
-	if err := syncEligibilityDirectory(root); err != nil {
+	if err := syncEligibilityPublication(root, path); err != nil {
 		return ErrEligibilityUnavailable
 	}
 	return nil
@@ -328,13 +328,4 @@ func readEligibility(path string) ([]byte, error) {
 		return nil, ErrEligibilityUnavailable
 	}
 	return data, nil
-}
-
-func syncEligibilityDirectory(root string) error {
-	directory, err := os.Open(root)
-	if err != nil {
-		return err
-	}
-	defer directory.Close()
-	return directory.Sync()
 }
