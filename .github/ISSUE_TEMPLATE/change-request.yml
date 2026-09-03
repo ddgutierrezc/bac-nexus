@@ -1,0 +1,53 @@
+name: Change request
+description: Propose a feature, bug fix, documentation update, or maintenance change.
+title: "[Change]: "
+labels: []
+body:
+  - type: dropdown
+    id: change-type
+    attributes:
+      label: Change type
+      description: Select the primary type of change.
+      multiple: false
+      options:
+        - Feature
+        - Bug fix
+        - Documentation
+        - Maintenance
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem, need, or opportunity does this change address?
+    validations:
+      required: true
+  - type: textarea
+    id: desired-outcome
+    attributes:
+      label: Desired outcome
+      description: Describe the expected result and how it will help.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Identify affected areas and explicitly note relevant exclusions.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: Describe the evidence or checks that will demonstrate the change is complete.
+    validations:
+      required: true
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add links, screenshots, examples, or other supporting details.
+    validations:
+      required: false
