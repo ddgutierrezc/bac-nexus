@@ -13,5 +13,15 @@
   {"id":"onboarding.failed","translation":"No se pudo guardar el perfil. Revisa la conexión e inténtalo de nuevo."},
   {"id":"onboarding.failed_cleanup","translation":"El perfil no se guardó. La credencial puede seguir almacenada. Intenta nuevamente o completa la limpieza antes de reintentar."},
   {"id":"onboarding.saved","translation":"Perfil conectado y guardado."},
-  {"id":"onboarding.finalize","translation":"FINALIZAR"}
+  {"id":"onboarding.finalize","translation":"FINALIZAR"},
+  {"id":"form.action.save","translation":"GUARDAR"},
+  {"id":"form.action.cancel","translation":"CANCELAR"},
+  {"id":"profile.validation.name","translation":"Ingresa un nombre de perfil válido."},
+  {"id":"profile.validation.endpoint","translation":"Ingresa un host y puerto SSH válidos."},
+  {"id":"profile.validation.username","translation":"Ingresa un usuario IBM i válido."},
+  {"id":"profile.validation.host_key","translation":"Ingresa un fingerprint de clave de host y una confianza válidos."},
+  {"id":"profile.validation.java_home","translation":"Ingresa una ruta de inicio de Java válida para IBM i."},
+  {"id":"profile.validation.mapepire_jar","translation":"Ingresa una ruta absoluta válida para el JAR de Mapepire."},
+  {"id":"profile.validation.credential_mode","translation":"Selecciona un modo de credencial válido."},
+  {"id":"profile.validation.profile","translation":"Revisa los campos del perfil e inténtalo nuevamente."}
 ]

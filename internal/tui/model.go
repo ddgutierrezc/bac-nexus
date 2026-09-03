@@ -72,43 +72,47 @@ type field struct {
 // Model is the deterministic shell model. It contains profile metadata only;
 // credential material is intentionally not accepted by this adapter.
 type Model struct {
-	store                profileStore
-	screen               screen
-	profiles             []profile.Profile
-	selected             int
-	homeSelected         homeActionID
-	homeFocus            homeFocus
-	menuOffset           int
-	readinessOffset      int
-	homeMenuRows         []homeMenuRow
-	homeReadinessRows    []string
-	profilesLoaded       bool
-	profilesLoadFailed   bool
-	form                 []field
-	formEdit             string
-	formReturn           screen
-	confirm              string
-	confirmInput         textinput.Model
-	width                int
-	height               int
-	noColor              bool
-	buildInfo            BuildInfo
-	status               string
-	err                  error
-	security             *SecurityModel
-	localizer            localization.Localizer
-	directHost           textinput.Model
-	directUsername       textinput.Model
-	directFocus          onboardingFocus
-	onboardingContext    context.Context
-	onboardingPrompt     remote.SecretPrompt
-	onboardingOperations OnboardingOperations
-	onboardingOperation  configuration.OperationIdentity
-	onboardingRunning    bool
-	onboardingCompletion configuration.OnboardingResult
-	onboardingFeedback   string
-	profileViewport      viewport.Model
-	profileViewportText  string
+	store                 profileStore
+	screen                screen
+	profiles              []profile.Profile
+	selected              int
+	homeSelected          homeActionID
+	homeFocus             homeFocus
+	menuOffset            int
+	readinessOffset       int
+	homeMenuRows          []homeMenuRow
+	homeReadinessRows     []string
+	profilesLoaded        bool
+	profilesLoadFailed    bool
+	form                  []field
+	formEdit              string
+	formReturn            screen
+	formOriginal          profile.Profile
+	formFocus             int
+	formValidation        *profileValidation
+	formOperationFeedback string
+	confirm               string
+	confirmInput          textinput.Model
+	width                 int
+	height                int
+	noColor               bool
+	buildInfo             BuildInfo
+	status                string
+	err                   error
+	security              *SecurityModel
+	localizer             localization.Localizer
+	directHost            textinput.Model
+	directUsername        textinput.Model
+	directFocus           onboardingFocus
+	onboardingContext     context.Context
+	onboardingPrompt      remote.SecretPrompt
+	onboardingOperations  OnboardingOperations
+	onboardingOperation   configuration.OperationIdentity
+	onboardingRunning     bool
+	onboardingCompletion  configuration.OnboardingResult
+	onboardingFeedback    string
+	profileViewport       viewport.Model
+	profileViewportText   string
 }
 
 // BuildInfo is the build identity supplied by the composition root. The TUI
@@ -217,6 +221,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		if m.screen == screenForm {
+			m.refreshProfileFormViewport()
+		}
 		if m.screen == screenSecurity && m.security != nil {
 			m.security.noColor = m.noColor
 			updated, _ := m.security.Update(msg)
@@ -239,6 +246,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case operationMsg:
 		m.status, m.err = m.operationText(msg.code), msg.err
+		if msg.code == operationProfileUpdated && msg.err != nil && m.screen == screenForm {
+			m.formOperationFeedback = sanitizeError(msg.err)
+		}
 		if msg.err != nil && (msg.code == operationLoadFailed || msg.code == operationRefreshFailed) {
 			m.profilesLoaded, m.profilesLoadFailed = false, true
 		}
@@ -451,21 +461,31 @@ func (m Model) clampHomeSelection() homeActionID {
 func (m Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	if key == "esc" || key == "ctrl+c" {
+		m.formValidation, m.formOperationFeedback = nil, ""
 		m.screen = m.formReturn
 		return m, nil
 	}
 	if key == "tab" || key == "down" {
-		return m.focusField(1)
+		return m.focusForm(1)
 	}
 	if key == "shift+tab" || key == "up" {
-		return m.focusField(-1)
+		return m.focusForm(-1)
 	}
 	if key == "enter" {
-		p, err := m.formProfile()
-		if err != nil {
-			m.err = err
+		if m.formFocus == len(m.form)+1 {
+			m.formValidation = nil
+			m.screen = m.formReturn
 			return m, nil
 		}
+		p, validation := m.formProfile()
+		if validation != nil {
+			m.formValidation = validation
+			updated, _ := m.focusFormIndex(m.formFieldIndex(validation.FieldID))
+			m = updated.(Model)
+			m.refreshProfileFormViewport()
+			return m, nil
+		}
+		m.formValidation, m.formOperationFeedback, m.err = nil, "", nil
 		if m.formEdit == "" {
 			return m, func() tea.Msg {
 				_, err := m.store.Save(p)
@@ -478,12 +498,37 @@ func (m Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return operationMsg{code: operationProfileUpdated, err: err}
 		}
 	}
-	index := m.focusIndex()
-	if index >= 0 {
+	index := m.formFocus
+	if index >= 0 && index < len(m.form) {
 		var cmd tea.Cmd
 		m.form[index].input, cmd = m.form[index].input.Update(msg)
+		if m.formValidation != nil && m.formValidationIncludesField(m.formValidation.FieldID, index) {
+			m.formValidation = nil
+		}
+		m.refreshProfileFormViewport()
 		return m, cmd
 	}
+	return m, nil
+}
+
+func (m Model) focusForm(delta int) (tea.Model, tea.Cmd) {
+	return m.focusFormIndex((m.formFocus + delta + len(m.form) + 2) % (len(m.form) + 2))
+}
+
+func (m Model) focusFormIndex(index int) (tea.Model, tea.Cmd) {
+	if index < 0 {
+		index = 0
+	}
+	for i := range m.form {
+		m.form[i].input.Blur()
+	}
+	m.formFocus = index
+	if index < len(m.form) {
+		cmd := m.form[index].input.Focus()
+		m.refreshProfileFormViewport()
+		return m, cmd
+	}
+	m.refreshProfileFormViewport()
 	return m, nil
 }
 
@@ -513,6 +558,10 @@ func (m *Model) beginForm(p profile.Profile, returnTo screen) {
 	m.form = m.newFields(p)
 	m.formEdit = p.Name
 	m.formReturn = returnTo
+	m.formOriginal = p
+	m.formFocus = 0
+	m.formValidation = nil
+	m.formOperationFeedback = ""
 	if p.Name == "" {
 		m.formEdit = ""
 	}
@@ -531,28 +580,75 @@ func (m Model) newConfirmationInput() textinput.Model {
 // newConfirmationInput remains for package tests that construct legacy state.
 func newConfirmationInput() textinput.Model { return NewModel(nil).newConfirmationInput() }
 
-func (m Model) formProfile() (profile.Profile, error) {
+func (m Model) formProfile() (profile.Profile, *profileValidation) {
 	values := make([]string, len(m.form))
 	for i := range m.form {
 		values[i] = strings.TrimSpace(m.form[i].input.Value())
 	}
-	port, err := strconv.Atoi(values[2])
-	if err != nil {
-		return profile.Profile{}, fmt.Errorf("%s", m.text("error.port_number", nil))
+	var port int
+	if m.formEdit != "" {
+		var validation *profileValidation
+		port, validation = validateEditProfilePreflight(values[0], values[1], values[2], values[3])
+		if validation != nil {
+			return profile.Profile{}, validation
+		}
+	} else {
+		var err error
+		port, err = strconv.Atoi(values[2])
+		if err != nil {
+			return profile.Profile{}, invalidProfileField(profileValidationFieldEndpoint, "profile.validation.endpoint", err)
+		}
 	}
 	trust, err := m.parseTrust(values[5])
 	if err != nil {
-		return profile.Profile{}, err
+		return profile.Profile{}, invalidProfileField(profileValidationFieldHostKey, "profile.validation.host_key", err)
 	}
 	mode, err := m.parseCredentialMode(values[8])
 	if err != nil {
-		return profile.Profile{}, err
+		return profile.Profile{}, invalidProfileField(profileValidationFieldCredentialMode, "profile.validation.credential_mode", err)
 	}
-	p := profile.Profile{Name: values[0], Host: values[1], Port: port, Username: values[3], HostKeyFingerprint: values[4], HostKeyTrust: trust, JavaHome: values[6], MapepireJAR: values[7], CredentialMode: mode}
-	if err := p.Validate(); err != nil {
-		return profile.Profile{}, err
+	p := m.formOriginal
+	p.Name, p.Host, p.Port, p.Username = values[0], values[1], port, values[3]
+	p.HostKeyFingerprint, p.HostKeyTrust = values[4], trust
+	p.JavaHome, p.MapepireJAR, p.CredentialMode = values[6], values[7], mode
+	if m.formEdit == "" {
+		if err := p.Validate(); err != nil {
+			return profile.Profile{}, invalidProfileField(profileValidationFieldName, "profile.validation.profile", err)
+		}
+		return p, nil
+	}
+	if validation := validateEditProfile(m.formOriginal, p); validation != nil {
+		return profile.Profile{}, validation
 	}
 	return p, nil
+}
+
+func (m Model) formValidationIncludesField(fieldID string, index int) bool {
+	if fieldID == profileValidationFieldEndpoint {
+		return index == 1 || index == 2
+	}
+	return m.formFieldIndex(fieldID) == index
+}
+
+func (m Model) formFieldIndex(fieldID string) int {
+	switch fieldID {
+	case profileValidationFieldName:
+		return 0
+	case profileValidationFieldEndpoint:
+		return 1
+	case profileValidationFieldUsername:
+		return 3
+	case profileValidationFieldHostKey:
+		return 4
+	case profileValidationFieldJavaHome:
+		return 6
+	case profileValidationFieldMapepireJAR:
+		return 7
+	case profileValidationFieldCredentialMode:
+		return 8
+	default:
+		return 0
+	}
 }
 
 func (m Model) trustDisplay(value profile.HostKeyTrust) string {
@@ -629,11 +725,7 @@ func (m Model) View() string {
 		p := m.profiles[m.selected]
 		fmt.Fprintf(&b, "%s: %s\n%s: %s:%d\n%s: %s\n%s: %s\n\n%s\n", m.text("legacy.detail.profile", nil), p.Name, m.text("legacy.detail.host", nil), p.Host, p.Port, m.text("legacy.detail.username", nil), p.Username, m.text("legacy.detail.trust", nil), m.trustDisplay(p.HostKeyTrust), m.text("legacy.detail.footer", nil))
 	case screenForm:
-		b.WriteString(m.text("form.fields", nil) + "\n")
-		for i := range m.form {
-			fmt.Fprintf(&b, "%s: %s\n", m.form[i].label, m.form[i].input.View())
-		}
-		b.WriteString("\n" + m.text("form.footer", nil) + "\n")
+		return m.renderProfileForm()
 	case screenConfirm:
 		fmt.Fprintf(&b, "%s\n%s\n%s\n%s\n%s\n", m.text("legacy.confirm.delete", map[string]any{"Name": m.confirm}), m.text("legacy.confirm.retains_backup", nil), m.text("legacy.confirm.type_delete", map[string]any{"Name": m.confirm}), m.confirmInput.View(), m.text("legacy.confirm.cancel", nil))
 	case screenSecurity:
@@ -656,6 +748,68 @@ func (m Model) View() string {
 		b.WriteString(m.text("common.error", nil) + ": " + sanitizeError(m.err) + "\n")
 	}
 	return m.renderLegacyViewport(b.String())
+}
+
+func (m Model) renderProfileForm() string {
+	return m.profileScreen(m.text("form.fields", nil), m.renderProfileFormBody(), m.text("form.footer", nil), m.formFocusText())
+}
+
+func (m *Model) refreshProfileFormViewport() {
+	m.refreshProfileViewport(m.text("form.fields", nil), m.renderProfileFormBody(), m.formFocusText())
+}
+
+func (m Model) renderProfileFormBody() string {
+	var b strings.Builder
+	for i := range m.form {
+		marker := " "
+		if m.formFocus == i {
+			marker = "▸"
+		}
+		b.WriteString(m.profileField(marker, m.form[i].label, m.form[i].input.View()) + "\n")
+	}
+	b.WriteString("\n")
+	saveMarker, cancelMarker := " ", " "
+	if m.formFocus == len(m.form) {
+		saveMarker = "▸"
+	}
+	if m.formFocus == len(m.form)+1 {
+		cancelMarker = "▸"
+	}
+	b.WriteString(m.profileAction(saveMarker, m.text("form.action.save", nil)) + "\n")
+	b.WriteString(m.profileAction(cancelMarker, m.text("form.action.cancel", nil)) + "\n")
+	if feedback := m.formFeedback(); feedback != "" {
+		b.WriteString("\n" + m.profileFeedback("[ERR]", feedback, newHomeTheme(m.noColor)) + "\n")
+	}
+	return b.String()
+}
+
+func (m Model) formFeedback() string {
+	if m.formOperationFeedback != "" {
+		return m.formOperationFeedback
+	}
+	if m.err != nil {
+		return sanitizeError(m.err)
+	}
+	if m.formValidation != nil {
+		return m.text(m.formValidation.MessageID, nil)
+	}
+	return ""
+}
+
+func (m Model) formFocusText() string {
+	if m.formOperationFeedback != "" {
+		return m.formOperationFeedback
+	}
+	if m.formValidation != nil {
+		return m.text(m.formValidation.MessageID, nil)
+	}
+	if m.formFocus == len(m.form) {
+		return m.text("form.action.save", nil)
+	}
+	if m.formFocus == len(m.form)+1 {
+		return m.text("form.action.cancel", nil)
+	}
+	return m.form[m.formFocus].label
 }
 
 func responsive(view string, width, height int) string {

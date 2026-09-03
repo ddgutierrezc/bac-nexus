@@ -2,10 +2,12 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"bac-nexus/internal/localization"
+	"bac-nexus/internal/profile"
 	"bac-nexus/internal/remote"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -37,5 +39,29 @@ func TestDirectOnboardingLocaleAndViewportMatrix(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestEditOperationFeedbackStaysSanitizedAndPrecedesLocalValidation(t *testing.T) {
+	m := NewModel(&profileStoreStub{})
+	m.localizer, m.noColor = localization.English(), true
+	original := testProfile("edit-profile")
+	original.SchemaVersion = profile.SchemaVersionV3
+	m.beginForm(original, screenDetail)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
+	updated, _ = m.Update(operationMsg{code: operationProfileUpdated, err: errors.New("store\n details")})
+	m = updated.(Model)
+	m.formValidation = &profileValidation{FieldID: profileValidationFieldName, MessageID: "profile.validation.name", Cause: errors.New("invalid")}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	m = updated.(Model)
+	for range len(m.form) {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m = updated.(Model)
+	}
+	view := m.View()
+	if m.formValidation != nil || m.formOperationFeedback != "store details" || !strings.Contains(view, "store details") || strings.Contains(view, "\x1b[") {
+		t.Fatalf("operation feedback lost precedence or sanitization: validation=%#v feedback=%q view=%q", m.formValidation, m.formOperationFeedback, view)
 	}
 }
