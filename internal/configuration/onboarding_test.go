@@ -2,19 +2,192 @@ package configuration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"bac-nexus/internal/credential"
 	"bac-nexus/internal/profile"
 	"bac-nexus/internal/remote"
 )
 
+func TestOnboardingCaptureLeaseIsBoundedSingleUseAndExpires(t *testing.T) {
+	now := time.Unix(100, 0)
+	input, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer input.Close()
+	output, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer output.Close()
+
+	first, second := []byte("first-secret"), []byte("second-secret")
+	read := first
+	service := NewOnboardingService(OnboardingDeps{Now: func() time.Time { return now }})
+	prompt := remote.SecretPrompt{
+		Input: input, Output: output, IsTerminal: func(int) bool { return true },
+		Read: func(int) ([]byte, error) { return read, nil },
+	}
+	request := OnboardingRequest{Name: "test-profile", Host: "ibmi.example.test", Port: 2222, Username: "USER"}
+
+	firstLease, code := service.Capture(context.Background(), request, prompt, input, output, "password: ")
+	if code != remote.PromptCaptured || firstLease.ID == "" {
+		t.Fatalf("first Capture() = %#v, %q", firstLease, code)
+	}
+	for i, value := range first {
+		if value != 0 {
+			t.Fatalf("first capture input[%d] = %d, want zero", i, value)
+		}
+	}
+
+	read = second
+	secondLease, code := service.Capture(context.Background(), request, prompt, input, output, "password: ")
+	if code != remote.PromptCaptured || secondLease.ID == firstLease.ID {
+		t.Fatalf("replacement Capture() = %#v, %q", secondLease, code)
+	}
+	if code := service.StartCaptured(context.Background(), request, firstLease); code != OnboardingRejected {
+		t.Fatalf("replaced StartCaptured() = %q, want rejected", code)
+	}
+	for i, value := range second {
+		if value != 0 {
+			t.Fatalf("replacement capture input[%d] = %d, want zero", i, value)
+		}
+	}
+
+	now = now.Add(2*time.Minute + time.Nanosecond)
+	if code := service.StartCaptured(context.Background(), request, secondLease); code != OnboardingRejected {
+		t.Fatalf("expired StartCaptured() = %q, want rejected", code)
+	}
+}
+
+func TestOnboardingCaptureAcceptsOnlyOneTo1024SecretBytes(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		secret   []byte
+		captured bool
+	}{
+		{name: "empty", secret: nil},
+		{name: "one byte", secret: []byte{'x'}, captured: true},
+		{name: "maximum bytes", secret: make([]byte, 1024), captured: true},
+		{name: "over maximum bytes", secret: make([]byte, 1025)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if len(test.secret) > 0 {
+				test.secret[0] = 'x'
+			}
+			service := NewOnboardingService(OnboardingDeps{})
+			lease, code := captureForTest(t, service, test.secret)
+			if test.captured {
+				if code != remote.PromptCaptured || lease.ID == "" {
+					t.Fatalf("Capture() = %#v, %q; want opaque captured lease", lease, code)
+				}
+				service.Revoke(lease)
+			} else if code == remote.PromptCaptured || lease != (OperationIdentity{}) {
+				t.Fatalf("Capture() = %#v, %q; want secret-free rejection", lease, code)
+			}
+			for i, value := range test.secret {
+				if value != 0 {
+					t.Fatalf("secret[%d] = %d, want zero", i, value)
+				}
+			}
+		})
+	}
+}
+
+func TestOnboardingUsesSelectedPortAndAuditsAfterProofBeforeCommit(t *testing.T) {
+	var events []string
+	store := profile.Store{Root: t.TempDir()}
+	service := NewOnboardingService(OnboardingDeps{
+		Inspect: func(_ context.Context, host string, port int) (remote.HostKeyObservation, error) {
+			if host != "ibmi.example.test" || port != 2222 {
+				t.Fatalf("Inspect(%q, %d), want selected endpoint", host, port)
+			}
+			events = append(events, "inspect")
+			return remote.HostKeyObservation{Fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}, nil
+		},
+		Proof: func(_ context.Context, p profile.Profile, _ []byte) error {
+			if p.Name != "selected-port" || p.Port != 2222 {
+				t.Fatalf("proof profile = %#v", p)
+			}
+			events = append(events, "proof")
+			return nil
+		},
+		Save: func(profile.Profile) error { t.Fatal("legacy Save must not run"); return nil },
+		Audit: func(_ context.Context, event OnboardingAuditEvent) error {
+			if event.Code != "identity_bootstrap_allowed" {
+				t.Fatalf("unexpected audit = %#v", event)
+			}
+			events = append(events, "audit")
+			return nil
+		},
+		Commit: func(_ context.Context, p profile.Profile, _ []byte, _ func(context.Context) error) profile.OnboardingCommitResult {
+			events = append(events, "commit")
+			if _, err := store.Save(p); err != nil {
+				t.Fatalf("Save selected-port profile: %v", err)
+			}
+			return profile.OnboardingCommitResult{Saved: true}
+		},
+	})
+	request := OnboardingRequest{Name: "selected-port", Host: "ibmi.example.test", Port: 2222, Username: "USER"}
+	lease, code := captureRequestForTest(t, service, request, []byte("password"))
+	if code != remote.PromptCaptured || service.StartCaptured(context.Background(), request, lease) != OnboardingStarted {
+		t.Fatalf("Capture/StartCaptured() = %#v, %q", lease, code)
+	}
+	if result := service.Wait(context.Background(), lease.ID); result.Code != OnboardingSaved || result.Profile.Port != 2222 {
+		t.Fatalf("result = %#v", result)
+	}
+	if persisted, err := store.Load(request.Name); err != nil || persisted.Port != request.Port {
+		t.Fatalf("persisted JSON profile = %#v, %v; want port %d", persisted, err, request.Port)
+	}
+	want := []string{"inspect", "proof", "audit", "commit"}
+	if len(events) != len(want) {
+		t.Fatalf("events = %v, want %v", events, want)
+	}
+	for i := range want {
+		if events[i] != want[i] {
+			t.Fatalf("events = %v, want %v", events, want)
+		}
+	}
+}
+
 type onboardingKeyringStub struct{}
 
 func (onboardingKeyringStub) Get(string) ([]byte, error) { return nil, nil }
 func (onboardingKeyringStub) Set(string, []byte) error   { return nil }
 func (onboardingKeyringStub) Delete(string) error        { return nil }
+
+func onboardingRequest() OnboardingRequest {
+	return OnboardingRequest{Name: "user-ibmi-example-test", Host: "ibmi.example.test", Port: 22, Username: "USER"}
+}
+
+func captureForTest(t *testing.T, service *OnboardingService, secret []byte) (OperationIdentity, remote.PromptCode) {
+	return captureRequestForTest(t, service, onboardingRequest(), secret)
+}
+
+func captureRequestForTest(t *testing.T, service *OnboardingService, request OnboardingRequest, secret []byte) (OperationIdentity, remote.PromptCode) {
+	t.Helper()
+	input, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { input.Close() })
+	output, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { output.Close() })
+	prompt := remote.SecretPrompt{Input: input, Output: output, IsTerminal: func(int) bool { return true }, Read: func(int) ([]byte, error) { return secret, nil }}
+	return service.Capture(context.Background(), request, prompt, input, output, "password: ")
+}
 
 func TestOnboardingOwnsAndZeroesSecretAfterAuditedProofBeforeSave(t *testing.T) {
 	var events []string
@@ -44,9 +217,16 @@ func TestOnboardingOwnsAndZeroesSecretAfterAuditedProofBeforeSave(t *testing.T) 
 		},
 		Capability: func() credential.Capability { return credential.CapabilityUnsupported },
 	})
-	id, code := service.StartCaptured(context.Background(), OnboardingRequest{Host: "ibmi.example.test", Username: "USER"}, secret)
-	if code != OnboardingStarted || id.ID == "" {
-		t.Fatalf("StartCaptured() = %#v, %q", id, code)
+	lease, capture := captureForTest(t, service, secret)
+	if capture != remote.PromptCaptured {
+		t.Fatalf("Capture() = %q", capture)
+	}
+	if code := service.StartCaptured(context.Background(), onboardingRequest(), lease); code != OnboardingStarted {
+		t.Fatalf("StartCaptured() = %q", code)
+	}
+	id := lease
+	if id.ID == "" {
+		t.Fatal("Capture returned no lease")
 	}
 	result := service.Wait(context.Background(), id.ID)
 	if result.Code != OnboardingSaved || result.Profile.CredentialMode != profile.CredentialModePrompt {
@@ -57,7 +237,7 @@ func TestOnboardingOwnsAndZeroesSecretAfterAuditedProofBeforeSave(t *testing.T) 
 			t.Fatalf("secret[%d] was not zeroed", i)
 		}
 	}
-	want := []string{"inspect", "identity_bootstrap_allowed", "proof", "save", "identity_pin_committed"}
+	want := []string{"inspect", "proof", "identity_bootstrap_allowed", "save", "identity_pin_committed"}
 	if len(events) != len(want) {
 		t.Fatalf("events = %v", events)
 	}
@@ -74,9 +254,8 @@ func TestOnboardingRejectsInvalidSecretBeforeSideEffects(t *testing.T) {
 		calls++
 		return remote.HostKeyObservation{}, nil
 	}})
-	id, code := service.StartCaptured(context.Background(), OnboardingRequest{Host: "ibmi.example.test", Username: "USER"}, nil)
-	if id.ID != "" || code != OnboardingRejected || calls != 0 {
-		t.Fatalf("StartCaptured() = %#v, %q, calls=%d", id, code, calls)
+	if id, code := service.Capture(context.Background(), onboardingRequest(), remote.SecretPrompt{}, nil, nil, "password: "); id.ID != "" || code == remote.PromptCaptured || calls != 0 {
+		t.Fatalf("Capture() = %#v, %q, calls=%d", id, code, calls)
 	}
 }
 
@@ -90,9 +269,9 @@ func TestOnboardingRejectsUnauditedAutomaticTOFUBeforeAnySideEffect(t *testing.T
 		Proof: func(context.Context, profile.Profile, []byte) error { return nil },
 		Save:  func(profile.Profile) error { return nil },
 	})
-	id, code := service.StartCaptured(context.Background(), OnboardingRequest{Host: "ibmi.example.test", Username: "USER"}, []byte("password"))
-	if code != OnboardingRejected || id != (OperationIdentity{}) || inspected != 0 {
-		t.Fatalf("unaudited start = %#v, %q, inspected=%d", id, code, inspected)
+	lease, code := captureForTest(t, service, []byte("password"))
+	if code != remote.PromptCaptured || service.StartCaptured(context.Background(), onboardingRequest(), lease) != OnboardingRejected || inspected != 0 {
+		t.Fatalf("unaudited start = %#v, %q, inspected=%d", lease, code, inspected)
 	}
 }
 
@@ -114,15 +293,15 @@ func TestOnboardingCompensatesSavedProfileWhenCommittedAuditFails(t *testing.T) 
 		},
 		Capability: func() credential.Capability { return credential.CapabilityUnsupported },
 	})
-	id, code := service.StartCaptured(context.Background(), OnboardingRequest{Host: "ibmi.example.test", Username: "USER"}, []byte("password"))
-	if code != OnboardingStarted {
-		t.Fatalf("start = %q", code)
+	id, capture := captureForTest(t, service, []byte("password"))
+	if capture != remote.PromptCaptured || service.StartCaptured(context.Background(), onboardingRequest(), id) != OnboardingStarted {
+		t.Fatalf("start = %q", capture)
 	}
 	result := service.Wait(context.Background(), id.ID)
 	if result.Code != OnboardingFailed || result.CleanupRequired {
 		t.Fatalf("committed audit result = %#v", result)
 	}
-	want := []string{"identity_bootstrap_allowed", "proof", "save", "identity_pin_committed", "delete"}
+	want := []string{"proof", "identity_bootstrap_allowed", "save", "identity_pin_committed", "delete"}
 	if len(events) != len(want) {
 		t.Fatalf("events = %v, want %v", events, want)
 	}
@@ -155,9 +334,9 @@ func TestOnboardingRejectsExistingPinMismatchAndAuditsIdentityChange(t *testing.
 		Save:       func(profile.Profile) error { t.Fatal("save must not run for a mismatched pin"); return nil },
 		Capability: func() credential.Capability { return credential.CapabilityUnsupported },
 	})
-	id, code := service.StartCaptured(context.Background(), OnboardingRequest{Host: "ibmi.example.test", Username: "USER"}, secret)
-	if code != OnboardingStarted || id == (OperationIdentity{}) {
-		t.Fatalf("StartCaptured() = %#v, %q", id, code)
+	id, code := captureForTest(t, service, secret)
+	if code != remote.PromptCaptured || service.StartCaptured(context.Background(), onboardingRequest(), id) != OnboardingStarted || id == (OperationIdentity{}) {
+		t.Fatalf("Capture/StartCaptured() = %#v, %q", id, code)
 	}
 	if result := service.Wait(context.Background(), id.ID); result.Code != OnboardingFailed {
 		t.Fatalf("Wait() = %#v", result)
@@ -190,9 +369,9 @@ func TestOnboardingAcceptsExactExistingPinWithoutBootstrapAudit(t *testing.T) {
 		},
 		Capability: func() credential.Capability { return credential.CapabilityUnsupported },
 	})
-	id, code := service.StartCaptured(context.Background(), OnboardingRequest{Host: "ibmi.example.test", Username: "USER"}, []byte("password"))
-	if code != OnboardingStarted {
-		t.Fatalf("StartCaptured() code = %q", code)
+	id, code := captureForTest(t, service, []byte("password"))
+	if code != remote.PromptCaptured || service.StartCaptured(context.Background(), onboardingRequest(), id) != OnboardingStarted {
+		t.Fatalf("Capture/StartCaptured() code = %q", code)
 	}
 	if result := service.Wait(context.Background(), id.ID); result.Code != OnboardingSaved {
 		t.Fatalf("Wait() = %#v", result)
@@ -221,9 +400,9 @@ func TestOnboardingCancelReturnsCancelledWithoutPersistence(t *testing.T) {
 		Save:  func(profile.Profile) error { saved++; return nil },
 		Audit: func(context.Context, OnboardingAuditEvent) error { return nil },
 	})
-	id, code := service.StartCaptured(context.Background(), OnboardingRequest{Host: "ibmi.example.test", Username: "USER"}, []byte("password"))
-	if code != OnboardingStarted {
-		t.Fatalf("StartCaptured() = %q", code)
+	id, code := captureForTest(t, service, []byte("password"))
+	if code != remote.PromptCaptured || service.StartCaptured(context.Background(), onboardingRequest(), id) != OnboardingStarted {
+		t.Fatalf("Capture/StartCaptured() = %q", code)
 	}
 	<-started
 	service.Cancel(id.ID)
@@ -259,11 +438,11 @@ func TestOnboardingDelegatesPersistenceToPreparedCommitAfterProof(t *testing.T) 
 			return profile.OnboardingCommitResult{Saved: true}
 		},
 	})
-	id, code := service.StartCaptured(context.Background(), OnboardingRequest{Host: "ibmi.example.test", Username: "USER"}, []byte("password"))
-	if code != OnboardingStarted || service.Wait(context.Background(), id.ID).Code != OnboardingSaved {
+	id, code := captureForTest(t, service, []byte("password"))
+	if code != remote.PromptCaptured || service.StartCaptured(context.Background(), onboardingRequest(), id) != OnboardingStarted || service.Wait(context.Background(), id.ID).Code != OnboardingSaved {
 		t.Fatal("prepared transaction did not save")
 	}
-	want := []string{"identity_bootstrap_allowed", "proof", "prepared-commit", "identity_pin_committed"}
+	want := []string{"proof", "identity_bootstrap_allowed", "prepared-commit", "identity_pin_committed"}
 	for i := range want {
 		if i >= len(events) || events[i] != want[i] {
 			t.Fatalf("events = %v, want %v", events, want)
@@ -285,12 +464,176 @@ func TestOnboardingSaveFailureClassifiesRetainedCredentialAndRequiresCleanup(t *
 			return profile.OnboardingCommitResult{CleanupRequired: true, Err: errors.New("profile persistence failed")}
 		},
 	})
-	id, code := service.StartCaptured(context.Background(), OnboardingRequest{Host: "ibmi.example.test", Username: "USER"}, []byte("password"))
-	if code != OnboardingStarted {
-		t.Fatalf("StartCaptured() = %q", code)
+	id, code := captureForTest(t, service, []byte("password"))
+	if code != remote.PromptCaptured || service.StartCaptured(context.Background(), onboardingRequest(), id) != OnboardingStarted {
+		t.Fatalf("Capture/StartCaptured() = %q", code)
 	}
 	result := service.Wait(context.Background(), id.ID)
 	if result.Code != OnboardingFailed || !result.CleanupRequired || !result.CredentialRetained {
 		t.Fatalf("save failure result = %#v; want not saved, retained credential, cleanup guidance classification", result)
 	}
+}
+
+func TestOnboardingLeaseRevocationZeroesReplacementExpiryStaleAndFailedCapture(t *testing.T) {
+	now := time.Unix(100, 0)
+	service := NewOnboardingService(OnboardingDeps{Now: func() time.Time { return now }})
+	request := onboardingRequest()
+	first, second, third := []byte("first-secret"), []byte("second-secret"), []byte("third-secret")
+	firstID, code := captureRequestForTest(t, service, request, first)
+	if code != remote.PromptCaptured {
+		t.Fatalf("first Capture() = %q", code)
+	}
+	firstLease := service.leases[firstID.ID].secret
+	secondID, code := captureRequestForTest(t, service, request, second)
+	if code != remote.PromptCaptured || !zeroed(firstLease) {
+		t.Fatalf("replacement Capture() = %q, first lease zeroed=%t", code, zeroed(firstLease))
+	}
+	secondLease := service.leases[secondID.ID].secret
+	service.Revoke(OperationIdentity{ID: secondID.ID, Generation: secondID.Generation + 1})
+	if !zeroed(secondLease) {
+		t.Fatal("stale revoke did not zero the active lease")
+	}
+	thirdID, code := captureRequestForTest(t, service, request, third)
+	if code != remote.PromptCaptured {
+		t.Fatalf("third Capture() = %q", code)
+	}
+	thirdLease := service.leases[thirdID.ID].secret
+	now = now.Add(2*time.Minute + time.Nanosecond)
+	if got := service.StartCaptured(context.Background(), request, thirdID); got != OnboardingRejected || !zeroed(thirdLease) {
+		t.Fatalf("expired StartCaptured() = %q, lease zeroed=%t", got, zeroed(thirdLease))
+	}
+
+	failed := []byte("failed-secret")
+	input, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer input.Close()
+	output, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer output.Close()
+	prompt := remote.SecretPrompt{Input: input, Output: output, IsTerminal: func(int) bool { return true }, Read: func(int) ([]byte, error) { return failed, errors.New("capture failed") }}
+	if id, got := service.Capture(context.Background(), request, prompt, input, output, "password: "); id != (OperationIdentity{}) || got == remote.PromptCaptured || !zeroed(failed) {
+		t.Fatalf("failed Capture() = %#v, %q, input zeroed=%t", id, got, zeroed(failed))
+	}
+}
+
+func TestOnboardingShutdownWaitsForWorkerAndZeroesSecret(t *testing.T) {
+	proofStarted := make(chan struct{})
+	var proofSecret []byte
+	service := NewOnboardingService(OnboardingDeps{
+		Inspect: func(context.Context, string, int) (remote.HostKeyObservation, error) {
+			return remote.HostKeyObservation{Fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", TrustCandidate: profile.HostKeyTrustTOFU}, nil
+		},
+		Proof: func(ctx context.Context, _ profile.Profile, secret []byte) error {
+			proofSecret = secret
+			close(proofStarted)
+			<-ctx.Done()
+			return ctx.Err()
+		},
+		Save:  func(profile.Profile) error { t.Fatal("Save must not run after shutdown"); return nil },
+		Audit: func(context.Context, OnboardingAuditEvent) error { return nil },
+	})
+	id, code := captureForTest(t, service, []byte("worker-secret"))
+	if code != remote.PromptCaptured || service.StartCaptured(context.Background(), onboardingRequest(), id) != OnboardingStarted {
+		t.Fatalf("Capture/StartCaptured() = %q", code)
+	}
+	<-proofStarted
+	service.Shutdown()
+	if result := service.Wait(context.Background(), id.ID); result.Code != OnboardingCancelled || !zeroed(proofSecret) {
+		t.Fatalf("Wait() = %#v, proof secret zeroed=%t", result, zeroed(proofSecret))
+	}
+	unused, code := captureForTest(t, service, []byte("unused-secret"))
+	if code != remote.PromptCaptured {
+		t.Fatalf("unused Capture() = %q", code)
+	}
+	unusedLease := service.leases[unused.ID].secret
+	service.Shutdown()
+	if !zeroed(unusedLease) {
+		t.Fatal("Shutdown did not zero an unconsumed lease")
+	}
+}
+
+func TestOnboardingCanaryNeverEscapesSecretOwningBoundary(t *testing.T) {
+	const canary = "canary-secret-never-serialize"
+	var auditJSON, profileJSON []byte
+	service := NewOnboardingService(OnboardingDeps{
+		Inspect: func(context.Context, string, int) (remote.HostKeyObservation, error) {
+			return remote.HostKeyObservation{Fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", TrustCandidate: profile.HostKeyTrustTOFU}, nil
+		},
+		Proof: func(context.Context, profile.Profile, []byte) error { return nil },
+		Audit: func(_ context.Context, event OnboardingAuditEvent) error {
+			var err error
+			auditJSON, err = json.Marshal(event)
+			return err
+		},
+		Save: func(p profile.Profile) error {
+			var err error
+			profileJSON, err = json.Marshal(p)
+			return err
+		},
+		Capability: func() credential.Capability { return credential.CapabilityUnsupported },
+	})
+	id, code := captureForTest(t, service, []byte(canary))
+	if code != remote.PromptCaptured || service.StartCaptured(context.Background(), onboardingRequest(), id) != OnboardingStarted {
+		t.Fatalf("Capture/StartCaptured() = %q", code)
+	}
+	result := service.Wait(context.Background(), id.ID)
+	resultJSON, err := json.Marshal(result)
+	if err != nil || result.Code != OnboardingSaved {
+		t.Fatalf("result = %#v, marshal error = %v", result, err)
+	}
+	store := profile.Store{Root: t.TempDir()}
+	if err := store.WritePreparedCreate(profile.PreparedCreateJournal{Profile: onboardingRequest().Name, TransactionID: "sanitized-recovery", Phase: profile.PreparedCreateSaving}); err != nil {
+		t.Fatal(err)
+	}
+	recoveryJSON, err := os.ReadFile(filepath.Join(store.Root, ".prepared-create-"+onboardingRequest().Name+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, surface := range []string{string(auditJSON), string(profileJSON), string(recoveryJSON), string(resultJSON), fmt.Sprintf("%+v", result), fmt.Sprint(errors.New("onboarding failed")), reflect.TypeOf(result).String(), reflect.TypeOf(id).String()} {
+		if strings.Contains(surface, canary) {
+			t.Fatalf("secret canary escaped into outward surface %q", surface)
+		}
+	}
+}
+
+func TestOnboardingRequiredAuditFailurePreventsCommitAndZeroesWorkerSecret(t *testing.T) {
+	var proofSecret []byte
+	commits := 0
+	service := NewOnboardingService(OnboardingDeps{
+		Inspect: func(context.Context, string, int) (remote.HostKeyObservation, error) {
+			return remote.HostKeyObservation{Fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", TrustCandidate: profile.HostKeyTrustTOFU}, nil
+		},
+		Proof: func(_ context.Context, _ profile.Profile, secret []byte) error {
+			proofSecret = secret
+			return nil
+		},
+		Save: func(profile.Profile) error { t.Fatal("Save must not run after required audit failure"); return nil },
+		Audit: func(context.Context, OnboardingAuditEvent) error {
+			return errors.New("required audit unavailable")
+		},
+		Commit: func(context.Context, profile.Profile, []byte, func(context.Context) error) profile.OnboardingCommitResult {
+			commits++
+			return profile.OnboardingCommitResult{Saved: true}
+		},
+	})
+	id, code := captureForTest(t, service, []byte("audit-failure-secret"))
+	if code != remote.PromptCaptured || service.StartCaptured(context.Background(), onboardingRequest(), id) != OnboardingStarted {
+		t.Fatalf("Capture/StartCaptured() = %q", code)
+	}
+	if result := service.Wait(context.Background(), id.ID); result.Code != OnboardingFailed || commits != 0 || !zeroed(proofSecret) {
+		t.Fatalf("Wait() = %#v, commits=%d, proof secret zeroed=%t", result, commits, zeroed(proofSecret))
+	}
+}
+
+func zeroed(value []byte) bool {
+	for _, b := range value {
+		if b != 0 {
+			return false
+		}
+	}
+	return true
 }
