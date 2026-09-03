@@ -13,5 +13,15 @@
   {"id":"onboarding.failed","translation":"The profile could not be saved. Review the connection and try again."},
   {"id":"onboarding.failed_cleanup","translation":"The profile was not saved. The credential may remain stored. Retry or complete cleanup before trying again."},
   {"id":"onboarding.saved","translation":"Profile connected and saved."},
-  {"id":"onboarding.finalize","translation":"FINALIZE"}
+  {"id":"onboarding.finalize","translation":"FINALIZE"},
+  {"id":"form.action.save","translation":"SAVE"},
+  {"id":"form.action.cancel","translation":"CANCEL"},
+  {"id":"profile.validation.name","translation":"Enter a valid profile name."},
+  {"id":"profile.validation.endpoint","translation":"Enter a valid host and SSH port."},
+  {"id":"profile.validation.username","translation":"Enter a valid IBM i username."},
+  {"id":"profile.validation.host_key","translation":"Enter a valid host-key fingerprint and trust setting."},
+  {"id":"profile.validation.java_home","translation":"Enter a valid IBM i Java home path."},
+  {"id":"profile.validation.mapepire_jar","translation":"Enter a valid absolute Mapepire JAR path."},
+  {"id":"profile.validation.credential_mode","translation":"Select a valid credential mode."},
+  {"id":"profile.validation.profile","translation":"Review the profile fields and try again."}
 ]
