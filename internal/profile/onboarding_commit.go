@@ -9,16 +9,21 @@ import (
 // prepared onboarding transaction. Callback implementations own concrete
 // profile, pin, keyring, audit, and journal persistence.
 type OnboardingCommit struct {
-	Prepare        func(context.Context) error
-	StoreKeyring   func() error
-	SaveProfile    func() error
-	CommitPin      func() error
-	AuditCommitted func(context.Context) error
+	Prepare                func(context.Context) error
+	RecordPhase            func(PreparedCreatePhase) error
+	RevokePriorEligibility func() error
+	StoreKeyring           func() error
+	SaveProfile            func() error
+	CommitPin              func() error
+	SaveEligibility        func() error
+	AuditCommitted         func(context.Context) error
 
-	RollbackPin     func() error
-	RollbackProfile func() error
-	RollbackKeyring func() error
-	ClearJournal    func() error
+	RollbackEligibility     func() error
+	RollbackPin             func() error
+	RollbackProfile         func() error
+	RollbackKeyring         func() error
+	RestorePriorEligibility func() error
+	ClearJournal            func() error
 }
 
 type OnboardingCommitResult struct {
@@ -35,20 +40,45 @@ func (c OnboardingCommit) Commit(ctx context.Context) OnboardingCommitResult {
 	if err := callContext(ctx, c.Prepare); err != nil {
 		return OnboardingCommitResult{Err: err}
 	}
+	if err := call(c.RevokePriorEligibility); err != nil {
+		return OnboardingCommitResult{Err: err, CleanupRequired: true}
+	}
+	priorEligibilityRevoked := c.RevokePriorEligibility != nil
+	if err := c.record(ctx, PreparedCreateKeyring); err != nil {
+		return c.compensate(false, false, false, false, priorEligibilityRevoked, err)
+	}
 	if err := call(c.StoreKeyring); err != nil {
-		return OnboardingCommitResult{Err: err}
+		// A credential backend can fail after mutating its durable state. Treat
+		// the write as partial until its compensator proves otherwise.
+		return c.compensate(c.StoreKeyring != nil, false, false, false, priorEligibilityRevoked, err)
 	}
 	keyringStored := c.StoreKeyring != nil
+	if err := c.record(ctx, PreparedCreateProfile); err != nil {
+		return c.compensate(keyringStored, false, false, false, priorEligibilityRevoked, err)
+	}
 	if err := call(c.SaveProfile); err != nil {
-		return c.compensate(keyringStored, false, false, err)
+		return c.compensate(keyringStored, false, false, false, priorEligibilityRevoked, err)
 	}
 	profileSaved := c.SaveProfile != nil
+	if err := c.record(ctx, PreparedCreatePin); err != nil {
+		return c.compensate(keyringStored, profileSaved, false, false, priorEligibilityRevoked, err)
+	}
 	if err := call(c.CommitPin); err != nil {
-		return c.compensate(keyringStored, profileSaved, false, err)
+		return c.compensate(keyringStored, profileSaved, false, false, priorEligibilityRevoked, err)
 	}
 	pinCommitted := c.CommitPin != nil
+	if err := c.record(ctx, PreparedCreateEligibility); err != nil {
+		return c.compensate(keyringStored, profileSaved, pinCommitted, false, priorEligibilityRevoked, err)
+	}
+	if err := call(c.SaveEligibility); err != nil {
+		return c.compensate(keyringStored, profileSaved, pinCommitted, c.SaveEligibility != nil, priorEligibilityRevoked, err)
+	}
+	eligibilitySaved := c.SaveEligibility != nil
+	if err := c.record(ctx, PreparedCreateCommittedAudit); err != nil {
+		return c.compensate(keyringStored, profileSaved, pinCommitted, eligibilitySaved, priorEligibilityRevoked, err)
+	}
 	if err := callContext(ctx, c.AuditCommitted); err != nil {
-		return c.compensate(keyringStored, profileSaved, pinCommitted, err)
+		return c.compensate(keyringStored, profileSaved, pinCommitted, eligibilitySaved, priorEligibilityRevoked, err)
 	}
 	if err := call(c.ClearJournal); err != nil {
 		return OnboardingCommitResult{Err: err, CleanupRequired: true}
@@ -56,8 +86,24 @@ func (c OnboardingCommit) Commit(ctx context.Context) OnboardingCommitResult {
 	return OnboardingCommitResult{Saved: true}
 }
 
-func (c OnboardingCommit) compensate(keyringStored, profileSaved, pinCommitted bool, cause error) OnboardingCommitResult {
+func (c OnboardingCommit) record(ctx context.Context, phase PreparedCreatePhase) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if c.RecordPhase == nil {
+		return nil
+	}
+	if err := c.RecordPhase(phase); err != nil {
+		return err
+	}
+	return ctx.Err()
+}
+
+func (c OnboardingCommit) compensate(keyringStored, profileSaved, pinCommitted, eligibilitySaved, priorEligibilityRevoked bool, cause error) OnboardingCommitResult {
 	var rollbackErr error
+	if eligibilitySaved {
+		rollbackErr = errors.Join(rollbackErr, call(c.RollbackEligibility))
+	}
 	if pinCommitted {
 		rollbackErr = errors.Join(rollbackErr, call(c.RollbackPin))
 	}
@@ -69,6 +115,11 @@ func (c OnboardingCommit) compensate(keyringStored, profileSaved, pinCommitted b
 	}
 	if rollbackErr != nil {
 		return OnboardingCommitResult{CleanupRequired: true, Err: errors.Join(cause, rollbackErr)}
+	}
+	if priorEligibilityRevoked {
+		if err := call(c.RestorePriorEligibility); err != nil {
+			return OnboardingCommitResult{CleanupRequired: true, Err: errors.Join(cause, err)}
+		}
 	}
 	if err := call(c.ClearJournal); err != nil {
 		return OnboardingCommitResult{CleanupRequired: true, Err: errors.Join(cause, err)}
