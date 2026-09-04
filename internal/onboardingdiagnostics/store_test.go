@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"bac-nexus/internal/configuration"
+	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
 	"bac-nexus/internal/localstate"
 )
 
@@ -59,6 +60,52 @@ func TestStoreWritesStrictSecretFreeRecord(t *testing.T) {
 	}
 	if _, _, err := decodeRecord(data, reference); err != nil {
 		t.Fatalf("strict record validation: %v", err)
+	}
+}
+
+func TestStorePersistsOnlyAllowlistedUploadArtifactStageAndReadsLegacyRecords(t *testing.T) {
+	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
+	store, root := diagnosticStore(t, now)
+	reference, err := store.Record(context.Background(), configuration.OnboardingPhaseAuthenticatedProof, configuration.OnboardingFailureClass(configuration.ResultUploadFailure), false, false, mapepirestdio.ArtifactStageTransfer)
+	if err != nil {
+		t.Fatalf("Record(upload stage): %v", err)
+	}
+	data := mustReadFile(t, filepath.Join(root, "BAC Nexus", "onboarding-diagnostics", reference+recordFileExt))
+	if !strings.Contains(string(data), `"artifact_stage":"transfer"`) {
+		t.Fatalf("record did not persist the safe stage: %s", data)
+	}
+	if _, _, err := decodeRecord(data, reference); err != nil {
+		t.Fatalf("decode staged record: %v", err)
+	}
+	legacy := []byte(`{"schema":"onboarding_failure_diagnostic/v1","reference":"ONB-0123456789abcdef0123456789abcdef","timestamp_utc":"2026-09-04T12:00:00Z","phase":"authenticated_proof","class":"authentication_failed","cleanup_required":false,"credential_retained":false}`)
+	if _, _, err := decodeRecord(legacy, "ONB-0123456789abcdef0123456789abcdef"); err != nil {
+		t.Fatalf("decode legacy record: %v", err)
+	}
+}
+
+func TestStoreRejectsInvalidArtifactStagesWithoutPersistingSensitiveValues(t *testing.T) {
+	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name  string
+		phase configuration.OnboardingFailurePhase
+		class configuration.OnboardingFailureClass
+		stage mapepirestdio.ArtifactStage
+	}{
+		{"non-upload failure", configuration.OnboardingPhaseAuthenticatedProof, configuration.OnboardingFailureClass(configuration.ResultAuthenticationFailed), mapepirestdio.ArtifactStageTransfer},
+		{"wrong phase", configuration.OnboardingPhaseHostKeyInspection, configuration.OnboardingClassHostKeyFailure, mapepirestdio.ArtifactStageTransfer},
+		{"raw sensitive value", configuration.OnboardingPhaseAuthenticatedProof, configuration.OnboardingFailureClass(configuration.ResultUploadFailure), "sftp://user@host/path secret"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store, root := diagnosticStore(t, now)
+			if reference, err := store.Record(context.Background(), test.phase, test.class, false, false, test.stage); err == nil || reference != "" {
+				t.Fatalf("Record() = %q, %v; want rejection", reference, err)
+			}
+			directory := filepath.Join(root, "BAC Nexus", "onboarding-diagnostics")
+			entries, err := os.ReadDir(directory)
+			if err == nil && len(entries) != 0 {
+				t.Fatalf("rejected stage persisted records: %v", entries)
+			}
+		})
 	}
 }
 

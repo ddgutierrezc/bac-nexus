@@ -235,6 +235,58 @@ func TestStep8ServiceFallbackKeepsPrimaryFailureAndSuppressesMarker(t *testing.T
 	}
 }
 
+func TestStep8ServiceSSHAuditFailureDoesNotReplaceSuccessfulProof(t *testing.T) {
+	gate := &gateFake{credential: []byte("opaque")}
+	markers := &step8Markers{}
+	service := Step8Service{
+		Observe: step8ObserveFunc(func(context.Context, profile.Profile) Observation {
+			return Observation{Decision: DecisionSSHEligible, Reason: ReasonDaemonUnavailable}
+		}),
+		Gate:    PostObservationGate{Policy: gate, Trust: gate, Credentials: gate},
+		SSH:     &serviceSSHFactory{runtime: &SSHRuntime{client: &serviceSSHClient{}}},
+		Markers: markers,
+		Audit: step8AuditFunc(func(context.Context, Step8AuditEvent) error {
+			return errors.New("audit unavailable")
+		}),
+		Tickets: newFallbackTicketStore(time.Now),
+	}
+	wss := service.Run(context.Background(), Step8Request{RequestID: "request-audit", Generation: 1, Profile: serviceSavedProfile(), WSSConsent: true})
+	result := service.RunSSH(context.Background(), Step8Request{RequestID: "request-audit", Generation: 1, Profile: serviceSavedProfile(), FallbackTicket: wss.FallbackTicket, FallbackClass: wss.FallbackClass, SSHConsent: true})
+	if result.Decision != DecisionSSHEligible || result.Class != ResultProofSuccess || result.ProofRevision != ProofRevision || !result.Cleanup {
+		t.Fatalf("audit failure replaced successful proof: %+v", result)
+	}
+	if err := ValidateMarker(markers.marker); err != nil {
+		t.Fatalf("successful proof did not write marker: %+v, %v", markers.marker, err)
+	}
+}
+
+func TestStep8ServiceWSSAuditFailureDoesNotReplaceSuccessfulProof(t *testing.T) {
+	trace := []string{}
+	markers := &step8Markers{}
+	service := Step8Service{
+		Observe: step8ObserveFunc(func(context.Context, profile.Profile) Observation {
+			return Observation{Decision: DecisionWSSSelected, Reason: ReasonWSSSelected}
+		}),
+		Credentials: step8CredentialsFunc(func(context.Context, string, profile.CredentialMode) ([]byte, error) {
+			return []byte("opaque"), nil
+		}),
+		WSS: step8WSSFunc(func(context.Context, profile.Profile) (Step8WSSSession, error) {
+			return &step8Session{trace: &trace}, nil
+		}),
+		Markers: markers,
+		Audit: step8AuditFunc(func(context.Context, Step8AuditEvent) error {
+			return errors.New("audit unavailable")
+		}),
+	}
+	result := service.Run(context.Background(), Step8Request{RequestID: "wss-audit", Profile: serviceSavedProfile(), WSSConsent: true})
+	if result.Decision != DecisionWSSSelected || result.Class != ResultProofSuccess || result.ProofRevision != ProofRevision || !result.Cleanup {
+		t.Fatalf("audit failure replaced successful proof: %+v", result)
+	}
+	if err := ValidateMarker(markers.marker); err != nil {
+		t.Fatalf("successful proof did not write marker: %+v, %v", markers.marker, err)
+	}
+}
+
 func TestStep8ServiceNeverFallsBackForWSSOrTerminalObservations(t *testing.T) {
 	tests := []Observation{
 		{Decision: DecisionWSSSelected, Reason: ReasonWSSSelected},

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"bac-nexus/internal/configuration"
+	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
 	"bac-nexus/internal/localstate"
 )
 
@@ -67,10 +68,15 @@ type diskRecord struct {
 	Class              string `json:"class"`
 	CleanupRequired    bool   `json:"cleanup_required"`
 	CredentialRetained bool   `json:"credential_retained"`
+	ArtifactStage      string `json:"artifact_stage,omitempty"`
 }
 
-func (s *Store) Record(ctx context.Context, phase configuration.OnboardingFailurePhase, class configuration.OnboardingFailureClass, cleanupRequired, credentialRetained bool) (string, error) {
-	if ctx == nil || ctx.Err() != nil || !validFailure(phase, class) || s == nil || s.userConfigDir == nil || s.platform == nil {
+func (s *Store) Record(ctx context.Context, phase configuration.OnboardingFailurePhase, class configuration.OnboardingFailureClass, cleanupRequired, credentialRetained bool, artifactStages ...mapepirestdio.ArtifactStage) (string, error) {
+	var artifactStage mapepirestdio.ArtifactStage
+	if len(artifactStages) == 1 {
+		artifactStage = artifactStages[0]
+	}
+	if ctx == nil || ctx.Err() != nil || len(artifactStages) > 1 || !validFailure(phase, class) || !validArtifactStage(phase, class, artifactStage) || s == nil || s.userConfigDir == nil || s.platform == nil {
 		return "", errUnavailable
 	}
 	root, err := s.userConfigDir()
@@ -108,7 +114,7 @@ func (s *Store) Record(ctx context.Context, phase configuration.OnboardingFailur
 	if err != nil {
 		return "", errUnavailable
 	}
-	encoded, err := json.Marshal(diskRecord{schema, reference, now.Format(time.RFC3339Nano), string(phase), string(class), cleanupRequired, credentialRetained})
+	encoded, err := json.Marshal(diskRecord{Schema: schema, Reference: reference, TimestampUTC: now.Format(time.RFC3339Nano), Phase: string(phase), Class: string(class), CleanupRequired: cleanupRequired, CredentialRetained: credentialRetained, ArtifactStage: string(artifactStage)})
 	if err != nil {
 		return "", errUnavailable
 	}
@@ -193,7 +199,7 @@ func decodeRecord(data []byte, expectedReference string) (diskRecord, time.Time,
 	}
 	var raw map[string]json.RawMessage
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	if decoder.Decode(&raw) != nil || len(raw) != 7 {
+	if decoder.Decode(&raw) != nil || (len(raw) != 7 && len(raw) != 8) {
 		return diskRecord{}, time.Time{}, errUnavailable
 	}
 	var trailing any
@@ -206,7 +212,7 @@ func decodeRecord(data []byte, expectedReference string) (diskRecord, time.Time,
 		}
 	}
 	var record diskRecord
-	if json.Unmarshal(data, &record) != nil || record.Schema != schema || record.Reference != expectedReference || !validReference(record.Reference) || !validFailure(configuration.OnboardingFailurePhase(record.Phase), configuration.OnboardingFailureClass(record.Class)) {
+	if json.Unmarshal(data, &record) != nil || record.Schema != schema || record.Reference != expectedReference || !validReference(record.Reference) || !validFailure(configuration.OnboardingFailurePhase(record.Phase), configuration.OnboardingFailureClass(record.Class)) || !validArtifactStage(configuration.OnboardingFailurePhase(record.Phase), configuration.OnboardingFailureClass(record.Class), mapepirestdio.ArtifactStage(record.ArtifactStage)) {
 		return diskRecord{}, time.Time{}, errUnavailable
 	}
 	timestamp, err := time.Parse(time.RFC3339Nano, record.TimestampUTC)
@@ -226,7 +232,7 @@ func strictRecordKeys(data []byte) bool {
 	for decoder.More() {
 		key, err := decoder.Token()
 		name, ok := key.(string)
-		if err != nil || !ok || seen[name] {
+		if err != nil || !ok || seen[name] || !recordKey(name) {
 			return false
 		}
 		seen[name] = true
@@ -236,7 +242,15 @@ func strictRecordKeys(data []byte) bool {
 		}
 	}
 	end, err := decoder.Token()
-	return err == nil && end == json.Delim('}') && len(seen) == 7
+	return err == nil && end == json.Delim('}') && (len(seen) == 7 || len(seen) == 8)
+}
+
+func recordKey(name string) bool {
+	switch name {
+	case "schema", "reference", "timestamp_utc", "phase", "class", "cleanup_required", "credential_retained", "artifact_stage":
+		return true
+	}
+	return false
 }
 
 func (s *Store) prune(directory string, records []storedRecord, now time.Time) error {
@@ -311,6 +325,10 @@ func validFailure(phase configuration.OnboardingFailurePhase, class configuratio
 	default:
 		return false
 	}
+}
+
+func validArtifactStage(phase configuration.OnboardingFailurePhase, class configuration.OnboardingFailureClass, stage mapepirestdio.ArtifactStage) bool {
+	return stage == "" || (phase == configuration.OnboardingPhaseAuthenticatedProof && class == configuration.OnboardingFailureClass(configuration.ResultUploadFailure) && mapepirestdio.ValidArtifactStage(stage))
 }
 
 var _ configuration.OnboardingFailureRecorder = (*Store)(nil)

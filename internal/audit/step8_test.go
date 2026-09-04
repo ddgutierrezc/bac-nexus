@@ -60,7 +60,7 @@ func TestStep8AuditEvidenceHasBoundedCleanupAndNoReadinessMarker(t *testing.T) {
 	for i, field := range fields {
 		gotNames[i] = field.Name
 	}
-	if want := []string{"Transport", "Class", "Revision", "Cleanup"}; !reflect.DeepEqual(gotNames, want) {
+	if want := []string{"Transport", "Class", "Revision", "Cleanup", "ArtifactStage"}; !reflect.DeepEqual(gotNames, want) {
 		t.Fatalf("Step8Event fields=%v, want %v", gotNames, want)
 	}
 	marker := configuration.Marker{SchemaVersion: configuration.MarkerSchemaVersion, AtUnixMs: 1, Outcome: configuration.ResultProofSuccess, ProofRevision: configuration.ProofRevision}

@@ -3,6 +3,8 @@ package audit
 import (
 	"context"
 	"errors"
+
+	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
 )
 
 var ErrStep8EventRejected = errors.New("step8 audit event rejected")
@@ -11,6 +13,7 @@ var ErrStep8EventRejected = errors.New("step8 audit event rejected")
 type Step8Event struct {
 	Transport, Class, Revision string
 	Cleanup                    bool
+	ArtifactStage              mapepirestdio.ArtifactStage
 }
 
 // Step8Recorder is a deterministic sink for sanitized proof events.
@@ -30,7 +33,16 @@ func (r *Step8Recorder) Record(ctx context.Context, e Step8Event) error {
 func (r *Step8Recorder) Events() []Step8Event { return append([]Step8Event(nil), r.events...) }
 
 func ValidateStep8Event(e Step8Event) error {
-	if (e.Transport != "wss" && e.Transport != "ssh") || e.Revision != "values-1-v1" || !step8Class(e.Class) {
+	if (e.Transport != "wss" && e.Transport != "ssh") || !step8Class(e.Class) {
+		return ErrStep8EventRejected
+	}
+	if e.Class == "proof_success" && e.Revision != "values-1-v1" {
+		return ErrStep8EventRejected
+	}
+	if e.Revision != "" && e.Revision != "values-1-v1" {
+		return ErrStep8EventRejected
+	}
+	if e.ArtifactStage != "" && (e.Transport != "ssh" || e.Class != "upload_failure" || !mapepirestdio.ValidArtifactStage(e.ArtifactStage)) {
 		return ErrStep8EventRejected
 	}
 	return nil
