@@ -29,8 +29,10 @@ func (a Step8SSHTrustAdapter) VerifySSH(ctx context.Context, p profile.Profile) 
 	if ctx.Err() != nil || a.observer == nil {
 		return &SSHTrustError{Failure: SSHTrustUnavailable}
 	}
-	fingerprint, err := a.observer.ObserveSSHFingerprint(ctx, p.Host, p.Port)
-	if err != nil || ctx.Err() != nil {
+	observationCtx, cancel := context.WithTimeout(ctx, configuration.SSHRuntimeOperationTimeout)
+	defer cancel()
+	fingerprint, err := a.observer.ObserveSSHFingerprint(observationCtx, p.Host, p.Port)
+	if err != nil || observationCtx.Err() != nil || ctx.Err() != nil {
 		return &SSHTrustError{Failure: SSHTrustUnavailable}
 	}
 	return (SSHTrust{ObservedFingerprint: fingerprint}).VerifySSH(ctx, p)

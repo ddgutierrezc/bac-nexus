@@ -266,7 +266,7 @@ func (s *OnboardingService) run(ctx context.Context, request OnboardingRequest, 
 	if err != nil || observation.Verified || profile.ValidateHostKey(observation.Fingerprint, profile.HostKeyTrustTOFU) != nil {
 		return s.failed(ctx, OnboardingPhaseHostKeyInspection, onboardingHostKeyFailureClass(err), false, false)
 	}
-	p := profile.Profile{SchemaVersion: profile.SchemaVersionV3, Name: request.Name, Host: request.Host, Port: request.Port, Username: request.Username, HostKeyFingerprint: observation.Fingerprint, HostKeyTrust: profile.HostKeyTrustTOFU, HostKeyProvenance: automaticTOFUProvenance, CredentialMode: profile.CredentialModePrompt, FallbackAllowed: true, EndpointPolicyRef: VerifiedReadOnlyEndpointPolicyRef}
+	p := directOnboardingProfile(request, observation.Fingerprint)
 	if s.deps.Existing != nil {
 		existing, existingErr := s.deps.Existing(ctx, p.Name)
 		if existingErr != nil || existing != nil && !sameOnboardingIdentity(*existing, p) {
@@ -333,6 +333,30 @@ func (s *OnboardingService) run(ctx context.Context, request OnboardingRequest, 
 		return s.failed(ctx, OnboardingPhaseSave, OnboardingClassSaveFailure, cleanupRequired, false)
 	}
 	return OnboardingResult{Code: OnboardingSaved, Profile: p}
+}
+
+// directOnboardingProfile derives the legacy host-key fields and canonical SSH
+// trust evidence from the same no-authentication observation.
+func directOnboardingProfile(request OnboardingRequest, fingerprint string) profile.Profile {
+	trust := profile.TrustEvidence{
+		Mode:       profile.TrustModeTOFU,
+		Pin:        fingerprint,
+		Provenance: automaticTOFUProvenance,
+	}
+	return profile.Profile{
+		SchemaVersion:      profile.SchemaVersionV3,
+		Name:               request.Name,
+		Host:               request.Host,
+		Port:               request.Port,
+		Username:           request.Username,
+		HostKeyFingerprint: trust.Pin,
+		HostKeyTrust:       profile.HostKeyTrust(trust.Mode),
+		HostKeyProvenance:  trust.Provenance,
+		CredentialMode:     profile.CredentialModePrompt,
+		FallbackAllowed:    true,
+		EndpointPolicyRef:  VerifiedReadOnlyEndpointPolicyRef,
+		SSHTrust:           trust,
+	}
 }
 
 func onboardingHostKeyFailureClass(err error) OnboardingFailureClass {

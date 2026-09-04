@@ -111,6 +111,32 @@ func TestSchemaV2RejectsAmbiguousOrCrossTransportTrustEvidence(t *testing.T) {
 	}
 }
 
+func TestSchemaV3ValidatesPersistedTransportTrustEvidence(t *testing.T) {
+	valid := validSchemaV2Profile()
+	valid.SchemaVersion = SchemaVersionV3
+	valid.CredentialMode = CredentialModePrompt
+
+	for _, tt := range []struct {
+		name   string
+		mutate func(*Profile)
+		valid  bool
+	}{
+		{name: "existing zero evidence remains valid", mutate: func(p *Profile) { p.TLSTrust, p.SSHTrust = TrustEvidence{}, TrustEvidence{} }, valid: true},
+		{name: "invalid SSH mode", mutate: func(p *Profile) { p.SSHTrust.Mode = "unknown" }},
+		{name: "invalid SSH pin", mutate: func(p *Profile) { p.SSHTrust.Pin = "not-a-fingerprint" }},
+		{name: "invalid SSH provenance", mutate: func(p *Profile) { p.SSHTrust.Provenance = "invalid\nprovenance" }},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := valid
+			tt.mutate(&p)
+			_, err := (Store{Root: t.TempDir()}).Save(p)
+			if (err == nil) != tt.valid {
+				t.Fatalf("Save() error = %v, want valid=%t", err, tt.valid)
+			}
+		})
+	}
+}
+
 func TestMigrateV1IsConservativeAndDeterministic(t *testing.T) {
 	legacy, err := json.Marshal(map[string]any{
 		"name":               "legacy",

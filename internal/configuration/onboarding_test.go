@@ -193,6 +193,10 @@ func TestOnboardingDirectProfileBindsOnlyVerifiedReadOnlyFallbackPolicy(t *testi
 		if !profileAtBoundary.p.FallbackAllowed || profileAtBoundary.p.EndpointPolicyRef != VerifiedReadOnlyEndpointPolicyRef {
 			t.Fatalf("%s profile policy = fallback:%t ref:%q, want only approved verified read-only fallback", profileAtBoundary.name, profileAtBoundary.p.FallbackAllowed, profileAtBoundary.p.EndpointPolicyRef)
 		}
+		wantTrust := profile.TrustEvidence{Mode: profile.TrustModeTOFU, Pin: profileAtBoundary.p.HostKeyFingerprint, Provenance: profileAtBoundary.p.HostKeyProvenance}
+		if profileAtBoundary.p.HostKeyTrust != profile.HostKeyTrustTOFU || profileAtBoundary.p.SSHTrust != wantTrust {
+			t.Fatalf("%s profile trust = legacy:%q/%q/%q ssh:%#v, want matching canonical TOFU evidence", profileAtBoundary.name, profileAtBoundary.p.HostKeyFingerprint, profileAtBoundary.p.HostKeyTrust, profileAtBoundary.p.HostKeyProvenance, profileAtBoundary.p.SSHTrust)
+		}
 	}
 }
 

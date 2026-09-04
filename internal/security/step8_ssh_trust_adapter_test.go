@@ -113,6 +113,54 @@ func TestStep8SSHTrustAdapterDenialPrecedesConsentCredentialsAndRuntime(t *testi
 	}
 }
 
+func TestStep8SSHTrustAdapterMatchingObservationReachesCredentialsAndRuntime(t *testing.T) {
+	credentials := &step8TrustCredentials{}
+	runtimeCalls := 0
+	gate := configuration.PostObservationGate{
+		Policy:      NewStep8SSHPolicy(),
+		Trust:       NewStep8SSHTrustAdapter(observedSSHFingerprintFunc(func(context.Context, string, int) (string, error) { return step8SSHObservedFingerprint, nil })),
+		Credentials: credentials,
+	}
+
+	result := gate.ApplyWithCredential(context.Background(), configuration.Step8Request{
+		RequestID: "request-1",
+		Profile:   step8SSHTrustProfile(),
+		Consent:   true,
+	}, configuration.Observation{Decision: configuration.DecisionSSHEligible, Reason: configuration.ReasonDaemonUnavailable}, func([]byte) configuration.Step8Result {
+		runtimeCalls++
+		return configuration.Step8Result{Decision: configuration.DecisionSSHEligible, Class: configuration.ResultProofSuccess}
+	})
+	if result.Decision != configuration.DecisionSSHEligible || result.Class != configuration.ResultProofSuccess {
+		t.Fatalf("result = %#v, want SSH proof success", result)
+	}
+	if credentials.calls != 1 || runtimeCalls != 1 {
+		t.Fatalf("credential calls=%d runtime calls=%d, want both one", credentials.calls, runtimeCalls)
+	}
+}
+
+func TestStep8SSHTrustAdapterBoundsFreshObservationByOperationAndParentDeadlines(t *testing.T) {
+	parentDeadline := time.Now().Add(time.Second)
+	parent, cancelParent := context.WithDeadline(context.Background(), parentDeadline)
+	defer cancelParent()
+	var observed context.Context
+	err := NewStep8SSHTrustAdapter(observedSSHFingerprintFunc(func(ctx context.Context, _ string, _ int) (string, error) {
+		observed = ctx
+		return step8SSHObservedFingerprint, nil
+	})).VerifySSH(parent, step8SSHTrustProfile())
+	if err != nil {
+		t.Fatalf("VerifySSH() error = %v", err)
+	}
+	deadline, hasDeadline := observed.Deadline()
+	if !hasDeadline || deadline.After(parentDeadline) {
+		t.Fatalf("fresh observation deadline = %v, want bounded by parent %v", deadline, parentDeadline)
+	}
+	select {
+	case <-observed.Done():
+	default:
+		t.Fatal("fresh observation context was not cancelled promptly")
+	}
+}
+
 type observedSSHFingerprintFunc func(context.Context, string, int) (string, error)
 
 func (f observedSSHFingerprintFunc) ObserveSSHFingerprint(ctx context.Context, host string, port int) (string, error) {
