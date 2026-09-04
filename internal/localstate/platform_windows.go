@@ -5,6 +5,7 @@ package localstate
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -39,9 +40,51 @@ func createManagedFile(path string) (Evidence, error) {
 	return Evidence{Available: true, LinkSafe: true, Local: true, Owned: true, Restrictive: true, HandleStable: true}, nil
 }
 
+func verifyManagedOpenFile(path string, file *os.File) (Evidence, error) {
+	if file == nil || !windowsPathApproved(path, false) {
+		return Evidence{}, ErrUnsafePath
+	}
+	handle, err := file.Stat()
+	current, currentErr := os.Lstat(path)
+	if err != nil || currentErr != nil || !handle.Mode().IsRegular() || !os.SameFile(handle, current) {
+		return Evidence{}, ErrUnsafePath
+	}
+	return Evidence{Available: true, LinkSafe: true, Local: true, Owned: true, Restrictive: true, HandleStable: true}, nil
+}
+
+type fileDispositionInfo struct{ DeleteFile byte }
+
+var setFileInformationByHandle = syscall.NewLazyDLL("kernel32.dll").NewProc("SetFileInformationByHandle")
+
+func removeManagedFile(path, _ string) error {
+	wide, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return ErrUnsafePath
+	}
+	handle, err := windows.CreateFile(wide, windows.DELETE|windows.GENERIC_READ, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		return ErrUnsafePath
+	}
+	file := os.NewFile(uintptr(handle), path)
+	if file == nil {
+		_ = windows.CloseHandle(handle)
+		return ErrUnsafePath
+	}
+	defer file.Close()
+	if evidence, err := verifyManagedOpenFile(path, file); err != nil || !evidence.approved() {
+		return ErrUnsafePath
+	}
+	disposition := fileDispositionInfo{DeleteFile: 1}
+	result, _, callErr := setFileInformationByHandle.Call(uintptr(handle), uintptr(4), uintptr(unsafe.Pointer(&disposition)), unsafe.Sizeof(disposition))
+	if result == 0 || callErr != syscall.Errno(0) {
+		return ErrUnsafePath
+	}
+	return nil
+}
+
 func windowsPathApproved(path string, directory bool) bool {
 	before, err := os.Lstat(path)
-	if err != nil || before.Mode()&os.ModeSymlink != 0 {
+	if err != nil || before.Mode()&os.ModeSymlink != 0 || (!directory && !before.Mode().IsRegular()) {
 		return false
 	}
 	wide, err := windows.UTF16PtrFromString(path)

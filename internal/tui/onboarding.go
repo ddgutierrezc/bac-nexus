@@ -376,7 +376,7 @@ func (m Model) directOnboardingCompletionPresentation() (string, string, string)
 	diagnostic := m.onboardingCompletion.Diagnostic
 	details := m.text("onboarding.diagnostic.details", map[string]any{
 		"Phase": m.directOnboardingDiagnosticPhase(diagnostic.Phase),
-		"Class": directOnboardingDiagnosticClass(diagnostic.Class),
+		"Class": directOnboardingDiagnosticClass(diagnostic.Phase, diagnostic.Class),
 	})
 	if diagnostic.Written && validDirectOnboardingDiagnosticReference(diagnostic.Reference) {
 		details += "\n" + m.text("onboarding.diagnostic.reference", map[string]any{"Reference": diagnostic.Reference})
@@ -388,9 +388,12 @@ func (m Model) directOnboardingCompletionPresentation() (string, string, string)
 	return m.text("onboarding.completion_failed", nil), body, message
 }
 
-func directOnboardingDiagnosticClass(class configuration.OnboardingFailureClass) string {
+func directOnboardingDiagnosticClass(phase configuration.OnboardingFailurePhase, class configuration.OnboardingFailureClass) string {
 	switch class {
-	case configuration.OnboardingClassHostKeyFailure, configuration.OnboardingClassIdentityFailure, configuration.OnboardingClassProofFailure,
+	case configuration.OnboardingClassHostKeyFailure, configuration.OnboardingClassHostKeyTimeout,
+		configuration.OnboardingClassHostKeyNegotiation, configuration.OnboardingClassHostKeyNoKey,
+		configuration.OnboardingClassHostKeyUnavailable, configuration.OnboardingClassHostKeyInvalidCandidate,
+		configuration.OnboardingClassIdentityFailure, configuration.OnboardingClassProofFailure,
 		configuration.OnboardingClassBootstrapAuditFailure, configuration.OnboardingClassKeyringUnavailable,
 		configuration.OnboardingClassCommitFailure, configuration.OnboardingClassSaveFailure:
 		return string(class)
@@ -398,6 +401,9 @@ func directOnboardingDiagnosticClass(class configuration.OnboardingFailureClass)
 		resultClass := configuration.ResultClass(class)
 		if configuration.IsTerminalResult(resultClass) && resultClass != configuration.ResultCancelled {
 			return string(class)
+		}
+		if phase == configuration.OnboardingPhaseHostKeyInspection {
+			return string(configuration.OnboardingClassHostKeyFailure)
 		}
 		return "unavailable"
 	}

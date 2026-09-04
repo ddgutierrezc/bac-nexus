@@ -670,7 +670,7 @@ func TestOnboardingFailureClassificationRecordsEveryFailureSite(t *testing.T) {
 		class       OnboardingFailureClass
 		modify      func(*OnboardingDeps)
 	}{
-		{"host key", string(OnboardingPhaseHostKeyInspection), OnboardingClassHostKeyFailure, func(d *OnboardingDeps) {
+		{"host key", string(OnboardingPhaseHostKeyInspection), OnboardingClassHostKeyUnavailable, func(d *OnboardingDeps) {
 			d.Inspect = func(context.Context, string, int) (remote.HostKeyObservation, error) {
 				return remote.HostKeyObservation{}, errors.New("raw host failure")
 			}
@@ -714,6 +714,39 @@ func TestOnboardingFailureClassificationRecordsEveryFailureSite(t *testing.T) {
 			result := NewOnboardingService(deps).run(context.Background(), onboardingRequest(), []byte("secret"))
 			if result.Code != OnboardingFailed || string(result.Diagnostic.Phase) != test.phase || result.Diagnostic.Class != test.class || !result.Diagnostic.Written || len(recorder.calls) != 1 {
 				t.Fatalf("result=%+v calls=%+v", result, recorder.calls)
+			}
+		})
+	}
+}
+
+func TestOnboardingPreservesOnlySafeHostKeyFailureClasses(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		observation remote.HostKeyObservation
+		err         error
+		want        OnboardingFailureClass
+	}{
+		{"timeout", remote.HostKeyObservation{}, &remote.HostKeyProbeError{Kind: remote.HostKeyProbeTimeout}, OnboardingClassHostKeyTimeout},
+		{"negotiation", remote.HostKeyObservation{}, &remote.HostKeyProbeError{Kind: remote.HostKeyProbeNegotiation}, OnboardingClassHostKeyNegotiation},
+		{"no key", remote.HostKeyObservation{}, &remote.HostKeyProbeError{Kind: remote.HostKeyProbeNoKey}, OnboardingClassHostKeyNoKey},
+		{"unavailable", remote.HostKeyObservation{}, errors.New("host.example.test raw-error-canary"), OnboardingClassHostKeyUnavailable},
+		{"invalid candidate", remote.HostKeyObservation{}, nil, OnboardingClassHostKeyInvalidCandidate},
+		{"unknown probe kind", remote.HostKeyObservation{}, &remote.HostKeyProbeError{Kind: remote.HostKeyProbeFailure("raw-error-canary")}, OnboardingClassHostKeyFailure},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := &onboardingDiagnosticRecorderStub{}
+			service := NewOnboardingService(OnboardingDeps{
+				Inspect: func(context.Context, string, int) (remote.HostKeyObservation, error) {
+					return test.observation, test.err
+				},
+				Diagnostics: recorder,
+			})
+			result := service.run(context.Background(), onboardingRequest(), []byte("secret"))
+			if result.Code != OnboardingFailed || result.Diagnostic.Phase != OnboardingPhaseHostKeyInspection || result.Diagnostic.Class != test.want || !result.Diagnostic.Written || len(recorder.calls) != 1 || recorder.calls[0].Class != test.want {
+				t.Fatalf("result=%+v recorder=%+v", result, recorder.calls)
+			}
+			if strings.Contains(fmt.Sprintf("%+v", result), "raw-error-canary") {
+				t.Fatalf("result leaked unsafe diagnostic data: %+v", result)
 			}
 		})
 	}

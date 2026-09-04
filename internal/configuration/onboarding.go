@@ -2,6 +2,7 @@ package configuration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -66,13 +67,18 @@ const (
 type OnboardingFailureClass string
 
 const (
-	OnboardingClassHostKeyFailure        OnboardingFailureClass = "host_key_failure"
-	OnboardingClassIdentityFailure       OnboardingFailureClass = "identity_failure"
-	OnboardingClassProofFailure          OnboardingFailureClass = "proof_failure"
-	OnboardingClassBootstrapAuditFailure OnboardingFailureClass = "bootstrap_audit_failure"
-	OnboardingClassKeyringUnavailable    OnboardingFailureClass = "keyring_unavailable"
-	OnboardingClassCommitFailure         OnboardingFailureClass = "commit_failure"
-	OnboardingClassSaveFailure           OnboardingFailureClass = "save_failure"
+	OnboardingClassHostKeyFailure          OnboardingFailureClass = "host_key_failure"
+	OnboardingClassHostKeyTimeout          OnboardingFailureClass = "timeout"
+	OnboardingClassHostKeyNegotiation      OnboardingFailureClass = "negotiation"
+	OnboardingClassHostKeyNoKey            OnboardingFailureClass = "no_key"
+	OnboardingClassHostKeyUnavailable      OnboardingFailureClass = "unavailable"
+	OnboardingClassHostKeyInvalidCandidate OnboardingFailureClass = "invalid_candidate"
+	OnboardingClassIdentityFailure         OnboardingFailureClass = "identity_failure"
+	OnboardingClassProofFailure            OnboardingFailureClass = "proof_failure"
+	OnboardingClassBootstrapAuditFailure   OnboardingFailureClass = "bootstrap_audit_failure"
+	OnboardingClassKeyringUnavailable      OnboardingFailureClass = "keyring_unavailable"
+	OnboardingClassCommitFailure           OnboardingFailureClass = "commit_failure"
+	OnboardingClassSaveFailure             OnboardingFailureClass = "save_failure"
 )
 
 // OnboardingFailureRecorder is owned by configuration because callers decide
@@ -252,7 +258,7 @@ func (s *OnboardingService) run(ctx context.Context, request OnboardingRequest, 
 		return OnboardingResult{Code: OnboardingCancelled}
 	}
 	if err != nil || observation.Verified || profile.ValidateHostKey(observation.Fingerprint, profile.HostKeyTrustTOFU) != nil {
-		return s.failed(ctx, OnboardingPhaseHostKeyInspection, OnboardingClassHostKeyFailure, false, false)
+		return s.failed(ctx, OnboardingPhaseHostKeyInspection, onboardingHostKeyFailureClass(err), false, false)
 	}
 	p := profile.Profile{SchemaVersion: profile.SchemaVersionV3, Name: request.Name, Host: request.Host, Port: request.Port, Username: request.Username, HostKeyFingerprint: observation.Fingerprint, HostKeyTrust: profile.HostKeyTrustTOFU, HostKeyProvenance: automaticTOFUProvenance, CredentialMode: profile.CredentialModePrompt}
 	if s.deps.Existing != nil {
@@ -321,6 +327,26 @@ func (s *OnboardingService) run(ctx context.Context, request OnboardingRequest, 
 		return s.failed(ctx, OnboardingPhaseSave, OnboardingClassSaveFailure, cleanupRequired, false)
 	}
 	return OnboardingResult{Code: OnboardingSaved, Profile: p}
+}
+
+func onboardingHostKeyFailureClass(err error) OnboardingFailureClass {
+	if err == nil {
+		return OnboardingClassHostKeyInvalidCandidate
+	}
+	var probe *remote.HostKeyProbeError
+	if !errors.As(err, &probe) {
+		return OnboardingClassHostKeyUnavailable
+	}
+	switch probe.Kind {
+	case remote.HostKeyProbeTimeout:
+		return OnboardingClassHostKeyTimeout
+	case remote.HostKeyProbeNegotiation:
+		return OnboardingClassHostKeyNegotiation
+	case remote.HostKeyProbeNoKey:
+		return OnboardingClassHostKeyNoKey
+	default:
+		return OnboardingClassHostKeyFailure
+	}
 }
 
 func successfulOnboardingProof(result Step8Result) bool {
