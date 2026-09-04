@@ -158,6 +158,8 @@ func (p Profile) Validate() error {
 		if p.EndpointPolicyRef == "" || len(p.EndpointPolicyRef) > 128 || strings.ContainsAny(p.EndpointPolicyRef, "\x00\r\n") {
 			return errors.New("profile policy reference is invalid")
 		}
+	}
+	if p.SchemaVersion == SchemaVersionV2 || p.SchemaVersion == SchemaVersionV3 {
 		if err := validateTrustEvidence(p.TLSTrust, true); err != nil {
 			return err
 		}
