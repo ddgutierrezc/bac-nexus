@@ -349,7 +349,11 @@ func (c *Client) EnsureMapepireServerJAR(ctx context.Context, verifiedLocalPath 
 	if err := ctx.Err(); err != nil {
 		return mapepirestdio.VerifiedMapepireArtifactReceipt{}, err
 	}
-	return mapepirestdio.EnsureServerJAR(mapepireArtifactRemote{client: c}, verifiedLocalPath)
+	receipt, err := mapepirestdio.EnsureServerJAR(mapepireArtifactRemote{client: c}, verifiedLocalPath)
+	if err != nil && ctx.Err() != nil {
+		return mapepirestdio.VerifiedMapepireArtifactReceipt{}, ctx.Err()
+	}
+	return receipt, err
 }
 
 type sourceRetrievalRemote struct{ client *Client }

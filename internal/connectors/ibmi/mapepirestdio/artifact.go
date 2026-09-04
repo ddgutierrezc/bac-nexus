@@ -30,6 +30,69 @@ type MapepireArtifactRemote interface {
 	MapepireHostIdentity() string
 }
 
+// ArtifactStage is the closed, safe diagnostic vocabulary for remote artifact activation.
+type ArtifactStage string
+
+const (
+	ArtifactStageRemoteHome          ArtifactStage = "remote_home"
+	ArtifactStageDirectoryPrepare    ArtifactStage = "directory_prepare"
+	ArtifactStageInspectExisting     ArtifactStage = "inspect_existing"
+	ArtifactStageCreateTemporary     ArtifactStage = "create_temporary"
+	ArtifactStageTransfer            ArtifactStage = "transfer"
+	ArtifactStageSecureTemporary     ArtifactStage = "secure_temporary"
+	ArtifactStageVerifyTemporaryHash ArtifactStage = "verify_temporary_hash"
+	ArtifactStageBackup              ArtifactStage = "backup"
+	ArtifactStageActivate            ArtifactStage = "activate"
+	ArtifactStageVerifyActivated     ArtifactStage = "verify_activated"
+	ArtifactStageCleanupRollback     ArtifactStage = "cleanup_rollback"
+)
+
+// ArtifactError intentionally renders no wrapped operation detail.
+type ArtifactError struct {
+	stage ArtifactStage
+}
+
+func (e *ArtifactError) Error() string { return "Mapepire artifact activation failed" }
+
+// NewArtifactError accepts only the safe stage domain.
+func NewArtifactError(stage ArtifactStage) error {
+	if !validArtifactStage(stage) {
+		stage = ""
+	}
+	return &ArtifactError{stage: stage}
+}
+
+// ArtifactStageFor returns only an allowlisted artifact diagnostic stage.
+func ArtifactStageFor(err error) ArtifactStage {
+	var artifactErr *ArtifactError
+	if errors.As(err, &artifactErr) && validArtifactStage(artifactErr.stage) {
+		return artifactErr.stage
+	}
+	return ""
+}
+
+// ValidArtifactStage reports whether stage is safe to propagate to a user-facing boundary.
+func ValidArtifactStage(stage ArtifactStage) bool { return validArtifactStage(stage) }
+
+func validArtifactStage(stage ArtifactStage) bool {
+	switch stage {
+	case ArtifactStageRemoteHome, ArtifactStageDirectoryPrepare, ArtifactStageInspectExisting,
+		ArtifactStageCreateTemporary, ArtifactStageTransfer, ArtifactStageSecureTemporary,
+		ArtifactStageVerifyTemporaryHash, ArtifactStageBackup, ArtifactStageActivate,
+		ArtifactStageVerifyActivated, ArtifactStageCleanupRollback:
+		return true
+	}
+	return false
+}
+
+type artifactStageFailure struct {
+	stage ArtifactStage
+	err   error
+}
+
+func (e *artifactStageFailure) Error() string { return e.err.Error() }
+func (e *artifactStageFailure) Unwrap() error { return e.err }
+
 // VerifiedMapepireArtifactReceipt is issued only after the fixed artifact is
 // active and hashed through the authenticated remote capability.
 type VerifiedMapepireArtifactReceipt struct {
@@ -47,10 +110,10 @@ type artifactHooks struct {
 func EnsureServerJAR(files MapepireArtifactRemote, localPath string) (VerifiedMapepireArtifactReceipt, error) {
 	receipt, err := ensureServerJARReceiptWith(files, localPath, ServerSHA256, rand.Reader, artifactHooks{})
 	if err != nil {
-		return VerifiedMapepireArtifactReceipt{}, err
+		return VerifiedMapepireArtifactReceipt{}, NewArtifactError(artifactStageForFailure(err))
 	}
 	if _, err := receipt.commandPath(); err != nil {
-		return VerifiedMapepireArtifactReceipt{}, err
+		return VerifiedMapepireArtifactReceipt{}, NewArtifactError("")
 	}
 	return receipt, nil
 }
@@ -105,6 +168,12 @@ func ensureServerJAR(files RemoteFiles, localPath, expected string) (string, err
 }
 
 func ensureServerJARWith(files RemoteFiles, localPath, expected string, random io.Reader, hooks artifactHooks) (remoteJAR string, err error) {
+	stage := ArtifactStage("")
+	defer func() {
+		if err != nil && validArtifactStage(stage) {
+			err = &artifactStageFailure{stage: stage, err: err}
+		}
+	}()
 	input, localInfo, err := openVerifiedLocalJAR(localPath, expected)
 	if err != nil {
 		return "", err
@@ -119,6 +188,7 @@ func ensureServerJARWith(files RemoteFiles, localPath, expected string, random i
 		return "", err
 	}
 
+	stage = ArtifactStageRemoteHome
 	home, err := files.WorkingDirectory()
 	if err != nil {
 		return "", fmt.Errorf("resolve remote home: %w", err)
@@ -128,6 +198,7 @@ func ensureServerJARWith(files RemoteFiles, localPath, expected string, random i
 	}
 	directory := path.Join(home, path.Dir(RemoteJar))
 	remotePath := path.Join(home, RemoteJar)
+	stage = ArtifactStageDirectoryPrepare
 	if err := files.MkdirAll(directory); err != nil {
 		return "", fmt.Errorf("create Nexus component directory: %w", err)
 	}
@@ -135,6 +206,7 @@ func ensureServerJARWith(files RemoteFiles, localPath, expected string, random i
 		return "", fmt.Errorf("secure Nexus component directory: %w", err)
 	}
 
+	stage = ArtifactStageInspectExisting
 	priorHash, priorExists, err := inspectRemoteJAR(files, remotePath)
 	if err != nil {
 		return "", err
@@ -146,6 +218,7 @@ func ensureServerJARWith(files RemoteFiles, localPath, expected string, random i
 		return remotePath, nil
 	}
 
+	stage = ArtifactStageCreateTemporary
 	temporary, err := randomRemotePath(remotePath+".upload-", random)
 	if err != nil {
 		return "", err
@@ -162,6 +235,7 @@ func ensureServerJARWith(files RemoteFiles, localPath, expected string, random i
 			}
 		}
 	}()
+	stage = ArtifactStageTransfer
 	if err := copyExact(output, input, localInfo.Size()); err != nil {
 		_ = output.Close()
 		return "", fmt.Errorf("upload remote JAR: %w", err)
@@ -172,9 +246,11 @@ func ensureServerJARWith(files RemoteFiles, localPath, expected string, random i
 	if err := verifyLocalIdentity(localPath, input, localInfo); err != nil {
 		return "", err
 	}
+	stage = ArtifactStageSecureTemporary
 	if err := files.Chmod(temporary, 0o600); err != nil {
 		return "", err
 	}
+	stage = ArtifactStageVerifyTemporaryHash
 	actual, err := remoteSHA256(files, temporary)
 	if err != nil {
 		return "", err
@@ -193,6 +269,7 @@ func ensureServerJARWith(files RemoteFiles, localPath, expected string, random i
 		}
 	}()
 	if priorExists {
+		stage = ArtifactStageBackup
 		backup, err = randomRemotePath(remotePath+".rollback-", random)
 		if err != nil {
 			return "", err
@@ -204,10 +281,12 @@ func ensureServerJARWith(files RemoteFiles, localPath, expected string, random i
 	}
 
 	if priorExists {
+		stage = ArtifactStageActivate
 		if err := files.Remove(remotePath); err != nil {
 			return "", fmt.Errorf("prepare remote JAR activation: %w", err)
 		}
 	}
+	stage = ArtifactStageActivate
 	if err := files.Rename(temporary, remotePath); err != nil {
 		rollbackErr := restoreRemoteJAR(files, backup, remotePath, priorExists)
 		if priorExists {
@@ -216,6 +295,7 @@ func ensureServerJARWith(files RemoteFiles, localPath, expected string, random i
 		return "", errors.Join(fmt.Errorf("activate remote JAR: %w", err), rollbackErr)
 	}
 	temporaryOwned = false
+	stage = ArtifactStageVerifyActivated
 	actual, verifyErr := remoteSHA256(files, remotePath)
 	if verifyErr != nil || actual != expected {
 		removeErr := files.Remove(remotePath)
@@ -226,12 +306,21 @@ func ensureServerJARWith(files RemoteFiles, localPath, expected string, random i
 		return "", errors.Join(errors.New("activated Mapepire JAR checksum verification failed"), removeErr, rollbackErr)
 	}
 	if backupOwned {
+		stage = ArtifactStageCleanupRollback
 		if cleanupErr := files.Remove(backup); cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
 			return remotePath, fmt.Errorf("remote JAR activated; rollback cleanup pending: %w", cleanupErr)
 		}
 		backupOwned = false
 	}
 	return remotePath, nil
+}
+
+func artifactStageForFailure(err error) ArtifactStage {
+	var failure *artifactStageFailure
+	if errors.As(err, &failure) && validArtifactStage(failure.stage) {
+		return failure.stage
+	}
+	return ""
 }
 
 func openVerifiedLocalJAR(localPath, expected string) (*os.File, os.FileInfo, error) {

@@ -57,5 +57,17 @@
   {"id":"onboarding.diagnostic.phase.keyring_precondition","translation":"Keyring precondition"},
   {"id":"onboarding.diagnostic.phase.commit","translation":"Commit"},
   {"id":"onboarding.diagnostic.phase.save","translation":"Save"},
-  {"id":"onboarding.diagnostic.phase.unavailable","translation":"Unavailable"}
+  {"id":"onboarding.diagnostic.phase.unavailable","translation":"Unavailable"},
+  {"id":"onboarding.upload_stage","translation":"Upload stage: {{.Stage}}"},
+  {"id":"onboarding.upload_stage.remote_home","translation":"Remote home resolution"},
+  {"id":"onboarding.upload_stage.directory_prepare","translation":"Remote directory preparation"},
+  {"id":"onboarding.upload_stage.inspect_existing","translation":"Existing artifact inspection"},
+  {"id":"onboarding.upload_stage.create_temporary","translation":"Temporary artifact creation"},
+  {"id":"onboarding.upload_stage.transfer","translation":"Artifact transfer"},
+  {"id":"onboarding.upload_stage.secure_temporary","translation":"Temporary artifact protection"},
+  {"id":"onboarding.upload_stage.verify_temporary_hash","translation":"Temporary artifact verification"},
+  {"id":"onboarding.upload_stage.backup","translation":"Rollback backup preparation"},
+  {"id":"onboarding.upload_stage.activate","translation":"Artifact activation"},
+  {"id":"onboarding.upload_stage.verify_activated","translation":"Activated artifact verification"},
+  {"id":"onboarding.upload_stage.cleanup_rollback","translation":"Rollback cleanup"}
 ]

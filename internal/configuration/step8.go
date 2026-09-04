@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
 	"bac-nexus/internal/profile"
 )
 
@@ -363,6 +364,7 @@ type Step8Result struct {
 	Cleanup        bool
 	FallbackTicket string
 	FallbackClass  Step8Reason
+	ArtifactStage  mapepirestdio.ArtifactStage
 }
 type Step8Runner interface {
 	Run(context.Context, Step8Request) Step8Result
@@ -373,6 +375,9 @@ type Step8Runner interface {
 type Step8ProofService struct{ Runner Step8Runner }
 
 func (r Step8Result) Validate() error {
+	if r.ArtifactStage != "" && (r.Decision != DecisionTerminal || r.Class != ResultUploadFailure || !mapepirestdio.ValidArtifactStage(r.ArtifactStage)) {
+		return errors.New("invalid artifact stage")
+	}
 	if r.Decision == DecisionSSHEligible || r.Decision == DecisionWSSSelected {
 		if r.Class != ResultProofSuccess {
 			return errors.New("non-terminal decision has terminal result")

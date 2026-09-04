@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
 	"bac-nexus/internal/credential"
 	"bac-nexus/internal/profile"
 	"bac-nexus/internal/remote"
@@ -807,6 +808,24 @@ func TestOnboardingFailureClassificationRecordsEveryFailureSite(t *testing.T) {
 				t.Fatalf("result=%+v calls=%+v", result, recorder.calls)
 			}
 		})
+	}
+}
+
+func TestOnboardingRetainsSafeUploadStageWhenDiagnosticsAreUnavailable(t *testing.T) {
+	service := NewOnboardingService(OnboardingDeps{
+		Inspect: func(context.Context, string, int) (remote.HostKeyObservation, error) {
+			return remote.HostKeyObservation{Fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}, nil
+		},
+		Proof: func(context.Context, profile.Profile, []byte) Step8Result {
+			return Step8Result{Decision: DecisionTerminal, Class: ResultUploadFailure, ArtifactStage: mapepirestdio.ArtifactStageDirectoryPrepare}
+		},
+		Save:        func(profile.Profile) error { return nil },
+		Audit:       func(context.Context, OnboardingAuditEvent) error { return nil },
+		Diagnostics: &onboardingDiagnosticRecorderStub{err: errors.New("diagnostics unavailable")},
+	})
+	result := service.run(context.Background(), onboardingRequest(), []byte("secret"))
+	if result.Code != OnboardingFailed || result.Diagnostic.Written || result.Diagnostic.ArtifactStage != mapepirestdio.ArtifactStageDirectoryPrepare {
+		t.Fatalf("result=%+v", result)
 	}
 }
 

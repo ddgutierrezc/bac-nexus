@@ -124,6 +124,27 @@ func TestEnsureServerJARPreservesRollbackCopyWhenRecoveryFails(t *testing.T) {
 		t.Fatal("rollback copy was removed after recovery failure")
 	}
 }
+
+func TestArtifactErrorExposesOnlyAllowlistedStages(t *testing.T) {
+	const canary = "host.example.test /home/NEXUS secret-user"
+	stages := []ArtifactStage{
+		ArtifactStageRemoteHome, ArtifactStageDirectoryPrepare, ArtifactStageInspectExisting,
+		ArtifactStageCreateTemporary, ArtifactStageTransfer, ArtifactStageSecureTemporary,
+		ArtifactStageVerifyTemporaryHash, ArtifactStageBackup, ArtifactStageActivate,
+		ArtifactStageVerifyActivated, ArtifactStageCleanupRollback,
+	}
+	for _, stage := range stages {
+		t.Run(string(stage), func(t *testing.T) {
+			err := NewArtifactError(stage)
+			if got := ArtifactStageFor(err); got != stage || err.Error() != "Mapepire artifact activation failed" || strings.Contains(err.Error(), canary) {
+				t.Fatalf("stage/error = %q/%q", got, err)
+			}
+		})
+	}
+	if got := ArtifactStageFor(NewArtifactError("arbitrary")); got != "" {
+		t.Fatalf("unknown stage = %q", got)
+	}
+}
 func (m *memoryRemote) Remove(remotePath string) error {
 	m.removes = append(m.removes, remotePath)
 	if remotePath == m.removeErrorPath {
@@ -379,6 +400,9 @@ func TestEnsureServerJARPropagatesCleanupAfterSuccessfulActivation(t *testing.T)
 	if err == nil || gotPath != remotePath {
 		t.Fatalf("path/error = %q/%v", gotPath, err)
 	}
+	if got := artifactStageForFailure(err); got != ArtifactStageCleanupRollback {
+		t.Fatalf("cleanup stage = %q", got)
+	}
 	if !bytes.Equal(remote.files[remotePath], newData) {
 		t.Fatal("verified final artifact was not preserved")
 	}
@@ -393,6 +417,9 @@ func TestEnsureServerJARJoinsPrimaryAndTemporaryCleanupFailures(t *testing.T) {
 	_, err := ensureServerJARWith(remote, local, expected, fixedRandom(), artifactHooks{})
 	if err == nil || !strings.Contains(err.Error(), "chmod") || !strings.Contains(err.Error(), "cleanup") {
 		t.Fatalf("joined error = %v", err)
+	}
+	if got := artifactStageForFailure(err); got != ArtifactStageSecureTemporary {
+		t.Fatalf("primary stage = %q", got)
 	}
 }
 
