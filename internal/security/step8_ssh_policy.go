@@ -8,8 +8,6 @@ import (
 	"bac-nexus/internal/profile"
 )
 
-const approvedStep8PolicyID = "verified-readonly"
-
 // ErrSSHPolicyDenied is intentionally free of profile, endpoint, and policy details.
 var ErrSSHPolicyDenied = errors.New("ssh_fallback_policy_denied")
 
@@ -22,7 +20,7 @@ var _ configuration.SSHPolicy = Step8SSHPolicy{}
 func NewStep8SSHPolicy() Step8SSHPolicy { return Step8SSHPolicy{} }
 
 func (Step8SSHPolicy) AllowSSH(ctx context.Context, p profile.Profile) error {
-	if ctx.Err() != nil || configuration.ValidateStep8Profile(p) != nil || !p.FallbackAllowed || p.EndpointPolicyRef != approvedStep8PolicyID {
+	if ctx.Err() != nil || configuration.ValidateStep8Profile(p) != nil || !p.FallbackAllowed || p.EndpointPolicyRef != configuration.VerifiedReadOnlyEndpointPolicyRef {
 		return ErrSSHPolicyDenied
 	}
 	return nil

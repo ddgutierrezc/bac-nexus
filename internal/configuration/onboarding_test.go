@@ -159,6 +159,43 @@ func TestOnboardingUsesSelectedPortAndAuditsAfterProofBeforeCommit(t *testing.T)
 	}
 }
 
+func TestOnboardingDirectProfileBindsOnlyVerifiedReadOnlyFallbackPolicy(t *testing.T) {
+	var proofProfile, savedProfile profile.Profile
+	service := NewOnboardingService(OnboardingDeps{
+		Inspect: func(context.Context, string, int) (remote.HostKeyObservation, error) {
+			return remote.HostKeyObservation{Fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", TrustCandidate: profile.HostKeyTrustTOFU}, nil
+		},
+		Proof: func(_ context.Context, p profile.Profile, _ []byte) Step8Result {
+			proofProfile = p
+			return successfulProof()
+		},
+		Save: func(p profile.Profile) error {
+			savedProfile = p
+			return nil
+		},
+		Audit: func(context.Context, OnboardingAuditEvent) error { return nil },
+	})
+
+	id, code := captureForTest(t, service, []byte("password"))
+	if code != remote.PromptCaptured || service.StartCaptured(context.Background(), onboardingRequest(), id) != OnboardingStarted {
+		t.Fatalf("Capture/StartCaptured() = %q", code)
+	}
+	if result := service.Wait(context.Background(), id.ID); result.Code != OnboardingSaved {
+		t.Fatalf("Wait() = %#v", result)
+	}
+	for _, profileAtBoundary := range []struct {
+		name string
+		p    profile.Profile
+	}{
+		{name: "proof", p: proofProfile},
+		{name: "saved", p: savedProfile},
+	} {
+		if !profileAtBoundary.p.FallbackAllowed || profileAtBoundary.p.EndpointPolicyRef != VerifiedReadOnlyEndpointPolicyRef {
+			t.Fatalf("%s profile policy = fallback:%t ref:%q, want only approved verified read-only fallback", profileAtBoundary.name, profileAtBoundary.p.FallbackAllowed, profileAtBoundary.p.EndpointPolicyRef)
+		}
+	}
+}
+
 func TestOnboardingBoundsOnlyHostKeyInspection(t *testing.T) {
 	var inspectionDeadline time.Time
 	inspectionHasDeadline := false

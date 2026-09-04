@@ -84,6 +84,36 @@ func TestStep8SSHPolicyDenialPrecedesTrustCredentialAndRuntime(t *testing.T) {
 	}
 }
 
+func TestStep8SSHPolicyAllowsApprovedProfileToReachCredentialAndRuntime(t *testing.T) {
+	trust := &step8CountingTrust{}
+	credentials := &step8CountingCredentials{}
+	runCalls := 0
+	gate := configuration.PostObservationGate{
+		Policy:      NewStep8SSHPolicy(),
+		Trust:       trust,
+		Credentials: credentials,
+	}
+
+	result := gate.ApplyWithCredential(context.Background(), configuration.Step8Request{
+		RequestID: "request-1",
+		Profile:   step8PolicyProfile(),
+		Consent:   true,
+	}, configuration.Observation{
+		Decision: configuration.DecisionSSHEligible,
+		Reason:   configuration.ReasonDaemonUnavailable,
+	}, func([]byte) configuration.Step8Result {
+		runCalls++
+		return configuration.Step8Result{Decision: configuration.DecisionWSSSelected, Class: configuration.ResultProofSuccess}
+	})
+
+	if result.Decision != configuration.DecisionWSSSelected || result.Class != configuration.ResultProofSuccess {
+		t.Fatalf("gate result = %+v, want runtime proof success", result)
+	}
+	if trust.calls != 1 || credentials.calls != 1 || runCalls != 1 {
+		t.Fatalf("approved calls: trust=%d credentials=%d runtime=%d, want one each", trust.calls, credentials.calls, runCalls)
+	}
+}
+
 type step8CountingTrust struct{ calls int }
 
 func (f *step8CountingTrust) VerifySSH(context.Context, profile.Profile) error {
@@ -106,7 +136,7 @@ func step8PolicyProfile() profile.Profile {
 		Port:              22,
 		Username:          "USER",
 		CredentialMode:    profile.CredentialModePrompt,
-		EndpointPolicyRef: "verified-readonly",
+		EndpointPolicyRef: configuration.VerifiedReadOnlyEndpointPolicyRef,
 		FallbackAllowed:   true,
 	}
 }

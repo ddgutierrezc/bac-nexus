@@ -18,6 +18,10 @@ const (
 	DecisionWSSSelected Decision = "wss_selected"
 	DecisionSSHEligible Decision = "ssh_eligible"
 	DecisionTerminal    Decision = "terminal"
+
+	// VerifiedReadOnlyEndpointPolicyRef is the sole endpoint policy that permits
+	// the approved Step 8 SSH fallback after explicit direct onboarding consent.
+	VerifiedReadOnlyEndpointPolicyRef = "verified-readonly"
 )
 
 type Step8Reason string
