@@ -15,6 +15,10 @@ import (
 
 const automaticTOFUProvenance = "automatic-tofu-v1:first-contact-unverified"
 
+// hostKeyInspectionTimeout matches the bounded SSH operation budget while
+// limiting only the credential-free inspection phase.
+const hostKeyInspectionTimeout = SSHRuntimeOperationTimeout
+
 type OnboardingCode string
 
 const (
@@ -253,7 +257,9 @@ func (s *OnboardingService) Shutdown() {
 }
 
 func (s *OnboardingService) run(ctx context.Context, request OnboardingRequest, secret []byte) OnboardingResult {
-	observation, err := s.deps.Inspect(ctx, request.Host, request.Port)
+	inspectionCtx, cancelInspection := context.WithTimeout(ctx, hostKeyInspectionTimeout)
+	observation, err := s.deps.Inspect(inspectionCtx, request.Host, request.Port)
+	cancelInspection()
 	if ctx.Err() != nil {
 		return OnboardingResult{Code: OnboardingCancelled}
 	}
@@ -330,6 +336,9 @@ func (s *OnboardingService) run(ctx context.Context, request OnboardingRequest, 
 }
 
 func onboardingHostKeyFailureClass(err error) OnboardingFailureClass {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return OnboardingClassHostKeyTimeout
+	}
 	if err == nil {
 		return OnboardingClassHostKeyInvalidCandidate
 	}

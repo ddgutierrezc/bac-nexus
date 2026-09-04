@@ -159,6 +159,52 @@ func TestOnboardingUsesSelectedPortAndAuditsAfterProofBeforeCommit(t *testing.T)
 	}
 }
 
+func TestOnboardingBoundsOnlyHostKeyInspection(t *testing.T) {
+	var inspectionDeadline time.Time
+	inspectionHasDeadline := false
+	proofHasDeadline := false
+	service := NewOnboardingService(OnboardingDeps{
+		Inspect: func(ctx context.Context, _ string, _ int) (remote.HostKeyObservation, error) {
+			inspectionDeadline, inspectionHasDeadline = ctx.Deadline()
+			return remote.HostKeyObservation{Fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", TrustCandidate: profile.HostKeyTrustTOFU}, nil
+		},
+		Proof: func(ctx context.Context, _ profile.Profile, _ []byte) Step8Result {
+			_, proofHasDeadline = ctx.Deadline()
+			return successfulProof()
+		},
+		Save:  func(profile.Profile) error { return nil },
+		Audit: func(context.Context, OnboardingAuditEvent) error { return nil },
+	})
+	id, code := captureForTest(t, service, []byte("password"))
+	if code != remote.PromptCaptured || service.StartCaptured(context.Background(), onboardingRequest(), id) != OnboardingStarted {
+		t.Fatalf("Capture/StartCaptured() = %q", code)
+	}
+	if result := service.Wait(context.Background(), id.ID); result.Code != OnboardingSaved {
+		t.Fatalf("Wait() = %#v", result)
+	}
+	remaining := time.Until(inspectionDeadline)
+	if !inspectionHasDeadline || remaining <= 0 || remaining > hostKeyInspectionTimeout {
+		t.Fatalf("inspection deadline = %v, want bounded by %v", inspectionDeadline, hostKeyInspectionTimeout)
+	}
+	if proofHasDeadline {
+		t.Fatal("proof inherited the host-key inspection deadline")
+	}
+}
+
+func TestOnboardingHostKeyDeadlineExpiryIsClassifiedAsTimeout(t *testing.T) {
+	recorder := &onboardingDiagnosticRecorderStub{}
+	service := NewOnboardingService(OnboardingDeps{
+		Inspect: func(context.Context, string, int) (remote.HostKeyObservation, error) {
+			return remote.HostKeyObservation{}, context.DeadlineExceeded
+		},
+		Diagnostics: recorder,
+	})
+	result := service.run(context.Background(), onboardingRequest(), []byte("secret"))
+	if result.Code != OnboardingFailed || result.Diagnostic.Phase != OnboardingPhaseHostKeyInspection || result.Diagnostic.Class != OnboardingClassHostKeyTimeout || !result.Diagnostic.Written || len(recorder.calls) != 1 {
+		t.Fatalf("result=%+v recorder=%+v", result, recorder.calls)
+	}
+}
+
 type onboardingKeyringStub struct{}
 
 func (onboardingKeyringStub) Get(string) ([]byte, error) { return nil, nil }
@@ -396,27 +442,31 @@ func TestOnboardingAcceptsExactExistingPinWithoutBootstrapAudit(t *testing.T) {
 func TestOnboardingCancelReturnsCancelledWithoutPersistence(t *testing.T) {
 	started := make(chan struct{})
 	saved := 0
+	recorder := &onboardingDiagnosticRecorderStub{}
 	service := NewOnboardingService(OnboardingDeps{
 		Inspect: func(ctx context.Context, _ string, _ int) (remote.HostKeyObservation, error) {
 			close(started)
 			<-ctx.Done()
 			return remote.HostKeyObservation{}, ctx.Err()
 		},
-		Proof: func(context.Context, profile.Profile, []byte) Step8Result { return successfulProof() },
-		Save:  func(profile.Profile) error { saved++; return nil },
-		Audit: func(context.Context, OnboardingAuditEvent) error { return nil },
+		Proof:       func(context.Context, profile.Profile, []byte) Step8Result { return successfulProof() },
+		Save:        func(profile.Profile) error { saved++; return nil },
+		Audit:       func(context.Context, OnboardingAuditEvent) error { return nil },
+		Diagnostics: recorder,
 	})
 	id, code := captureForTest(t, service, []byte("password"))
-	if code != remote.PromptCaptured || service.StartCaptured(context.Background(), onboardingRequest(), id) != OnboardingStarted {
+	parent, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if code != remote.PromptCaptured || service.StartCaptured(parent, onboardingRequest(), id) != OnboardingStarted {
 		t.Fatalf("Capture/StartCaptured() = %q", code)
 	}
 	<-started
-	service.Cancel(id.ID)
+	cancel()
 	if result := service.Wait(context.Background(), id.ID); result.Code != OnboardingCancelled {
 		t.Fatalf("Wait() = %#v", result)
 	}
-	if saved != 0 {
-		t.Fatalf("Save() called %d times after cancellation", saved)
+	if saved != 0 || len(recorder.calls) != 0 {
+		t.Fatalf("Save() calls=%d diagnostics=%d after cancellation", saved, len(recorder.calls))
 	}
 }
 
