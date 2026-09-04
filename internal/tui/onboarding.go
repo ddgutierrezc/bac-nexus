@@ -360,17 +360,80 @@ func (m Model) renderDirectOnboardingRunning() string {
 	return m.profileScreen(running, "[INFO] "+running, m.text("onboarding.cancel", nil), running)
 }
 func (m Model) renderDirectOnboardingCompletion() string {
-	message := m.directOnboardingCompletionMessage()
-	return m.profileScreen(message, "[OK] "+message+"\n\n"+m.profileAction("▸", m.text("onboarding.finalize", nil)), m.text("onboarding.footer", nil), message)
+	title, body, focus := m.directOnboardingCompletionPresentation()
+	return m.profileScreen(title, body, m.text("onboarding.footer", nil), focus)
 }
-func (m Model) directOnboardingCompletionMessage() string {
+
+func (m Model) directOnboardingCompletionPresentation() (string, string, string) {
 	if m.onboardingCompletion.Code == configuration.OnboardingSaved {
-		return m.text("onboarding.saved", nil)
+		message := m.text("onboarding.saved", nil)
+		return m.text("onboarding.completion_saved", nil), m.profileFeedback("[OK]", message, newHomeTheme(m.noColor)) + "\n\n" + m.profileAction("▸", m.text("onboarding.finalize", nil)), message
 	}
+	message := m.text("onboarding.failed", nil)
 	if m.onboardingCompletion.CleanupRequired {
-		return m.text("onboarding.failed_cleanup", nil)
+		message = m.text("onboarding.failed_cleanup", nil)
 	}
-	return m.text("onboarding.failed", nil)
+	diagnostic := m.onboardingCompletion.Diagnostic
+	details := m.text("onboarding.diagnostic.details", map[string]any{
+		"Phase": m.directOnboardingDiagnosticPhase(diagnostic.Phase),
+		"Class": directOnboardingDiagnosticClass(diagnostic.Class),
+	})
+	if diagnostic.Written && validDirectOnboardingDiagnosticReference(diagnostic.Reference) {
+		details += "\n" + m.text("onboarding.diagnostic.reference", map[string]any{"Reference": diagnostic.Reference})
+		details += "\n" + m.text("onboarding.diagnostic.written_guidance", nil)
+	} else {
+		details += "\n" + m.text("onboarding.diagnostic.unavailable_guidance", nil)
+	}
+	body := m.profileFeedback("[ERR]", message, newHomeTheme(m.noColor)) + "\n\n" + details + "\n\n" + m.profileAction("▸", m.text("onboarding.finalize", nil))
+	return m.text("onboarding.completion_failed", nil), body, message
+}
+
+func directOnboardingDiagnosticClass(class configuration.OnboardingFailureClass) string {
+	switch class {
+	case configuration.OnboardingClassHostKeyFailure, configuration.OnboardingClassIdentityFailure, configuration.OnboardingClassProofFailure,
+		configuration.OnboardingClassBootstrapAuditFailure, configuration.OnboardingClassKeyringUnavailable,
+		configuration.OnboardingClassCommitFailure, configuration.OnboardingClassSaveFailure:
+		return string(class)
+	default:
+		resultClass := configuration.ResultClass(class)
+		if configuration.IsTerminalResult(resultClass) && resultClass != configuration.ResultCancelled {
+			return string(class)
+		}
+		return "unavailable"
+	}
+}
+
+func (m Model) directOnboardingDiagnosticPhase(phase configuration.OnboardingFailurePhase) string {
+	switch phase {
+	case configuration.OnboardingPhaseHostKeyInspection:
+		return m.text("onboarding.diagnostic.phase.host_key_inspection", nil)
+	case configuration.OnboardingPhaseExistingIdentity:
+		return m.text("onboarding.diagnostic.phase.existing_identity", nil)
+	case configuration.OnboardingPhaseAuthenticatedProof:
+		return m.text("onboarding.diagnostic.phase.authenticated_proof", nil)
+	case configuration.OnboardingPhaseBootstrapAudit:
+		return m.text("onboarding.diagnostic.phase.bootstrap_audit", nil)
+	case configuration.OnboardingPhaseKeyringPrecondition:
+		return m.text("onboarding.diagnostic.phase.keyring_precondition", nil)
+	case configuration.OnboardingPhaseCommit:
+		return m.text("onboarding.diagnostic.phase.commit", nil)
+	case configuration.OnboardingPhaseSave:
+		return m.text("onboarding.diagnostic.phase.save", nil)
+	default:
+		return m.text("onboarding.diagnostic.phase.unavailable", nil)
+	}
+}
+
+func validDirectOnboardingDiagnosticReference(reference string) bool {
+	if len(reference) != len("ONB-")+32 || reference[:4] != "ONB-" {
+		return false
+	}
+	for _, value := range reference[4:] {
+		if !(value >= '0' && value <= '9' || value >= 'a' && value <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 func (m Model) directOnboardingFeedback() string {
 	if m.onboardingFeedback != "" {
@@ -409,6 +472,6 @@ func (m *Model) refreshDirectOnboardingLifecycleViewport() {
 		m.refreshProfileViewport(running, "[INFO] "+running, running)
 		return
 	}
-	message := m.directOnboardingCompletionMessage()
-	m.refreshProfileViewport(message, "[OK] "+message, message)
+	title, body, focus := m.directOnboardingCompletionPresentation()
+	m.refreshProfileViewport(title, body, focus)
 }

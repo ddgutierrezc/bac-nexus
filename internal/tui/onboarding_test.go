@@ -13,6 +13,8 @@ import (
 	"bac-nexus/internal/profile"
 	"bac-nexus/internal/remote"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 type onboardingOperationsStub struct {
@@ -465,6 +467,105 @@ func TestSaveFailureCompletionStatesNotSavedRetainedCredentialAndCleanupGuidance
 		if !strings.Contains(view, want) {
 			t.Fatalf("save-failure guidance missing %q: %q", want, view)
 		}
+	}
+}
+
+func TestDirectOnboardingCompletionUsesTruthfulDiagnosticMarkers(t *testing.T) {
+	const reference = "ONB-0123456789abcdef0123456789abcdef"
+	for _, tt := range []struct {
+		name        string
+		result      configuration.OnboardingResult
+		must, never []string
+	}{
+		{"saved", configuration.OnboardingResult{Code: configuration.OnboardingSaved}, []string{"[OK]", "Perfil conectado y guardado.", "FINALIZAR"}, []string{"[ERR]"}},
+		{"ordinary failure", configuration.OnboardingResult{Code: configuration.OnboardingFailed, Diagnostic: configuration.OnboardingDiagnostic{Phase: configuration.OnboardingPhaseAuthenticatedProof, Class: configuration.OnboardingFailureClass(configuration.ResultAuthenticationFailed)}}, []string{"[ERR]", "Prueba autenticada", "authentication_failed"}, []string{"[OK]"}},
+		{"cleanup takes precedence", configuration.OnboardingResult{Code: configuration.OnboardingFailed, CleanupRequired: true, Diagnostic: configuration.OnboardingDiagnostic{Phase: configuration.OnboardingPhaseSave, Class: configuration.OnboardingClassSaveFailure, Reference: reference, Written: true}}, []string{"[ERR]", "credencial", "limpieza", "Guardado", "save_failure", reference}, []string{"[OK]"}},
+		{"diagnostic unavailable", configuration.OnboardingResult{Code: configuration.OnboardingFailed, Diagnostic: configuration.OnboardingDiagnostic{Phase: configuration.OnboardingPhaseCommit, Class: configuration.OnboardingClassCommitFailure}}, []string{"[ERR]", "Confirmación", "commit_failure", "no están disponibles"}, []string{"[OK]", reference}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewModelWithOnboarding(&profileStoreStub{}, context.Background(), &onboardingOperationsStub{}, remote.SecretPrompt{})
+			m.screen, m.onboardingCompletion, m.noColor = screenDirectOnboardingCompletion, tt.result, true
+			updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+			view := updated.(Model).View()
+			for _, want := range tt.must {
+				if !strings.Contains(view, want) {
+					t.Fatalf("completion missing %q: %q", want, view)
+				}
+			}
+			for _, forbidden := range tt.never {
+				if strings.Contains(view, forbidden) {
+					t.Fatalf("completion contains contradictory marker %q: %q", forbidden, view)
+				}
+			}
+		})
+	}
+}
+
+func TestDirectOnboardingCompletionFailsClosedForUnknownDiagnosticClass(t *testing.T) {
+	m := NewModelWithOnboarding(&profileStoreStub{}, context.Background(), &onboardingOperationsStub{}, remote.SecretPrompt{})
+	m.screen, m.noColor = screenDirectOnboardingCompletion, true
+	m.onboardingCompletion = configuration.OnboardingResult{Code: configuration.OnboardingFailed, Diagnostic: configuration.OnboardingDiagnostic{Phase: configuration.OnboardingPhaseCommit, Class: "raw-error-canary"}}
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	view := updated.(Model).View()
+	if !strings.Contains(view, "unavailable") || strings.Contains(view, "raw-error-canary") {
+		t.Fatalf("unknown diagnostic class leaked or did not fail closed: %q", view)
+	}
+}
+
+func TestDirectOnboardingCompletionRuntimeFramesPreserveMarkerViewportAndNoColor(t *testing.T) {
+	const reference = "ONB-0123456789abcdef0123456789abcdef"
+	for _, locale := range []localization.Localizer{localization.Spanish(), localization.English()} {
+		for _, frame := range []struct {
+			width, height int
+			noColor       bool
+		}{{120, 40, false}, {80, 24, true}, {40, 16, false}} {
+			m := NewModelWithOnboarding(&profileStoreStub{}, context.Background(), &onboardingOperationsStub{}, remote.SecretPrompt{})
+			m.localizer, m.noColor, m.screen = locale, frame.noColor, screenDirectOnboardingCompletion
+			m.onboardingCompletion = configuration.OnboardingResult{Code: configuration.OnboardingFailed, CleanupRequired: true, Diagnostic: configuration.OnboardingDiagnostic{Phase: configuration.OnboardingPhaseSave, Class: configuration.OnboardingClassSaveFailure, Reference: reference, Written: true}}
+			updated, _ := m.Update(tea.WindowSizeMsg{Width: frame.width, Height: frame.height})
+			m = updated.(Model)
+			view := m.View()
+			if !strings.Contains(m.profileViewportText, "[ERR]") || !strings.Contains(view, "[ERR]") || lipgloss.Width(view) > frame.width || lipgloss.Height(view) > frame.height {
+				t.Fatalf("completion frame invalid at %dx%d: %q", frame.width, frame.height, view)
+			}
+			seenReference, seenFinalize := strings.Contains(view, "ONB-"), false
+			for range 32 {
+				seenReference = seenReference || strings.Contains(view, "ONB-")
+				seenFinalize = seenFinalize || strings.Contains(view, m.text("onboarding.finalize", nil))
+				updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+				m = updated.(Model)
+				view = m.View()
+			}
+			seenReference = seenReference || strings.Contains(view, "ONB-")
+			seenFinalize = seenFinalize || strings.Contains(view, m.text("onboarding.finalize", nil))
+			if frame.width == 40 {
+				seenReference = seenReference || strings.Contains(m.profileViewportText, "ONB-")
+			}
+			if !seenReference || !seenFinalize {
+				t.Fatalf("completion reachability reference=%t finalize=%t at %dx%d: viewport=%q view=%q", seenReference, seenFinalize, frame.width, frame.height, m.profileViewportText, view)
+			}
+			if frame.noColor && strings.Contains(view, "\x1b[") {
+				t.Fatalf("NO_COLOR completion contains ANSI: %q", view)
+			}
+		}
+	}
+}
+
+func TestDirectOnboardingCompletionUsesSemanticColorsAndNoColor(t *testing.T) {
+	previous := lipgloss.ColorProfile()
+	defer lipgloss.SetColorProfile(previous)
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	result := configuration.OnboardingResult{Code: configuration.OnboardingFailed, Diagnostic: configuration.OnboardingDiagnostic{Phase: configuration.OnboardingPhaseCommit, Class: configuration.OnboardingClassCommitFailure}}
+	m := NewModelWithOnboarding(&profileStoreStub{}, context.Background(), &onboardingOperationsStub{}, remote.SecretPrompt{})
+	m.screen, m.onboardingCompletion = screenDirectOnboardingCompletion, result
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	if view := updated.(Model).View(); !strings.Contains(view, "[ERR]") || !strings.Contains(view, "\x1b[") {
+		t.Fatalf("true-color failure frame lost error semantics: %q", view)
+	}
+	m.noColor = true
+	updated, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	if view := updated.(Model).View(); strings.Contains(view, "\x1b[") {
+		t.Fatalf("NO_COLOR failure frame contains ANSI: %q", view)
 	}
 }
 

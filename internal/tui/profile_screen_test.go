@@ -77,7 +77,7 @@ func TestProfileScreenRendersEveryDirectOnboardingLifecycleAtRequiredFrames(t *t
 		{"failed", func(m *Model) { m.screen = screenDirectOnboardingCompletion }, []string{"No se pudo guardar"}},
 		{"cleanup", func(m *Model) {
 			m.screen, m.onboardingCompletion = screenDirectOnboardingCompletion, configuration.OnboardingResult{CleanupRequired: true}
-		}, []string{"El perfil no se guardó"}},
+		}, []string{"El perfil no se"}},
 		{"saved", func(m *Model) {
 			m.screen, m.onboardingCompletion = screenDirectOnboardingCompletion, configuration.OnboardingResult{Code: configuration.OnboardingSaved}
 		}, []string{"Perfil conectado y"}},

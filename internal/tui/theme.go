@@ -80,6 +80,12 @@ func newHomeTheme(noColor bool) homeTheme {
 		statusProgress:       lipgloss.NewStyle(),
 	}
 	if noColor {
+		// NO_COLOR means no terminal styling at all, including emphasis escapes.
+		// Borders remain structural plain text through frame and panel styles.
+		t.panelTitle = lipgloss.NewStyle()
+		t.menuHeading = lipgloss.NewStyle()
+		t.identity = lipgloss.NewStyle()
+		t.wizardContentHeading = lipgloss.NewStyle()
 		return t
 	}
 	t.frame = t.frame.BorderForeground(lipgloss.Color(borderSurface)).Background(lipgloss.Color(terminalBackground)).Foreground(lipgloss.Color(textPrimary))
