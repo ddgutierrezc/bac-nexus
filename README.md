@@ -20,7 +20,7 @@ Both tools are typed, fail closed, and honor `context.Context` cancellation. The
 1. Build: `go build ./...`
 2. Test: `go test -count=1 ./...`
 3. Run: `nexus serve -profile <name>`
-4. Wire any MCP-compatible client (Copilot, OpenCode, Codex, etc.) to the resulting `nexus` binary over stdio.
+4. Wire any MCP-compatible client (Copilot, OpenCode, Codex, etc.) to the resulting `nexus` binary over stdio. Do not use this as IBM i validation.
 
 For local profile administration, run `nexus configure`. Use the keyboard controls shown by the shell to create, inspect, update, or delete profiles. Profile deletion retains a recoverable backup and never implies credential deletion.
 
@@ -39,7 +39,7 @@ For local profile administration, run `nexus configure`. Use the keyboard contro
 | `internal/credential` | Consumer-owned native-keyring adapter. Windows Credential Manager, macOS Keychain, Linux Secret Service. Fails closed before any remote work. |
 | `internal/ownership/sqlite` | Portable SQLite ownership ledger. Rollback-journal `DELETE` + `synchronous=EXTRA`, no WAL. |
 | `docs/SECURITY.md` | Canonical threat model, trust boundary, and incident guidance. |
-| `openspec/changes/v1-mcp-foundation/` | SDD proposal, design, specs, and tasks for the v1 MCP foundation. |
+| `openspec/changes/archive/2026-08-21-v1-mcp-foundation/` | SDD proposal, design, specs, and tasks for the v1 MCP foundation. |
 
 ## What this binary is not
 
@@ -76,7 +76,7 @@ go build -ldflags "-X main.releaseVersion=v0.0.0-preview -X main.vcsRevision=loc
 
 - [DESIGN.md](DESIGN.md) — canonical terminal design system for the local TUI.
 - [docs/SECURITY.md](docs/SECURITY.md) — security boundary, trust model, recovery lifecycle, incident guidance.
-- [openspec/changes/v1-mcp-foundation/](openspec/changes/v1-mcp-foundation/) — the SDD proposal, design, specs, and tasks that produced this code.
+- [openspec/changes/archive/2026-08-21-v1-mcp-foundation/](openspec/changes/archive/2026-08-21-v1-mcp-foundation/) — the SDD proposal, design, specs, and tasks that produced this code.
 - [AGENTS.md](AGENTS.md) — agent context, engineering rules, and reference projects.
 
 ## Rollout

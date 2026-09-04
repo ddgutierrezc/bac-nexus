@@ -90,6 +90,8 @@ exposes no generic SSH capability.
 
 Available evidence uses CI, fakes, and temporary SQLite only. The release status is `ready_for_controlled_ibmi_validation` and `not_validated_on_ibmi`. There is no live IBM i validation, and automated evidence is not equivalent to field evidence. A live MCP client and a real IBM i remain an external rollout gate.
 
+The build-tagged gate requires an exact operator opt-in and verifies approved handoff, profile, target, window, policy, artifact, and local roots before creating its `nexus serve` child. It sends no credential to that child; only the native keyring may provide one. Gate evidence is limited to classifications, counts, and the approved binary checksum.
+
 Rollout remains blocked on approved IBM i access, source/data classification, audit policy, corporate dependency and endpoint policy, signed/approved Nexus distribution, and an approved local database directory.
 
 ## Incident and rollback guidance

@@ -167,6 +167,19 @@ Progress is displayed via block characters:
 
 - `Loading: [████████░░░░] 80%`
 
+### Profile Onboarding
+
+Create uses four explicit steps: **Name**, **Connection**, **Credentials**, and
+**Review**. The shared shell, centered panel, focus marker, feedback markers,
+and terminal-cell wrapping apply to every step. Back preserves non-secret values;
+blocked continuation remains focusable and identifies the first invalid field.
+
+Credential capture is a visible action, but password bytes are terminal-only.
+The TUI retains opaque capture status rather than secret material. Review shows
+only non-secret connection values before **Connect and Save**. Color reinforces
+meaning but never carries it alone: semantic markers and overflow remain usable
+under `NO_COLOR` and at narrow terminal sizes.
+
 ### Tables
 
 Tables use simple pipe characters for column separation.
