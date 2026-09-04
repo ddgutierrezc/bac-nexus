@@ -31,7 +31,7 @@ var errUnavailable = errors.New("onboarding diagnostics unavailable")
 
 type Config struct {
 	UserConfigDir func() (string, error)
-	Platform      localstate.SecurePathPlatform
+	Platform      localstate.ManagedFilePlatform
 	Now           func() time.Time
 	Random        io.Reader
 	Write         func(*os.File, []byte) (int, error)
@@ -40,7 +40,7 @@ type Config struct {
 
 type Store struct {
 	userConfigDir func() (string, error)
-	platform      localstate.SecurePathPlatform
+	platform      localstate.ManagedFilePlatform
 	now           func() time.Time
 	random        io.Reader
 	write         func(*os.File, []byte) (int, error)
@@ -77,16 +77,19 @@ func (s *Store) Record(ctx context.Context, phase configuration.OnboardingFailur
 	if err != nil || root == "" {
 		return "", errUnavailable
 	}
+	if ctx.Err() != nil {
+		return "", errUnavailable
+	}
 	directory := filepath.Join(root, "BAC Nexus", "onboarding-diagnostics")
 	if _, err := s.platform.VerifyManagedDirectory(directory, "BAC Nexus", "onboarding-diagnostics"); err != nil {
 		return "", errUnavailable
 	}
 	now := s.now().UTC()
-	records, err := readRecords(directory)
+	records, err := s.readRecords(directory)
 	if err != nil {
 		return "", errUnavailable
 	}
-	if err := prune(directory, records, now); err != nil {
+	if err := s.prune(directory, records, now); err != nil {
 		return "", errUnavailable
 	}
 	active := make([]storedRecord, 0, len(records))
@@ -97,10 +100,8 @@ func (s *Store) Record(ctx context.Context, phase configuration.OnboardingFailur
 	}
 	if len(active) >= maxRecords {
 		sort.Slice(active, func(i, j int) bool { return active[i].timestamp.Before(active[j].timestamp) })
-		for _, record := range active[:len(active)-maxRecords+1] {
-			if err := removeRegular(filepath.Join(directory, record.name)); err != nil {
-				return "", errUnavailable
-			}
+		if err := s.removeRecord(filepath.Join(directory, active[0].name)); err != nil {
+			return "", errUnavailable
 		}
 	}
 	reference, err := newReference(s.random)
@@ -116,24 +117,21 @@ func (s *Store) Record(ctx context.Context, phase configuration.OnboardingFailur
 		return "", errUnavailable
 	}
 	if err := s.writeRecord(path, encoded); err != nil {
-		_ = removeRegular(path)
 		return "", errUnavailable
 	}
 	return reference, nil
 }
 
 func (s *Store) writeRecord(path string, data []byte) error {
-	before, err := os.Lstat(path)
-	if err != nil || !safeRegular(before) {
-		return errUnavailable
-	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0o600)
+	file, err := s.platform.OpenManagedFile(path, os.O_WRONLY, "BAC Nexus", "onboarding-diagnostics", filepath.Base(path))
 	if err != nil {
 		return errUnavailable
 	}
 	defer file.Close()
-	after, err := file.Stat()
-	if err != nil || !safeRegular(after) || !os.SameFile(before, after) {
+	if err := file.Truncate(0); err != nil {
+		return errUnavailable
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return errUnavailable
 	}
 	write := s.write
@@ -159,7 +157,7 @@ type storedRecord struct {
 	timestamp time.Time
 }
 
-func readRecords(directory string) ([]storedRecord, error) {
+func (s *Store) readRecords(directory string) ([]storedRecord, error) {
 	entries, err := os.ReadDir(directory)
 	if err != nil {
 		return nil, err
@@ -171,12 +169,13 @@ func readRecords(directory string) ([]storedRecord, error) {
 			return nil, errUnavailable
 		}
 		path := filepath.Join(directory, name)
-		info, err := os.Lstat(path)
-		if err != nil || !safeRegular(info) {
+		file, err := s.platform.OpenManagedFile(path, os.O_RDONLY, "BAC Nexus", "onboarding-diagnostics", name)
+		if err != nil {
 			return nil, errUnavailable
 		}
-		data, err := os.ReadFile(path)
-		if err != nil {
+		data, readErr := io.ReadAll(file)
+		closeErr := file.Close()
+		if readErr != nil || closeErr != nil {
 			return nil, errUnavailable
 		}
 		record, timestamp, err := decodeRecord(data, strings.TrimSuffix(name, recordFileExt))
@@ -240,11 +239,11 @@ func strictRecordKeys(data []byte) bool {
 	return err == nil && end == json.Delim('}') && len(seen) == 7
 }
 
-func prune(directory string, records []storedRecord, now time.Time) error {
+func (s *Store) prune(directory string, records []storedRecord, now time.Time) error {
 	cutoff := now.Add(-maxAge)
 	for _, record := range records {
 		if record.timestamp.Before(cutoff) {
-			if err := removeRegular(filepath.Join(directory, record.name)); err != nil {
+			if err := s.removeRecord(filepath.Join(directory, record.name)); err != nil {
 				return err
 			}
 		}
@@ -252,16 +251,8 @@ func prune(directory string, records []storedRecord, now time.Time) error {
 	return nil
 }
 
-func removeRegular(path string) error {
-	info, err := os.Lstat(path)
-	if err != nil || !safeRegular(info) {
-		return errUnavailable
-	}
-	return os.Remove(path)
-}
-
-func safeRegular(info os.FileInfo) bool {
-	return info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 && info.Mode().Perm() == 0o600
+func (s *Store) removeRecord(path string) error {
+	return s.platform.RemoveManagedFile(path, "BAC Nexus", "onboarding-diagnostics", filepath.Base(path))
 }
 
 func newReference(source io.Reader) (string, error) {
@@ -291,7 +282,17 @@ func validReference(reference string) bool {
 func validFailure(phase configuration.OnboardingFailurePhase, class configuration.OnboardingFailureClass) bool {
 	switch phase {
 	case configuration.OnboardingPhaseHostKeyInspection:
-		return class == configuration.OnboardingClassHostKeyFailure
+		switch class {
+		case configuration.OnboardingClassHostKeyFailure,
+			configuration.OnboardingClassHostKeyTimeout,
+			configuration.OnboardingClassHostKeyNegotiation,
+			configuration.OnboardingClassHostKeyNoKey,
+			configuration.OnboardingClassHostKeyUnavailable,
+			configuration.OnboardingClassHostKeyInvalidCandidate:
+			return true
+		default:
+			return false
+		}
 	case configuration.OnboardingPhaseExistingIdentity:
 		return class == configuration.OnboardingClassIdentityFailure
 	case configuration.OnboardingPhaseBootstrapAudit:

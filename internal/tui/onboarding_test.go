@@ -512,6 +512,35 @@ func TestDirectOnboardingCompletionFailsClosedForUnknownDiagnosticClass(t *testi
 	}
 }
 
+func TestDirectOnboardingCompletionRendersOnlySafeHostKeyClasses(t *testing.T) {
+	for _, class := range []configuration.OnboardingFailureClass{
+		configuration.OnboardingClassHostKeyTimeout,
+		configuration.OnboardingClassHostKeyNegotiation,
+		configuration.OnboardingClassHostKeyNoKey,
+		configuration.OnboardingClassHostKeyUnavailable,
+		configuration.OnboardingClassHostKeyInvalidCandidate,
+	} {
+		t.Run(string(class), func(t *testing.T) {
+			m := NewModelWithOnboarding(&profileStoreStub{}, context.Background(), &onboardingOperationsStub{}, remote.SecretPrompt{})
+			m.screen, m.noColor = screenDirectOnboardingCompletion, true
+			m.onboardingCompletion = configuration.OnboardingResult{Code: configuration.OnboardingFailed, Diagnostic: configuration.OnboardingDiagnostic{Phase: configuration.OnboardingPhaseHostKeyInspection, Class: class}}
+			updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+			view := updated.(Model).View()
+			if !strings.Contains(view, string(class)) || strings.Contains(view, "host.example.test") || strings.Contains(view, "raw-error-canary") {
+				t.Fatalf("unsafe or incomplete host-key diagnostic rendering: %q", view)
+			}
+		})
+	}
+	m := NewModelWithOnboarding(&profileStoreStub{}, context.Background(), &onboardingOperationsStub{}, remote.SecretPrompt{})
+	m.screen, m.noColor = screenDirectOnboardingCompletion, true
+	m.onboardingCompletion = configuration.OnboardingResult{Code: configuration.OnboardingFailed, Diagnostic: configuration.OnboardingDiagnostic{Phase: configuration.OnboardingPhaseHostKeyInspection, Class: "raw-error-canary"}}
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	view := updated.(Model).View()
+	if !strings.Contains(view, string(configuration.OnboardingClassHostKeyFailure)) || strings.Contains(view, "raw-error-canary") {
+		t.Fatalf("unknown host-key diagnostic did not fail closed: %q", view)
+	}
+}
+
 func TestDirectOnboardingCompletionRuntimeFramesPreserveMarkerViewportAndNoColor(t *testing.T) {
 	const reference = "ONB-0123456789abcdef0123456789abcdef"
 	for _, locale := range []localization.Localizer{localization.Spanish(), localization.English()} {

@@ -4,6 +4,7 @@ package localstate
 
 import (
 	"os"
+	"path/filepath"
 
 	"golang.org/x/sys/unix"
 )
@@ -62,4 +63,38 @@ func createManagedFile(path string) (Evidence, error) {
 		return Evidence{}, ErrUnsafePath
 	}
 	return Evidence{Available: true, LinkSafe: true, Local: true, Owned: true, Restrictive: true, HandleStable: true}, nil
+}
+
+func verifyManagedOpenFile(path string, file *os.File) (Evidence, error) {
+	if file == nil {
+		return Evidence{}, ErrUnsafePath
+	}
+	fd := int(file.Fd())
+	var byHandle, byName unix.Stat_t
+	if unix.Fstat(fd, &byHandle) != nil || unix.Lstat(path, &byName) != nil || byHandle.Dev != byName.Dev || byHandle.Ino != byName.Ino || int(byHandle.Uid) != os.Geteuid() || byHandle.Mode&unix.S_IFMT != unix.S_IFREG || byHandle.Mode&0o777 != 0o600 || !localFilesystem(fd) {
+		return Evidence{}, ErrUnsafePath
+	}
+	return Evidence{Available: true, LinkSafe: true, Local: true, Owned: true, Restrictive: true, HandleStable: true}, nil
+}
+
+// removeManagedFile keeps the parent directory handle open, rejects links,
+// and compares the target's identity immediately before unlinkat. Linux has
+// no unlink-by-file-descriptor operation for regular files, so a same-user
+// concurrent rename after this final comparison remains an OS-level limit.
+func removeManagedFile(path, name string) error {
+	directory, err := unix.Open(filepath.Dir(path), unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return ErrUnsafePath
+	}
+	defer unix.Close(directory)
+	file, err := unix.Openat(directory, name, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return ErrUnsafePath
+	}
+	defer unix.Close(file)
+	var handle, named unix.Stat_t
+	if unix.Fstat(file, &handle) != nil || unix.Fstatat(directory, name, &named, unix.AT_SYMLINK_NOFOLLOW) != nil || handle.Dev != named.Dev || handle.Ino != named.Ino || int(handle.Uid) != os.Geteuid() || handle.Mode&unix.S_IFMT != unix.S_IFREG || handle.Mode&0o777 != 0o600 || !localFilesystem(file) {
+		return ErrUnsafePath
+	}
+	return unix.Unlinkat(directory, name, 0)
 }
