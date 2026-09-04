@@ -1,18 +1,34 @@
 # IBM i Profile Onboarding
 
-`nexus configure` uses one direct, Spanish-first onboarding flow:
+`nexus configure` uses one Spanish-first, four-step onboarding flow:
 
 ```text
-Create → host + IBM i username → Connect and Save → completion → Finalize → profiles
+Create → 1 Name → 2 Connection → 3 Credentials → 4 Review → Connect and Save → completion → Finalize → profiles
 ```
 
-The persistent Bubble Tea model holds only the host and IBM i username. Selecting
-**CONECTAR Y GUARDAR** captures the password transiently through a fixed,
-in-process `tea.Exec` terminal boundary. Password bytes never enter the model,
-Bubble Tea messages, views, logs, audit records, profile JSON, or files.
+Name, host, IBM i username, and SSH port are non-secret values. The port defaults
+to 22 and remains unchanged through inspection, proof, identity comparison, and
+profile persistence. Back preserves those values. Invalid Next or Connect and
+Save stays focusable, reports actionable feedback, and moves focus to the first
+invalid field.
 
-English catalog parity is maintained for explicit English composition. Runtime
-frames are covered at 120x40, 80x24 with `NO_COLOR`, and 40x16.
+frames cover all four steps at 120x40, 80x24, and 40x16 in Spanish and English,
+with color and `NO_COLOR`. The narrow viewport exposes truthful overflow; text
+wraps without losing content, and `NO_COLOR` emits no ANSI escapes.
+
+## Credential boundary and review
+
+Step 3 visibly offers secure password capture through a fixed in-process
+`tea.Exec` terminal boundary. Capture reads hidden terminal input directly into
+an application-owned, single-use lease. The Bubble Tea model and messages retain
+only an opaque lease identity, generation, and secret-free status.
+
+Step 4 reviews only name, host, port, and username. It never displays a password
+or lease value. Password bytes exist only at the terminal capture, lease,
+credential-store, and proof boundaries; they are revoked and zeroed on retry,
+Back, identity edits, cancellation, expiry, stale results, shutdown, and
+compensation. There is no eight-step workflow, proof-choice screen, draft, or
+proof rerun.
 
 ## Connection and trust
 

@@ -84,21 +84,86 @@ Existing automation and `nexus serve` behavior MUST remain compatible. Configura
 - WHEN `configure` is introduced
 - THEN its established contract remains unchanged
 
+### Requirement: Shared Responsive Profile Screens
+Create and metadata Edit MUST use the shared BAC header, footer, and centered responsive panel. Create MUST use a four-step onboarding flow; Edit SHALL retain its metadata-only Save and Cancel behavior. Entry, capture, running, failure, cancellation, cleanup-required, success, and completion states MUST expose truthful, scoped status and reachable actions.
+
+#### Scenario: Create lifecycle
+- GIVEN an operator opens Create
+- WHEN they complete the four steps and connect/save
+- THEN scoped lifecycle feedback and completion are shown
+
+#### Scenario: Edit lifecycle
+- GIVEN an operator opens profile metadata Edit
+- WHEN they save or cancel
+- THEN the panel shows the resulting state or returns without applying edits
+
+### Requirement: Field-Specific Create Validation and Feedback
+Create MUST validate name including case-insensitive duplicate checking/loading, then host, username, and editable SSH port (1–65535); port SHALL default to 22. Invalid Next or Connect and Save MUST remain focusable, start no capture or operation, and focus the first invalid field. Operation errors MUST take precedence over explicit and validation feedback; local validation MUST clear when its field or context changes.
+
+#### Scenario: Invalid create submission
+- GIVEN invalid name or endpoint input
+- WHEN the operator activates the focused continuation
+- THEN no later step, prompt, or operation starts and focus moves to the first invalid field
+
+#### Scenario: Feedback precedence and clearing
+- GIVEN validation feedback or a scoped operation failure is visible
+- WHEN the related field/context changes or another operation fails
+- THEN local validation clears as applicable and the operation failure remains visible
+
+### Requirement: Validated Metadata Edit
+Metadata Edit MUST use the authoritative `Profile.Validate` validation order and present field-specific semantic feedback. An invalid Save MUST remain focusable, block persistence, and focus the first invalid field. Edit SHALL retain simple Save and Cancel actions and MUST NOT authenticate, establish or prove connectivity, or run proof.
+
+#### Scenario: Invalid edit save
+- GIVEN metadata fields fail validation
+- WHEN the operator activates Save
+- THEN no profile is changed and focus moves to the first invalid field
+
+#### Scenario: Cancel edit
+- GIVEN an operator has changed Edit fields
+- WHEN they activate Cancel
+- THEN changes are discarded without authentication, connectivity, or proof
+
+### Requirement: Accessible Terminal Rendering and Copy Parity
+Create and Edit MUST render in fixed BAC shell/chrome with a responsive centered panel and lossless content wrapping. The four Create steps MUST retain persistent, truthful overflow and reachability at 120x40, 80x24, and 40x16 in Spanish and English, with and without `NO_COLOR`. Semantic status MUST be understandable independently of color, and `NO_COLOR` output MUST contain no ANSI escape sequences.
+
+#### Scenario: Narrow runtime frames
+- GIVEN each supported viewport, including 40x16
+- WHEN Create or Edit contains feedback exceeding the visible area
+- THEN controls, focus, feedback, and exit remain reachable through truthful overflow without lost text
+
+#### Scenario: No-color localized feedback
+- GIVEN English or Spanish and `NO_COLOR` are selected
+- WHEN a field validation error renders
+- THEN equivalent actionable feedback renders without ANSI escape sequences
+
+### Requirement: Componentized Four-Step Onboarding
+Create MUST present exactly: 1 Name, 2 Connection, 3 Credentials, 4 Review. Back and Next SHALL preserve entered non-secret values; forward movement SHALL be blocked until the current step is valid. The shell, panel, title, indicator, input/action/feedback primitives, focus reveal, persistent overflow, and lossless terminal-cell wrapping MUST remain responsive.
+
+#### Scenario: Step navigation
+- GIVEN a Create session with valid step input
+- WHEN the operator moves forward or backward
+- THEN the four-step order and prior non-secret input remain intact
+
 ### Requirement: Direct Secure Onboarding
-The persistent Bubble Tea form SHALL contain only host, IBM i username, and **Connect and Save**. Selection SHALL prompt terminal-only transient password capture below Bubble Tea; together they SHALL request exactly those three values in one logical flow without a configuration step. Infrastructure terms and advanced controls SHALL NOT appear; bounded support MAY expose them after failure.
+Step 3 MUST visibly offer a secure password action that uses `tea.Exec` for hidden terminal-only capture. Password bytes MUST NOT enter model, message, view, logs, audit, or files; capture status MAY report only captured, cancelled, unsupported/failed, or retryable. Step 4 MUST show a secret-free review and MUST NOT restore eight-step, identity/proof-choice, Mapepire, draft, or proof-rerun semantics.
 
 #### Scenario: Connect and save
-- GIVEN valid host and username
-- WHEN Connect and Save is selected and the prompt returns a password
-- THEN onboarding completes in the same logical flow
+- GIVEN valid preceding steps and a captured credential
+- WHEN Connect and Save is selected from Review
+- THEN onboarding completes only through the bounded backend lifecycle
 
 #### Scenario: Password prompt cannot proceed
 - GIVEN password prompt failure, cancellation, or unsupported terminal
 - WHEN Connect and Save is selected
 - THEN it fails closed and starts or persists no operation
 
+#### Scenario: Retired semantics remain absent
+- GIVEN any Create or Edit runtime state
+- WHEN the UI renders, receives messages, or records output
+- THEN it contains no obsolete workflow semantics and no secret in models, messages, views, or logs
+
 ### Requirement: Secret Isolation and Credential Policy
-Password bytes SHALL NOT enter tea.Model, tea.Msg, View, logs, audit, metadata, or files. The backend SHALL use native keyring when supported or memory-only prompt-on-use when unavailable. It SHALL NOT offer storage choice or silently persist insecure credentials.
+Password bytes SHALL NOT enter tea.Model, tea.Msg, View, logs, audit, metadata, or files. Hidden terminal capture SHALL move bytes directly to an application-owned, bounded, expiring, single-use lease; the TUI retains only opaque status and identity. Retry, replacement, Back, identity edits, cancellation, expiry, stale result, shutdown, and compensation SHALL revoke and zero the lease. The backend SHALL use native keyring when supported or memory-only prompt-on-use when unavailable. It SHALL NOT offer storage choice or silently persist insecure credentials.
 
 #### Scenario: Keyring supported
 - GIVEN native keyring support is available
@@ -111,7 +176,7 @@ Password bytes SHALL NOT enter tea.Model, tea.Msg, View, logs, audit, metadata, 
 - THEN the profile prompts on use and no password is persisted
 
 ### Requirement: Bounded Backend Connection and Persistence
-The backend SHALL fail closed while deriving profile name, port, identity/trust, transport, Mapepire/fallback, credential policy, proof, audit, and secret-free persistence. Connect and Save SHALL be bounded/cancellable and discard stale results.
+Connect and Save MUST be bounded and cancellable, reject stale results by request identity, and persist only after successful inspection/proof and required audit/credential handling. The validated selected port MUST propagate unchanged through the request, inspection, proof, identity comparison, and persisted profile; no downstream default or hardcoded port MAY replace it. For an approved V3 keyring profile, successful proof MUST create serving eligibility bound to the profile target, policy, host pin, and approved Mapepire artifact identity. Reconfiguration that changes any bound value, credential policy, proof outcome, or persisted profile MUST revoke eligibility until a new approved proof succeeds; failed/cancelled updates MUST retain the prior valid profile and eligibility or leave serving ineligible. Create MUST retain exactly the protected four-step UI and MUST NOT reopen visual-polish scope. (Previously: successful proof could persist a profile without serving eligibility or revocation rules.)
 
 #### Scenario: Proof before persistence
 - GIVEN approved derived configuration
@@ -127,6 +192,16 @@ The backend SHALL fail closed while deriving profile name, port, identity/trust,
 - GIVEN an action is running or superseded
 - WHEN cancelled, timed out, or stale
 - THEN it changes neither screen nor success state
+
+#### Scenario: Serving eligibility is created or revoked
+- GIVEN approved proof or a target/policy/pin/artifact reconfiguration
+- WHEN configuration commits
+- THEN eligibility is created only after proof or revoked until reproven
+
+#### Scenario: Protected onboarding remains intact
+- GIVEN Create or metadata Edit is exercised
+- WHEN serving eligibility changes
+- THEN the four-step Create and metadata-only Edit behavior remain unchanged
 
 ### Requirement: Safe Completion, Feedback, and Responsive Shell
 **Finalize** SHALL work. Feedback SHALL fail closed, sanitized, actionable, Spanish-first with English parity, and scoped. The shell SHALL create, open, delete, back, and exit; deletion requires confirmation and recovery. Valid profiles SHALL remain manageable; unsupported profiles fail closed with guidance.
