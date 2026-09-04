@@ -41,12 +41,14 @@ approved field evidence exists.
 
 ## Binary and manifest verification
 
-1. Transfer the binary and sidecar through the approved channel.
-2. Confirm the sidecar contains only schema version, release version, VCS
+1. Transfer the complete offline ZIP through the approved channel.
+2. Confirm the selected platform sidecar contains only schema version, release version, VCS
    revision, target, byte length, binary SHA-256, and the two status fields.
-3. Recompute SHA-256 and byte length locally; require exact equality with the
+3. Extract the complete offline ZIP and run the local platform binary in place.
+   Copying only `nexus` breaks its required shared Mapepire bundle topology.
+4. Recompute SHA-256 and byte length locally; require exact equality with the
    sidecar and with the approved release record.
-4. Run `nexus version` and require exact release-version and VCS-revision
+5. Run `nexus version` and require exact release-version and VCS-revision
    equality. A missing field, mismatch, dirty/unapproved revision, or path that
    is not the versioned target path aborts handoff.
 
