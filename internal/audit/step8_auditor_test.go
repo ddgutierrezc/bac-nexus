@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
 )
 
 func TestStep8AuditorRecordsOnlyAllowlistedMetadata(t *testing.T) {
@@ -75,5 +77,30 @@ func TestStep8AuditorRecordsFailureAndCleanupState(t *testing.T) {
 	events := recorder.Events()
 	if len(events) != 1 || events[0].Result != ResultClassError || events[0].Reason != "step8:ssh:trust_mismatch:values-1-v1:incomplete" {
 		t.Fatalf("recorded events = %+v, want bounded failed Step 8 audit", events)
+	}
+}
+
+func TestStep8AuditorRecordsTerminalFailureWithoutRevision(t *testing.T) {
+	recorder := NewRecorder()
+	if err := NewStep8Auditor(recorder).Record(context.Background(), Step8Event{Transport: "ssh", Class: "upload_failure", ArtifactStage: mapepirestdio.ArtifactStageTransfer}); err != nil {
+		t.Fatalf("Record() error = %v", err)
+	}
+	events := recorder.Events()
+	if len(events) != 1 || events[0].Reason != "step8:ssh:upload_failure:artifact_stage:transfer:incomplete" {
+		t.Fatalf("failed Step 8 event was not recorded: %+v", events)
+	}
+}
+
+func TestStep8AuditorRejectsInvalidArtifactStageCombinations(t *testing.T) {
+	for _, event := range []Step8Event{
+		{Transport: "wss", Class: "upload_failure", ArtifactStage: mapepirestdio.ArtifactStageTransfer},
+		{Transport: "ssh", Class: "authentication_failed", ArtifactStage: mapepirestdio.ArtifactStageTransfer},
+		{Transport: "ssh", Class: "upload_failure", ArtifactStage: "sftp://user@host/path raw error"},
+		{Transport: "ssh", Class: "proof_success"},
+	} {
+		recorder := NewRecorder()
+		if err := NewStep8Auditor(recorder).Record(context.Background(), event); err == nil || len(recorder.Events()) != 0 {
+			t.Fatalf("invalid event accepted: %+v", event)
+		}
 	}
 }

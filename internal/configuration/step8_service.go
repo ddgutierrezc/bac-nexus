@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
 	"bac-nexus/internal/profile"
 )
 
@@ -31,10 +32,11 @@ type Step8MarkerStore interface {
 
 // Step8AuditEvent intentionally contains no endpoint, secret, query, row, or error data.
 type Step8AuditEvent struct {
-	Transport Transport
-	Class     ResultClass
-	Revision  string
-	Cleanup   bool
+	Transport     Transport
+	Class         ResultClass
+	Revision      string
+	Cleanup       bool
+	ArtifactStage mapepirestdio.ArtifactStage
 }
 
 // Step8Auditor records only the service's allowlisted proof outcome.
@@ -152,9 +154,7 @@ func (s Step8Service) runSSH(ctx context.Context, request Step8Request, observat
 		return s.finishTransport(ctx, request.Profile, TransportSSH, result)
 	}
 	if s.Audit != nil {
-		if err := s.Audit.Record(ctx, Step8AuditEvent{Transport: TransportSSH, Class: result.Class, Revision: result.ProofRevision, Cleanup: result.Cleanup}); err != nil {
-			return terminalGateResult(result, ResultProofFailure)
-		}
+		_ = s.Audit.Record(ctx, Step8AuditEvent{Transport: TransportSSH, Class: result.Class, Revision: result.ProofRevision, Cleanup: result.Cleanup, ArtifactStage: result.ArtifactStage})
 	}
 	if s.Markers != nil {
 		now := int64(0)
@@ -196,9 +196,7 @@ func (s Step8Service) runWSS(ctx context.Context, request Step8Request) (result 
 	}
 	result = Step8Result{RequestID: request.RequestID, Decision: DecisionWSSSelected, Class: ResultProofSuccess, ProofRevision: metadata.ProofRevision, Outcome: "authenticated_fixed_proof", Cleanup: true}
 	if s.Audit != nil {
-		if err := s.Audit.Record(ctx, Step8AuditEvent{Transport: TransportWSS, Class: result.Class, Revision: result.ProofRevision, Cleanup: result.Cleanup}); err != nil {
-			return terminalGateResult(result, ResultProofFailure)
-		}
+		_ = s.Audit.Record(ctx, Step8AuditEvent{Transport: TransportWSS, Class: result.Class, Revision: result.ProofRevision, Cleanup: result.Cleanup})
 	}
 	if s.Markers != nil {
 		now := int64(0)
@@ -220,7 +218,7 @@ func (s Step8Service) finish(ctx context.Context, p profile.Profile, result Step
 
 func (s Step8Service) finishTransport(ctx context.Context, p profile.Profile, transport Transport, result Step8Result) Step8Result {
 	if s.Audit != nil {
-		_ = s.Audit.Record(ctx, Step8AuditEvent{Transport: transport, Class: result.Class, Revision: result.ProofRevision, Cleanup: result.Cleanup})
+		_ = s.Audit.Record(ctx, Step8AuditEvent{Transport: transport, Class: result.Class, Revision: result.ProofRevision, Cleanup: result.Cleanup, ArtifactStage: result.ArtifactStage})
 	}
 	return result
 }

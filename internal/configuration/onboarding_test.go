@@ -748,8 +748,12 @@ type onboardingDiagnosticRecorderStub struct {
 	err   error
 }
 
-func (r *onboardingDiagnosticRecorderStub) Record(_ context.Context, phase OnboardingFailurePhase, class OnboardingFailureClass, cleanup, retained bool) (string, error) {
-	r.calls = append(r.calls, OnboardingDiagnostic{Phase: phase, Class: class})
+func (r *onboardingDiagnosticRecorderStub) Record(_ context.Context, phase OnboardingFailurePhase, class OnboardingFailureClass, cleanup, retained bool, artifactStages ...mapepirestdio.ArtifactStage) (string, error) {
+	var artifactStage mapepirestdio.ArtifactStage
+	if len(artifactStages) == 1 {
+		artifactStage = artifactStages[0]
+	}
+	r.calls = append(r.calls, OnboardingDiagnostic{Phase: phase, Class: class, ArtifactStage: artifactStage})
 	if r.err != nil {
 		return "", r.err
 	}
@@ -812,6 +816,7 @@ func TestOnboardingFailureClassificationRecordsEveryFailureSite(t *testing.T) {
 }
 
 func TestOnboardingRetainsSafeUploadStageWhenDiagnosticsAreUnavailable(t *testing.T) {
+	recorder := &onboardingDiagnosticRecorderStub{err: errors.New("diagnostics unavailable")}
 	service := NewOnboardingService(OnboardingDeps{
 		Inspect: func(context.Context, string, int) (remote.HostKeyObservation, error) {
 			return remote.HostKeyObservation{Fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}, nil
@@ -821,11 +826,32 @@ func TestOnboardingRetainsSafeUploadStageWhenDiagnosticsAreUnavailable(t *testin
 		},
 		Save:        func(profile.Profile) error { return nil },
 		Audit:       func(context.Context, OnboardingAuditEvent) error { return nil },
-		Diagnostics: &onboardingDiagnosticRecorderStub{err: errors.New("diagnostics unavailable")},
+		Diagnostics: recorder,
 	})
 	result := service.run(context.Background(), onboardingRequest(), []byte("secret"))
-	if result.Code != OnboardingFailed || result.Diagnostic.Written || result.Diagnostic.ArtifactStage != mapepirestdio.ArtifactStageDirectoryPrepare {
+	if result.Code != OnboardingFailed || result.Diagnostic.Written || result.Diagnostic.ArtifactStage != mapepirestdio.ArtifactStageDirectoryPrepare || len(recorder.calls) != 1 || recorder.calls[0].ArtifactStage != mapepirestdio.ArtifactStageDirectoryPrepare {
 		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestOnboardingOmitsArtifactStageOutsideUploadFailure(t *testing.T) {
+	for _, class := range []ResultClass{ResultOperationTimeout, ResultCancelled, ResultAuthenticationFailed} {
+		t.Run(string(class), func(t *testing.T) {
+			recorder := &onboardingDiagnosticRecorderStub{}
+			service := NewOnboardingService(OnboardingDeps{
+				Inspect: func(context.Context, string, int) (remote.HostKeyObservation, error) {
+					return remote.HostKeyObservation{Fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}, nil
+				},
+				Proof: func(context.Context, profile.Profile, []byte) Step8Result {
+					return Step8Result{Decision: DecisionTerminal, Class: class, ArtifactStage: mapepirestdio.ArtifactStageTransfer}
+				},
+				Diagnostics: recorder,
+			})
+			result := service.run(context.Background(), onboardingRequest(), []byte("secret"))
+			if result.Diagnostic.ArtifactStage != "" || len(recorder.calls) != 1 || recorder.calls[0].ArtifactStage != "" {
+				t.Fatalf("unsafe stage retained for %q: result=%+v recorder=%+v", class, result, recorder.calls)
+			}
+		})
 	}
 }
 

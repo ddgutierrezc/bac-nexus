@@ -15,9 +15,10 @@ func NewStep8ConfigurationAdapter(auditor *Step8Auditor) Step8ConfigurationAdapt
 
 func (a Step8ConfigurationAdapter) Record(ctx context.Context, event configuration.Step8AuditEvent) error {
 	return a.auditor.Record(ctx, Step8Event{
-		Transport: string(event.Transport),
-		Class:     string(event.Class),
-		Revision:  event.Revision,
-		Cleanup:   event.Cleanup,
+		Transport:     string(event.Transport),
+		Class:         string(event.Class),
+		Revision:      event.Revision,
+		Cleanup:       event.Cleanup,
+		ArtifactStage: event.ArtifactStage,
 	})
 }

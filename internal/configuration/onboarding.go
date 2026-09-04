@@ -91,7 +91,7 @@ const (
 // when a primary onboarding failure is safe to persist. Implementations may
 // only return an opaque local reference.
 type OnboardingFailureRecorder interface {
-	Record(context.Context, OnboardingFailurePhase, OnboardingFailureClass, bool, bool) (string, error)
+	Record(context.Context, OnboardingFailurePhase, OnboardingFailureClass, bool, bool, ...mapepirestdio.ArtifactStage) (string, error)
 }
 type OnboardingAuditEvent struct {
 	Code    string
@@ -284,11 +284,7 @@ func (s *OnboardingService) run(ctx context.Context, request OnboardingRequest, 
 		return OnboardingResult{Code: OnboardingCancelled}
 	}
 	if !successfulOnboardingProof(proof) {
-		result := s.failed(ctx, OnboardingPhaseAuthenticatedProof, onboardingProofFailureClass(proof), false, false)
-		if proof.Decision == DecisionTerminal && proof.Class == ResultUploadFailure && mapepirestdio.ValidArtifactStage(proof.ArtifactStage) {
-			result.Diagnostic.ArtifactStage = proof.ArtifactStage
-		}
-		return result
+		return s.failed(ctx, OnboardingPhaseAuthenticatedProof, onboardingProofFailureClass(proof), false, false, proof.ArtifactStage)
 	}
 	if p.HostKeyProvenance == automaticTOFUProvenance {
 		if s.deps.Audit(ctx, OnboardingAuditEvent{Code: "identity_bootstrap_allowed", Profile: p.Name}) != nil {
@@ -400,12 +396,19 @@ func onboardingProofFailureClass(result Step8Result) OnboardingFailureClass {
 	return OnboardingClassProofFailure
 }
 
-func (s *OnboardingService) failed(ctx context.Context, phase OnboardingFailurePhase, class OnboardingFailureClass, cleanupRequired, credentialRetained bool) OnboardingResult {
-	result := OnboardingResult{Code: OnboardingFailed, CleanupRequired: cleanupRequired, CredentialRetained: credentialRetained, Diagnostic: OnboardingDiagnostic{Phase: phase, Class: class}}
+func (s *OnboardingService) failed(ctx context.Context, phase OnboardingFailurePhase, class OnboardingFailureClass, cleanupRequired, credentialRetained bool, artifactStages ...mapepirestdio.ArtifactStage) OnboardingResult {
+	var artifactStage mapepirestdio.ArtifactStage
+	if len(artifactStages) == 1 {
+		artifactStage = artifactStages[0]
+	}
+	if phase != OnboardingPhaseAuthenticatedProof || class != OnboardingFailureClass(ResultUploadFailure) || !mapepirestdio.ValidArtifactStage(artifactStage) {
+		artifactStage = ""
+	}
+	result := OnboardingResult{Code: OnboardingFailed, CleanupRequired: cleanupRequired, CredentialRetained: credentialRetained, Diagnostic: OnboardingDiagnostic{Phase: phase, Class: class, ArtifactStage: artifactStage}}
 	if ctx.Err() != nil || s.deps.Diagnostics == nil {
 		return result
 	}
-	reference, err := s.deps.Diagnostics.Record(ctx, phase, class, cleanupRequired, credentialRetained)
+	reference, err := s.deps.Diagnostics.Record(ctx, phase, class, cleanupRequired, credentialRetained, artifactStage)
 	if err == nil && validOnboardingDiagnosticReference(reference) {
 		result.Diagnostic.Reference, result.Diagnostic.Written = reference, true
 	}

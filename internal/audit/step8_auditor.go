@@ -30,8 +30,19 @@ func (a *Step8Auditor) Record(ctx context.Context, event Step8Event) error {
 		PolicyID:    PolicyIDVerifiedReadOnly,
 		Result:      result,
 		Timestamp:   time.Now().UTC(),
-		Reason:      "step8:" + event.Transport + ":" + event.Class + ":" + event.Revision + cleanupSuffix(event.Cleanup),
+		Reason:      step8Reason(event),
 	})
+}
+
+func step8Reason(event Step8Event) string {
+	reason := "step8:" + event.Transport + ":" + event.Class
+	if event.Revision != "" {
+		reason += ":" + event.Revision
+	}
+	if event.ArtifactStage != "" {
+		reason += ":artifact_stage:" + string(event.ArtifactStage)
+	}
+	return reason + cleanupSuffix(event.Cleanup)
 }
 
 func cleanupSuffix(cleanup bool) string {
