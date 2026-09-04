@@ -118,7 +118,11 @@ func (f SSHRuntimeFactory) Open(ctx context.Context, admission Step8Result, p pr
 	}
 	receipt, err := client.EnsureMapepireServerJAR(operation, artifact)
 	if err != nil {
-		return nil, terminalGateResult(result, runtimeErrorClass(ctx, err, ResultUploadFailure))
+		result = terminalGateResult(result, runtimeErrorClass(ctx, err, ResultUploadFailure))
+		if result.Class == ResultUploadFailure {
+			result.ArtifactStage = mapepirestdio.ArtifactStageFor(err)
+		}
+		return nil, result
 	}
 	cleanup = false
 	return &SSHRuntime{client: client, receipt: receipt, requestID: admission.RequestID, traceID: sshRuntimeTraceSequence.Add(1)}, Step8Result{RequestID: admission.RequestID, Decision: DecisionSSHEligible, Class: ResultProofSuccess}

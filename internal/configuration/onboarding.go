@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
 	"bac-nexus/internal/credential"
 	"bac-nexus/internal/profile"
 	"bac-nexus/internal/remote"
@@ -50,10 +51,11 @@ type OnboardingResult struct {
 // OnboardingDiagnostic is deliberately small: it is safe to present to an
 // operator but never carries source errors, credentials, tickets, or paths.
 type OnboardingDiagnostic struct {
-	Phase     OnboardingFailurePhase
-	Class     OnboardingFailureClass
-	Reference string
-	Written   bool
+	Phase         OnboardingFailurePhase
+	Class         OnboardingFailureClass
+	Reference     string
+	Written       bool
+	ArtifactStage mapepirestdio.ArtifactStage
 }
 
 type OnboardingFailurePhase string
@@ -282,7 +284,11 @@ func (s *OnboardingService) run(ctx context.Context, request OnboardingRequest, 
 		return OnboardingResult{Code: OnboardingCancelled}
 	}
 	if !successfulOnboardingProof(proof) {
-		return s.failed(ctx, OnboardingPhaseAuthenticatedProof, onboardingProofFailureClass(proof), false, false)
+		result := s.failed(ctx, OnboardingPhaseAuthenticatedProof, onboardingProofFailureClass(proof), false, false)
+		if proof.Decision == DecisionTerminal && proof.Class == ResultUploadFailure && mapepirestdio.ValidArtifactStage(proof.ArtifactStage) {
+			result.Diagnostic.ArtifactStage = proof.ArtifactStage
+		}
+		return result
 	}
 	if p.HostKeyProvenance == automaticTOFUProvenance {
 		if s.deps.Audit(ctx, OnboardingAuditEvent{Code: "identity_bootstrap_allowed", Profile: p.Name}) != nil {

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"bac-nexus/internal/configuration"
+	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
 	"bac-nexus/internal/localization"
 	"bac-nexus/internal/profile"
 	"bac-nexus/internal/remote"
@@ -595,6 +596,29 @@ func TestDirectOnboardingCompletionUsesSemanticColorsAndNoColor(t *testing.T) {
 	updated, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	if view := updated.(Model).View(); strings.Contains(view, "\x1b[") {
 		t.Fatalf("NO_COLOR failure frame contains ANSI: %q", view)
+	}
+}
+
+func TestDirectOnboardingCompletionDisplaysSafeUploadStageWithoutDiagnostics(t *testing.T) {
+	for _, tt := range []struct {
+		locale localization.Localizer
+		want   string
+	}{{localization.English(), "Upload stage: Remote directory preparation"}, {localization.Spanish(), "Etapa de carga: Preparación del directorio remoto"}} {
+		for _, frame := range []struct{ width, height int }{{120, 40}, {80, 24}, {40, 16}} {
+			m := NewModelWithOnboarding(&profileStoreStub{}, context.Background(), &onboardingOperationsStub{}, remote.SecretPrompt{})
+			m.localizer, m.noColor, m.screen = tt.locale, true, screenDirectOnboardingCompletion
+			m.onboardingCompletion = configuration.OnboardingResult{Code: configuration.OnboardingFailed, Diagnostic: configuration.OnboardingDiagnostic{Phase: configuration.OnboardingPhaseAuthenticatedProof, Class: configuration.OnboardingFailureClass(configuration.ResultUploadFailure), ArtifactStage: mapepirestdio.ArtifactStageDirectoryPrepare}}
+			updated, _ := m.Update(tea.WindowSizeMsg{Width: frame.width, Height: frame.height})
+			m, view := updated.(Model), updated.(Model).View()
+			if !strings.Contains(strings.Join(strings.Fields(m.profileViewportText), " "), tt.want) || lipgloss.Width(view) > frame.width || lipgloss.Height(view) > frame.height || strings.Contains(view, "\x1b[") {
+				t.Fatalf("unsafe frame at %dx%d: %q", frame.width, frame.height, view)
+			}
+			for _, canary := range []string{"directory_prepare", "host.example.test", "/home/NEXUS", "secret-user"} {
+				if strings.Contains(view, canary) || strings.Contains(m.profileViewportText, canary) {
+					t.Fatalf("sensitive canary %q leaked", canary)
+				}
+			}
+		}
 	}
 }
 

@@ -110,6 +110,31 @@ func TestSSHRuntimeFactoryClosesClientAfterJavaOrUploadFailure(t *testing.T) {
 	}
 }
 
+func TestSSHRuntimeFactoryPropagatesOnlySafeUploadStages(t *testing.T) {
+	for _, tt := range []struct {
+		name, want string
+		err        error
+		class      ResultClass
+	}{
+		{"artifact stage", string(mapepirestdio.ArtifactStageDirectoryPrepare), mapepirestdio.NewArtifactError(mapepirestdio.ArtifactStageDirectoryPrepare), ResultUploadFailure},
+		{"cancelled", "", context.Canceled, ResultCancelled},
+		{"timeout", "", context.DeadlineExceeded, ResultOperationTimeout},
+		{"invalid stage", "", mapepirestdio.NewArtifactError("arbitrary"), ResultUploadFailure},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &runtimeClientFake{ensureErr: tt.err}
+			factory := SSHRuntimeFactory{ResolveArtifact: testArtifactResolver(), VerifyArtifact: func(string) error { return nil }, Dial: func(context.Context, profile.Profile, []byte) (SSHRuntimeClient, error) { return client, nil }, JavaReady: func(context.Context, profile.Profile) error { return nil }}
+			_, result := factory.Open(context.Background(), admittedSSH(), savedStep8Profile(t), []byte("opaque"))
+			if result.Class != tt.class || string(result.ArtifactStage) != tt.want || result.Validate() != nil {
+				t.Fatalf("result=%+v", result)
+			}
+		})
+	}
+	if (Step8Result{Decision: DecisionTerminal, Class: ResultUploadFailure, ArtifactStage: "arbitrary"}).Validate() == nil {
+		t.Fatal("invalid upload-stage combination was accepted")
+	}
+}
+
 func TestSSHRuntimeFactoryMapsDialTimeoutWithoutRuntime(t *testing.T) {
 	factory := SSHRuntimeFactory{
 		ResolveArtifact: testArtifactResolver(),

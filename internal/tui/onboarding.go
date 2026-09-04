@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"bac-nexus/internal/configuration"
+	"bac-nexus/internal/connectors/ibmi/mapepirestdio"
 	"bac-nexus/internal/profile"
 	"bac-nexus/internal/remote"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -384,8 +385,18 @@ func (m Model) directOnboardingCompletionPresentation() (string, string, string)
 	} else {
 		details += "\n" + m.text("onboarding.diagnostic.unavailable_guidance", nil)
 	}
+	if stage := m.directOnboardingArtifactStage(diagnostic); stage != "" {
+		details += "\n" + stage
+	}
 	body := m.profileFeedback("[ERR]", message, newHomeTheme(m.noColor)) + "\n\n" + details + "\n\n" + m.profileAction("▸", m.text("onboarding.finalize", nil))
 	return m.text("onboarding.completion_failed", nil), body, message
+}
+
+func (m Model) directOnboardingArtifactStage(diagnostic configuration.OnboardingDiagnostic) string {
+	if diagnostic.Class != configuration.OnboardingFailureClass(configuration.ResultUploadFailure) || !mapepirestdio.ValidArtifactStage(diagnostic.ArtifactStage) {
+		return ""
+	}
+	return m.text("onboarding.upload_stage", map[string]any{"Stage": m.text("onboarding.upload_stage."+string(diagnostic.ArtifactStage), nil)})
 }
 
 func directOnboardingDiagnosticClass(phase configuration.OnboardingFailurePhase, class configuration.OnboardingFailureClass) string {

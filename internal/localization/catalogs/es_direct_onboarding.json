@@ -57,5 +57,17 @@
   {"id":"onboarding.diagnostic.phase.keyring_precondition","translation":"Precondición de llavero"},
   {"id":"onboarding.diagnostic.phase.commit","translation":"Confirmación"},
   {"id":"onboarding.diagnostic.phase.save","translation":"Guardado"},
-  {"id":"onboarding.diagnostic.phase.unavailable","translation":"No disponible"}
+  {"id":"onboarding.diagnostic.phase.unavailable","translation":"No disponible"},
+  {"id":"onboarding.upload_stage","translation":"Etapa de carga: {{.Stage}}"},
+  {"id":"onboarding.upload_stage.remote_home","translation":"Resolución del directorio remoto"},
+  {"id":"onboarding.upload_stage.directory_prepare","translation":"Preparación del directorio remoto"},
+  {"id":"onboarding.upload_stage.inspect_existing","translation":"Inspección del artefacto existente"},
+  {"id":"onboarding.upload_stage.create_temporary","translation":"Creación del artefacto temporal"},
+  {"id":"onboarding.upload_stage.transfer","translation":"Transferencia del artefacto"},
+  {"id":"onboarding.upload_stage.secure_temporary","translation":"Protección del artefacto temporal"},
+  {"id":"onboarding.upload_stage.verify_temporary_hash","translation":"Verificación del artefacto temporal"},
+  {"id":"onboarding.upload_stage.backup","translation":"Preparación de la copia de reversión"},
+  {"id":"onboarding.upload_stage.activate","translation":"Activación del artefacto"},
+  {"id":"onboarding.upload_stage.verify_activated","translation":"Verificación del artefacto activado"},
+  {"id":"onboarding.upload_stage.cleanup_rollback","translation":"Limpieza de reversión"}
 ]
