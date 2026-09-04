@@ -60,9 +60,10 @@ func (r *SSHRuntime) activeClient() SSHRuntimeClient {
 }
 
 type SSHRuntimeFactory struct {
-	Dial           func(context.Context, profile.Profile, []byte) (SSHRuntimeClient, error)
-	VerifyArtifact func(string) error
-	JavaReady      func(context.Context, profile.Profile) error
+	Dial            func(context.Context, profile.Profile, []byte) (SSHRuntimeClient, error)
+	ResolveArtifact func() (string, error)
+	VerifyArtifact  func(string) error
+	JavaReady       func(context.Context, profile.Profile) error
 }
 
 func NewSSHRuntimeFactory() SSHRuntimeFactory {
@@ -70,7 +71,8 @@ func NewSSHRuntimeFactory() SSHRuntimeFactory {
 		Dial: func(ctx context.Context, p profile.Profile, secret []byte) (SSHRuntimeClient, error) {
 			return remote.Dial(ctx, p, secret)
 		},
-		VerifyArtifact: mapepirestdio.VerifyServerJAR,
+		ResolveArtifact: newBundleArtifactResolver().Resolve,
+		VerifyArtifact:  mapepirestdio.VerifyServerJAR,
 		JavaReady: func(ctx context.Context, p profile.Profile) error {
 			if err := ctx.Err(); err != nil {
 				return err
@@ -83,7 +85,7 @@ func NewSSHRuntimeFactory() SSHRuntimeFactory {
 // Open consumes an already-admitted SSH fallback and retains only its verified runtime handle.
 func (f SSHRuntimeFactory) Open(ctx context.Context, admission Step8Result, p profile.Profile, secret []byte) (runtime *SSHRuntime, result Step8Result) {
 	result = Step8Result{RequestID: admission.RequestID}
-	if admission.Decision != DecisionSSHEligible || admission.Class != ResultProofSuccess || admission.RequestID == "" || f.VerifyArtifact == nil {
+	if admission.Decision != DecisionSSHEligible || admission.Class != ResultProofSuccess || admission.RequestID == "" || f.ResolveArtifact == nil || f.VerifyArtifact == nil {
 		return nil, terminalGateResult(result, ResultDowngradeBlocked)
 	}
 	operation, cancel := context.WithTimeout(ctx, SSHRuntimeOperationTimeout)
@@ -91,7 +93,8 @@ func (f SSHRuntimeFactory) Open(ctx context.Context, admission Step8Result, p pr
 	if err := operation.Err(); err != nil {
 		return nil, terminalGateResult(result, runtimeContextClass(ctx))
 	}
-	if err := f.VerifyArtifact(p.MapepireJAR); err != nil {
+	artifact, err := f.ResolveArtifact()
+	if err != nil || f.VerifyArtifact(artifact) != nil {
 		return nil, terminalGateResult(result, ResultArtifactFailure)
 	}
 	if f.Dial == nil {
@@ -113,7 +116,7 @@ func (f SSHRuntimeFactory) Open(ctx context.Context, admission Step8Result, p pr
 	if err := f.JavaReady(operation, p); err != nil {
 		return nil, terminalGateResult(result, runtimeErrorClass(ctx, err, ResultJavaFailure))
 	}
-	receipt, err := client.EnsureMapepireServerJAR(operation, p.MapepireJAR)
+	receipt, err := client.EnsureMapepireServerJAR(operation, artifact)
 	if err != nil {
 		return nil, terminalGateResult(result, runtimeErrorClass(ctx, err, ResultUploadFailure))
 	}
