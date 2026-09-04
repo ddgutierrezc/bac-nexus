@@ -71,6 +71,17 @@ jobs:
           scripts/test-fetch-mapepire-2.3.6.sh
           scripts/test-package-handoff.sh
 
+      - name: Fetch verified Mapepire release inputs
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          artifact_dir="${RUNNER_TEMP}/mapepire-2.3.6"
+          rm -rf "$artifact_dir"
+          scripts/fetch-mapepire-2.3.6.sh "$artifact_dir"
+
       - name: Build and verify handoff package
         shell: bash
         env:
@@ -95,16 +106,14 @@ jobs:
               -revision "$REVISION" \
               -goos "$goos" \
               -goarch "$goarch"
-          done
-          if [[ "${GITHUB_REF_TYPE}" == 'tag' ]]; then
-             artifact_dir="${RUNNER_TEMP}/mapepire-2.3.6"
-             rm -rf "$artifact_dir"
-             scripts/fetch-mapepire-2.3.6.sh "$artifact_dir"
-             scripts/package-handoff.sh "build/v1-mcp-foundation/${VERSION}" \
-               "$artifact_dir/mapepire-server.jar" "$artifact_dir/mapepire-server-e39e54e7d3779ee513e0cab1f62acea095219c3b.tar.gz" \
-               "$artifact_dir/LICENSE-GPL-3.0.txt" "build/nexus-${VERSION}-offline.zip"
-             rm -rf "$artifact_dir"
-          fi
+           done
+           if [[ "${GITHUB_REF_TYPE}" == 'tag' ]]; then
+              artifact_dir="${RUNNER_TEMP}/mapepire-2.3.6"
+              trap 'rm -rf "$artifact_dir"' EXIT
+              scripts/package-handoff.sh "build/v1-mcp-foundation/${VERSION}" \
+                "$artifact_dir/mapepire-server.jar" "$artifact_dir/mapepire-server-e39e54e7d3779ee513e0cab1f62acea095219c3b.tar.gz" \
+                "$artifact_dir/LICENSE-GPL-3.0.txt" "build/nexus-${VERSION}-offline.zip"
+           fi
 
       - name: Upload operator handoff package
         if: github.ref_type == 'tag'
