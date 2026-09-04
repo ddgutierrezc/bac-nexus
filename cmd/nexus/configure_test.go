@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"io"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"bac-nexus/internal/configuration"
@@ -71,6 +73,54 @@ func TestDirectOnboardingServiceBindsEligibilityToFixedStep8Proof(t *testing.T) 
 	if !constructorContainsFixedProofGate(constructor) {
 		t.Fatal("direct onboarding eligibility is not bound to the fixed Step 8 proof gate")
 	}
+}
+
+func TestDirectOnboardingCompositionUsesLocalDiagnosticRecorderWithoutPathOutput(t *testing.T) {
+	service := newDirectOnboardingService(profile.Store{Root: t.TempDir()})
+	if service == nil {
+		t.Fatal("newDirectOnboardingService returned nil")
+	}
+	if strings.Contains(t.TempDir(), fmt.Sprintf("%+v", service)) {
+		t.Fatal("direct onboarding composition exposed an absolute local path")
+	}
+	_, testFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("test source location is unavailable")
+	}
+	parsed, err := parser.ParseFile(token.NewFileSet(), filepath.Join(filepath.Dir(testFile), "main.go"), nil, 0)
+	if err != nil {
+		t.Fatalf("parse production constructor: %v", err)
+	}
+	constructor := findFunction(parsed, "newDirectOnboardingService")
+	if constructor == nil || !constructorContainsDiagnosticRecorder(constructor) {
+		t.Fatal("direct onboarding composition does not install the local diagnostic recorder")
+	}
+}
+
+func constructorContainsDiagnosticRecorder(constructor *ast.FuncDecl) bool {
+	installed := false
+	ast.Inspect(constructor.Body, func(node ast.Node) bool {
+		keyValue, ok := node.(*ast.KeyValueExpr)
+		if !ok {
+			return true
+		}
+		key, ok := keyValue.Key.(*ast.Ident)
+		if !ok || key.Name != "Diagnostics" {
+			return true
+		}
+		call, ok := keyValue.Value.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		packageName, ok := selector.X.(*ast.Ident)
+		installed = ok && packageName.Name == "onboardingdiagnostics" && selector.Sel.Name == "New"
+		return true
+	})
+	return installed
 }
 
 func findFunction(file *ast.File, name string) *ast.FuncDecl {

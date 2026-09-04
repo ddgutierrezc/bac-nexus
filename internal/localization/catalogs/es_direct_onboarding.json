@@ -43,5 +43,19 @@
   {"id":"profile.validation.java_home","translation":"Ingresa una ruta de inicio de Java válida para IBM i."},
   {"id":"profile.validation.mapepire_jar","translation":"Ingresa una ruta absoluta válida para el JAR de Mapepire."},
   {"id":"profile.validation.credential_mode","translation":"Selecciona un modo de credencial válido."},
-  {"id":"profile.validation.profile","translation":"Revisa los campos del perfil e inténtalo nuevamente."}
+  {"id":"profile.validation.profile","translation":"Revisa los campos del perfil e inténtalo nuevamente."},
+  {"id":"onboarding.completion_saved","translation":"Incorporación completada"},
+  {"id":"onboarding.completion_failed","translation":"Error de incorporación"},
+  {"id":"onboarding.diagnostic.details","translation":"Fase: {{.Phase}}\nCódigo de falla: {{.Class}}"},
+  {"id":"onboarding.diagnostic.reference","translation":"Referencia de diagnóstico:\n{{.Reference}}"},
+  {"id":"onboarding.diagnostic.written_guidance","translation":"Consulta los diagnósticos locales de incorporación de BAC Nexus. Comparte únicamente esta referencia y los códigos mostrados."},
+  {"id":"onboarding.diagnostic.unavailable_guidance","translation":"Los diagnósticos locales de incorporación no están disponibles. Reintenta de forma segura o contacta al soporte con la fase y el código de falla mostrados."},
+  {"id":"onboarding.diagnostic.phase.host_key_inspection","translation":"Inspección de clave de host"},
+  {"id":"onboarding.diagnostic.phase.existing_identity","translation":"Verificación de identidad existente"},
+  {"id":"onboarding.diagnostic.phase.authenticated_proof","translation":"Prueba autenticada"},
+  {"id":"onboarding.diagnostic.phase.bootstrap_audit","translation":"Auditoría de inicio"},
+  {"id":"onboarding.diagnostic.phase.keyring_precondition","translation":"Precondición de llavero"},
+  {"id":"onboarding.diagnostic.phase.commit","translation":"Confirmación"},
+  {"id":"onboarding.diagnostic.phase.save","translation":"Guardado"},
+  {"id":"onboarding.diagnostic.phase.unavailable","translation":"No disponible"}
 ]

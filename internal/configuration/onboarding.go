@@ -39,6 +39,47 @@ type OnboardingResult struct {
 	// CredentialRetained is true only when a keyring-backed transaction could
 	// not complete its compensation. It is a classification, never a secret.
 	CredentialRetained bool
+	Diagnostic         OnboardingDiagnostic
+}
+
+// OnboardingDiagnostic is deliberately small: it is safe to present to an
+// operator but never carries source errors, credentials, tickets, or paths.
+type OnboardingDiagnostic struct {
+	Phase     OnboardingFailurePhase
+	Class     OnboardingFailureClass
+	Reference string
+	Written   bool
+}
+
+type OnboardingFailurePhase string
+
+const (
+	OnboardingPhaseHostKeyInspection   OnboardingFailurePhase = "host_key_inspection"
+	OnboardingPhaseExistingIdentity    OnboardingFailurePhase = "existing_identity"
+	OnboardingPhaseAuthenticatedProof  OnboardingFailurePhase = "authenticated_proof"
+	OnboardingPhaseBootstrapAudit      OnboardingFailurePhase = "bootstrap_audit"
+	OnboardingPhaseKeyringPrecondition OnboardingFailurePhase = "keyring_precondition"
+	OnboardingPhaseCommit              OnboardingFailurePhase = "commit"
+	OnboardingPhaseSave                OnboardingFailurePhase = "save"
+)
+
+type OnboardingFailureClass string
+
+const (
+	OnboardingClassHostKeyFailure        OnboardingFailureClass = "host_key_failure"
+	OnboardingClassIdentityFailure       OnboardingFailureClass = "identity_failure"
+	OnboardingClassProofFailure          OnboardingFailureClass = "proof_failure"
+	OnboardingClassBootstrapAuditFailure OnboardingFailureClass = "bootstrap_audit_failure"
+	OnboardingClassKeyringUnavailable    OnboardingFailureClass = "keyring_unavailable"
+	OnboardingClassCommitFailure         OnboardingFailureClass = "commit_failure"
+	OnboardingClassSaveFailure           OnboardingFailureClass = "save_failure"
+)
+
+// OnboardingFailureRecorder is owned by configuration because callers decide
+// when a primary onboarding failure is safe to persist. Implementations may
+// only return an opaque local reference.
+type OnboardingFailureRecorder interface {
+	Record(context.Context, OnboardingFailurePhase, OnboardingFailureClass, bool, bool) (string, error)
 }
 type OnboardingAuditEvent struct {
 	Code    string
@@ -49,8 +90,10 @@ type OnboardingDeps struct {
 	// Existing returns the persisted profile for the derived profile name. A nil
 	// profile means this is a first-use enrollment; an error is ambiguous and
 	// must fail closed.
-	Existing   func(context.Context, string) (*profile.Profile, error)
-	Proof      func(context.Context, profile.Profile, []byte) error
+	Existing func(context.Context, string) (*profile.Profile, error)
+	// Proof returns the typed Step 8 result so its already-safe terminal class
+	// can be retained without copying request IDs, tickets, outcomes, or errors.
+	Proof      func(context.Context, profile.Profile, []byte) Step8Result
 	Save       func(profile.Profile) error
 	Delete     func(string) error
 	Audit      func(context.Context, OnboardingAuditEvent) error
@@ -60,7 +103,8 @@ type OnboardingDeps struct {
 	// Commit is the production persistence boundary. When set it owns the
 	// prepared journal, ordered mutations, compensation, and committed audit.
 	// Tests may omit it to exercise the small in-memory seam below.
-	Commit func(context.Context, profile.Profile, []byte, func(context.Context) error) profile.OnboardingCommitResult
+	Commit      func(context.Context, profile.Profile, []byte, func(context.Context) error) profile.OnboardingCommitResult
+	Diagnostics OnboardingFailureRecorder
 }
 type onboardingCall struct {
 	done   chan struct{}
@@ -208,31 +252,32 @@ func (s *OnboardingService) run(ctx context.Context, request OnboardingRequest, 
 		return OnboardingResult{Code: OnboardingCancelled}
 	}
 	if err != nil || observation.Verified || profile.ValidateHostKey(observation.Fingerprint, profile.HostKeyTrustTOFU) != nil {
-		return OnboardingResult{Code: OnboardingFailed}
+		return s.failed(ctx, OnboardingPhaseHostKeyInspection, OnboardingClassHostKeyFailure, false, false)
 	}
 	p := profile.Profile{SchemaVersion: profile.SchemaVersionV3, Name: request.Name, Host: request.Host, Port: request.Port, Username: request.Username, HostKeyFingerprint: observation.Fingerprint, HostKeyTrust: profile.HostKeyTrustTOFU, HostKeyProvenance: automaticTOFUProvenance, CredentialMode: profile.CredentialModePrompt}
 	if s.deps.Existing != nil {
 		existing, existingErr := s.deps.Existing(ctx, p.Name)
 		if existingErr != nil || existing != nil && !sameOnboardingIdentity(*existing, p) {
 			_ = s.deps.Audit(ctx, OnboardingAuditEvent{Code: "identity_changed", Profile: p.Name})
-			return OnboardingResult{Code: OnboardingFailed}
+			return s.failed(ctx, OnboardingPhaseExistingIdentity, OnboardingClassIdentityFailure, false, false)
 		}
 		if existing != nil {
 			p = *existing
 		}
 	}
-	if err := s.deps.Proof(ctx, p, secret); err != nil {
-		if ctx.Err() != nil {
-			return OnboardingResult{Code: OnboardingCancelled}
-		}
-		return OnboardingResult{Code: OnboardingFailed}
+	proof := s.deps.Proof(ctx, p, secret)
+	if ctx.Err() != nil {
+		return OnboardingResult{Code: OnboardingCancelled}
+	}
+	if !successfulOnboardingProof(proof) {
+		return s.failed(ctx, OnboardingPhaseAuthenticatedProof, onboardingProofFailureClass(proof), false, false)
 	}
 	if p.HostKeyProvenance == automaticTOFUProvenance {
 		if s.deps.Audit(ctx, OnboardingAuditEvent{Code: "identity_bootstrap_allowed", Profile: p.Name}) != nil {
 			if ctx.Err() != nil {
 				return OnboardingResult{Code: OnboardingCancelled}
 			}
-			return OnboardingResult{Code: OnboardingFailed}
+			return s.failed(ctx, OnboardingPhaseBootstrapAudit, OnboardingClassBootstrapAuditFailure, false, false)
 		}
 	}
 	committedAudit := func(ctx context.Context) error {
@@ -241,7 +286,7 @@ func (s *OnboardingService) run(ctx context.Context, request OnboardingRequest, 
 	if s.deps.Commit != nil {
 		if s.deps.Capability != nil && s.deps.Capability() == credential.CapabilitySupported {
 			if s.deps.Keyring == nil {
-				return OnboardingResult{Code: OnboardingFailed}
+				return s.failed(ctx, OnboardingPhaseKeyringPrecondition, OnboardingClassKeyringUnavailable, false, false)
 			}
 			p.CredentialMode = profile.CredentialModeKeyring
 		}
@@ -250,17 +295,13 @@ func (s *OnboardingService) run(ctx context.Context, request OnboardingRequest, 
 			if ctx.Err() != nil {
 				return OnboardingResult{Code: OnboardingCancelled}
 			}
-			return OnboardingResult{
-				Code:               OnboardingFailed,
-				CleanupRequired:    result.CleanupRequired,
-				CredentialRetained: result.CleanupRequired && p.CredentialMode == profile.CredentialModeKeyring,
-			}
+			return s.failed(ctx, OnboardingPhaseCommit, OnboardingClassCommitFailure, result.CleanupRequired, result.CleanupRequired && p.CredentialMode == profile.CredentialModeKeyring)
 		}
 		return OnboardingResult{Code: OnboardingSaved, Profile: p}
 	}
 	if s.deps.Capability != nil && s.deps.Capability() == credential.CapabilitySupported {
 		if s.deps.Keyring == nil || s.deps.Keyring.Set(p.Name, secret) != nil {
-			return OnboardingResult{Code: OnboardingFailed}
+			return s.failed(ctx, OnboardingPhaseKeyringPrecondition, OnboardingClassKeyringUnavailable, false, false)
 		}
 		p.CredentialMode = profile.CredentialModeKeyring
 	}
@@ -268,7 +309,7 @@ func (s *OnboardingService) run(ctx context.Context, request OnboardingRequest, 
 		if p.CredentialMode == profile.CredentialModeKeyring {
 			s.deps.Keyring.Delete(p.Name)
 		}
-		return OnboardingResult{Code: OnboardingFailed, CleanupRequired: true}
+		return s.failed(ctx, OnboardingPhaseSave, OnboardingClassSaveFailure, true, false)
 	}
 	if committedAudit(ctx) != nil {
 		cleanupRequired := s.deps.Delete == nil || s.deps.Delete(p.Name) != nil
@@ -277,9 +318,45 @@ func (s *OnboardingService) run(ctx context.Context, request OnboardingRequest, 
 				cleanupRequired = true
 			}
 		}
-		return OnboardingResult{Code: OnboardingFailed, CleanupRequired: cleanupRequired}
+		return s.failed(ctx, OnboardingPhaseSave, OnboardingClassSaveFailure, cleanupRequired, false)
 	}
 	return OnboardingResult{Code: OnboardingSaved, Profile: p}
+}
+
+func successfulOnboardingProof(result Step8Result) bool {
+	return (result.Decision == DecisionWSSSelected || result.Decision == DecisionSSHEligible) &&
+		result.Class == ResultProofSuccess && result.ProofRevision == ProofRevision && result.Cleanup
+}
+
+func onboardingProofFailureClass(result Step8Result) OnboardingFailureClass {
+	if result.Decision == DecisionTerminal && IsTerminalResult(result.Class) && result.Class != ResultCancelled {
+		return OnboardingFailureClass(result.Class)
+	}
+	return OnboardingClassProofFailure
+}
+
+func (s *OnboardingService) failed(ctx context.Context, phase OnboardingFailurePhase, class OnboardingFailureClass, cleanupRequired, credentialRetained bool) OnboardingResult {
+	result := OnboardingResult{Code: OnboardingFailed, CleanupRequired: cleanupRequired, CredentialRetained: credentialRetained, Diagnostic: OnboardingDiagnostic{Phase: phase, Class: class}}
+	if ctx.Err() != nil || s.deps.Diagnostics == nil {
+		return result
+	}
+	reference, err := s.deps.Diagnostics.Record(ctx, phase, class, cleanupRequired, credentialRetained)
+	if err == nil && validOnboardingDiagnosticReference(reference) {
+		result.Diagnostic.Reference, result.Diagnostic.Written = reference, true
+	}
+	return result
+}
+
+func validOnboardingDiagnosticReference(reference string) bool {
+	if len(reference) != len("ONB-")+32 || reference[:4] != "ONB-" {
+		return false
+	}
+	for _, value := range reference[4:] {
+		if !(value >= '0' && value <= '9' || value >= 'a' && value <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func sameOnboardingIdentity(existing, observed profile.Profile) bool {

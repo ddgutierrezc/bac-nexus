@@ -114,12 +114,12 @@ func TestOnboardingUsesSelectedPortAndAuditsAfterProofBeforeCommit(t *testing.T)
 			events = append(events, "inspect")
 			return remote.HostKeyObservation{Fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}, nil
 		},
-		Proof: func(_ context.Context, p profile.Profile, _ []byte) error {
+		Proof: func(_ context.Context, p profile.Profile, _ []byte) Step8Result {
 			if p.Name != "selected-port" || p.Port != 2222 {
 				t.Fatalf("proof profile = %#v", p)
 			}
 			events = append(events, "proof")
-			return nil
+			return successfulProof()
 		},
 		Save: func(profile.Profile) error { t.Fatal("legacy Save must not run"); return nil },
 		Audit: func(_ context.Context, event OnboardingAuditEvent) error {
@@ -197,12 +197,12 @@ func TestOnboardingOwnsAndZeroesSecretAfterAuditedProofBeforeSave(t *testing.T) 
 			events = append(events, "inspect")
 			return remote.HostKeyObservation{Fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", TrustCandidate: profile.HostKeyTrustTOFU}, nil
 		},
-		Proof: func(_ context.Context, _ profile.Profile, password []byte) error {
+		Proof: func(_ context.Context, _ profile.Profile, password []byte) Step8Result {
 			events = append(events, "proof")
 			if string(password) != "password" {
 				t.Fatal("password was not delivered to proof")
 			}
-			return nil
+			return successfulProof()
 		},
 		Save: func(p profile.Profile) error {
 			events = append(events, "save")
@@ -266,7 +266,7 @@ func TestOnboardingRejectsUnauditedAutomaticTOFUBeforeAnySideEffect(t *testing.T
 			inspected++
 			return remote.HostKeyObservation{}, nil
 		},
-		Proof: func(context.Context, profile.Profile, []byte) error { return nil },
+		Proof: func(context.Context, profile.Profile, []byte) Step8Result { return successfulProof() },
 		Save:  func(profile.Profile) error { return nil },
 	})
 	lease, code := captureForTest(t, service, []byte("password"))
@@ -281,7 +281,10 @@ func TestOnboardingCompensatesSavedProfileWhenCommittedAuditFails(t *testing.T) 
 		Inspect: func(context.Context, string, int) (remote.HostKeyObservation, error) {
 			return remote.HostKeyObservation{Fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", TrustCandidate: profile.HostKeyTrustTOFU}, nil
 		},
-		Proof:  func(context.Context, profile.Profile, []byte) error { events = append(events, "proof"); return nil },
+		Proof: func(context.Context, profile.Profile, []byte) Step8Result {
+			events = append(events, "proof")
+			return successfulProof()
+		},
 		Save:   func(profile.Profile) error { events = append(events, "save"); return nil },
 		Delete: func(string) error { events = append(events, "delete"); return nil },
 		Audit: func(_ context.Context, event OnboardingAuditEvent) error {
@@ -327,9 +330,9 @@ func TestOnboardingRejectsExistingPinMismatchAndAuditsIdentityChange(t *testing.
 			events = append(events, event.Code)
 			return nil
 		},
-		Proof: func(context.Context, profile.Profile, []byte) error {
+		Proof: func(context.Context, profile.Profile, []byte) Step8Result {
 			t.Fatal("proof must not run for a mismatched pin")
-			return nil
+			return Step8Result{}
 		},
 		Save:       func(profile.Profile) error { t.Fatal("save must not run for a mismatched pin"); return nil },
 		Capability: func() credential.Capability { return credential.CapabilityUnsupported },
@@ -361,8 +364,11 @@ func TestOnboardingAcceptsExactExistingPinWithoutBootstrapAudit(t *testing.T) {
 			p := profile.Profile{SchemaVersion: profile.SchemaVersionV3, Name: "user-ibmi-example-test", Host: "ibmi.example.test", Port: 22, Username: "USER", HostKeyFingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", HostKeyTrust: profile.HostKeyTrustTOFU, CredentialMode: profile.CredentialModePrompt}
 			return &p, nil
 		},
-		Proof: func(context.Context, profile.Profile, []byte) error { events = append(events, "proof"); return nil },
-		Save:  func(profile.Profile) error { events = append(events, "save"); return nil },
+		Proof: func(context.Context, profile.Profile, []byte) Step8Result {
+			events = append(events, "proof")
+			return successfulProof()
+		},
+		Save: func(profile.Profile) error { events = append(events, "save"); return nil },
 		Audit: func(_ context.Context, event OnboardingAuditEvent) error {
 			events = append(events, event.Code)
 			return nil
@@ -396,7 +402,7 @@ func TestOnboardingCancelReturnsCancelledWithoutPersistence(t *testing.T) {
 			<-ctx.Done()
 			return remote.HostKeyObservation{}, ctx.Err()
 		},
-		Proof: func(context.Context, profile.Profile, []byte) error { return nil },
+		Proof: func(context.Context, profile.Profile, []byte) Step8Result { return successfulProof() },
 		Save:  func(profile.Profile) error { saved++; return nil },
 		Audit: func(context.Context, OnboardingAuditEvent) error { return nil },
 	})
@@ -420,7 +426,10 @@ func TestOnboardingDelegatesPersistenceToPreparedCommitAfterProof(t *testing.T) 
 		Inspect: func(context.Context, string, int) (remote.HostKeyObservation, error) {
 			return remote.HostKeyObservation{Fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", TrustCandidate: profile.HostKeyTrustTOFU}, nil
 		},
-		Proof: func(context.Context, profile.Profile, []byte) error { events = append(events, "proof"); return nil },
+		Proof: func(context.Context, profile.Profile, []byte) Step8Result {
+			events = append(events, "proof")
+			return successfulProof()
+		},
 		Save: func(profile.Profile) error {
 			t.Fatal("legacy save bypassed prepared commit")
 			return nil
@@ -455,7 +464,7 @@ func TestOnboardingSaveFailureClassifiesRetainedCredentialAndRequiresCleanup(t *
 		Inspect: func(context.Context, string, int) (remote.HostKeyObservation, error) {
 			return remote.HostKeyObservation{Fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", TrustCandidate: profile.HostKeyTrustTOFU}, nil
 		},
-		Proof:      func(context.Context, profile.Profile, []byte) error { return nil },
+		Proof:      func(context.Context, profile.Profile, []byte) Step8Result { return successfulProof() },
 		Save:       func(profile.Profile) error { t.Fatal("legacy save bypassed prepared commit"); return nil },
 		Audit:      func(context.Context, OnboardingAuditEvent) error { return nil },
 		Capability: func() credential.Capability { return credential.CapabilitySupported },
@@ -527,11 +536,11 @@ func TestOnboardingShutdownWaitsForWorkerAndZeroesSecret(t *testing.T) {
 		Inspect: func(context.Context, string, int) (remote.HostKeyObservation, error) {
 			return remote.HostKeyObservation{Fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", TrustCandidate: profile.HostKeyTrustTOFU}, nil
 		},
-		Proof: func(ctx context.Context, _ profile.Profile, secret []byte) error {
+		Proof: func(ctx context.Context, _ profile.Profile, secret []byte) Step8Result {
 			proofSecret = secret
 			close(proofStarted)
 			<-ctx.Done()
-			return ctx.Err()
+			return Step8Result{Decision: DecisionTerminal, Class: ResultCancelled}
 		},
 		Save:  func(profile.Profile) error { t.Fatal("Save must not run after shutdown"); return nil },
 		Audit: func(context.Context, OnboardingAuditEvent) error { return nil },
@@ -563,7 +572,7 @@ func TestOnboardingCanaryNeverEscapesSecretOwningBoundary(t *testing.T) {
 		Inspect: func(context.Context, string, int) (remote.HostKeyObservation, error) {
 			return remote.HostKeyObservation{Fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", TrustCandidate: profile.HostKeyTrustTOFU}, nil
 		},
-		Proof: func(context.Context, profile.Profile, []byte) error { return nil },
+		Proof: func(context.Context, profile.Profile, []byte) Step8Result { return successfulProof() },
 		Audit: func(_ context.Context, event OnboardingAuditEvent) error {
 			var err error
 			auditJSON, err = json.Marshal(event)
@@ -607,9 +616,9 @@ func TestOnboardingRequiredAuditFailurePreventsCommitAndZeroesWorkerSecret(t *te
 		Inspect: func(context.Context, string, int) (remote.HostKeyObservation, error) {
 			return remote.HostKeyObservation{Fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", TrustCandidate: profile.HostKeyTrustTOFU}, nil
 		},
-		Proof: func(_ context.Context, _ profile.Profile, secret []byte) error {
+		Proof: func(_ context.Context, _ profile.Profile, secret []byte) Step8Result {
 			proofSecret = secret
-			return nil
+			return successfulProof()
 		},
 		Save: func(profile.Profile) error { t.Fatal("Save must not run after required audit failure"); return nil },
 		Audit: func(context.Context, OnboardingAuditEvent) error {
@@ -636,4 +645,112 @@ func zeroed(value []byte) bool {
 		}
 	}
 	return true
+}
+
+func successfulProof() Step8Result {
+	return Step8Result{Decision: DecisionWSSSelected, Class: ResultProofSuccess, ProofRevision: ProofRevision, Cleanup: true}
+}
+
+type onboardingDiagnosticRecorderStub struct {
+	calls []OnboardingDiagnostic
+	err   error
+}
+
+func (r *onboardingDiagnosticRecorderStub) Record(_ context.Context, phase OnboardingFailurePhase, class OnboardingFailureClass, cleanup, retained bool) (string, error) {
+	r.calls = append(r.calls, OnboardingDiagnostic{Phase: phase, Class: class})
+	if r.err != nil {
+		return "", r.err
+	}
+	return "ONB-0123456789abcdef0123456789abcdef", nil
+}
+
+func TestOnboardingFailureClassificationRecordsEveryFailureSite(t *testing.T) {
+	for _, test := range []struct {
+		name, phase string
+		class       OnboardingFailureClass
+		modify      func(*OnboardingDeps)
+	}{
+		{"host key", string(OnboardingPhaseHostKeyInspection), OnboardingClassHostKeyFailure, func(d *OnboardingDeps) {
+			d.Inspect = func(context.Context, string, int) (remote.HostKeyObservation, error) {
+				return remote.HostKeyObservation{}, errors.New("raw host failure")
+			}
+		}},
+		{"existing identity", string(OnboardingPhaseExistingIdentity), OnboardingClassIdentityFailure, func(d *OnboardingDeps) {
+			d.Existing = func(context.Context, string) (*profile.Profile, error) {
+				return nil, errors.New("raw identity failure")
+			}
+		}},
+		{"proof terminal class", string(OnboardingPhaseAuthenticatedProof), OnboardingFailureClass(ResultAuthenticationFailed), func(d *OnboardingDeps) {
+			d.Proof = func(context.Context, profile.Profile, []byte) Step8Result {
+				return Step8Result{Decision: DecisionTerminal, Class: ResultAuthenticationFailed}
+			}
+		}},
+		{"bootstrap audit", string(OnboardingPhaseBootstrapAudit), OnboardingClassBootstrapAuditFailure, func(d *OnboardingDeps) {
+			d.Audit = func(context.Context, OnboardingAuditEvent) error { return errors.New("raw audit failure") }
+		}},
+		{"keyring precondition", string(OnboardingPhaseKeyringPrecondition), OnboardingClassKeyringUnavailable, func(d *OnboardingDeps) {
+			d.Capability = func() credential.Capability { return credential.CapabilitySupported }
+			d.Keyring = nil
+		}},
+		{"commit", string(OnboardingPhaseCommit), OnboardingClassCommitFailure, func(d *OnboardingDeps) {
+			d.Commit = func(context.Context, profile.Profile, []byte, func(context.Context) error) profile.OnboardingCommitResult {
+				return profile.OnboardingCommitResult{Err: errors.New("raw commit failure")}
+			}
+		}},
+		{"legacy save", string(OnboardingPhaseSave), OnboardingClassSaveFailure, func(d *OnboardingDeps) {
+			d.Save = func(profile.Profile) error { return errors.New("raw save failure") }
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := &onboardingDiagnosticRecorderStub{}
+			deps := OnboardingDeps{
+				Inspect: func(context.Context, string, int) (remote.HostKeyObservation, error) {
+					return remote.HostKeyObservation{Fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}, nil
+				},
+				Proof: successfulProofFunc, Save: func(profile.Profile) error { return nil }, Audit: func(context.Context, OnboardingAuditEvent) error { return nil },
+				Capability: func() credential.Capability { return credential.CapabilityUnsupported }, Diagnostics: recorder,
+			}
+			test.modify(&deps)
+			result := NewOnboardingService(deps).run(context.Background(), onboardingRequest(), []byte("secret"))
+			if result.Code != OnboardingFailed || string(result.Diagnostic.Phase) != test.phase || result.Diagnostic.Class != test.class || !result.Diagnostic.Written || len(recorder.calls) != 1 {
+				t.Fatalf("result=%+v calls=%+v", result, recorder.calls)
+			}
+		})
+	}
+}
+
+func successfulProofFunc(context.Context, profile.Profile, []byte) Step8Result {
+	return successfulProof()
+}
+
+func TestOnboardingProofMalformedAndCancellationDoNotPersistUnsafeDiagnostics(t *testing.T) {
+	recorder := &onboardingDiagnosticRecorderStub{}
+	deps := OnboardingDeps{Inspect: func(context.Context, string, int) (remote.HostKeyObservation, error) {
+		return remote.HostKeyObservation{Fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}, nil
+	}, Proof: func(context.Context, profile.Profile, []byte) Step8Result {
+		return Step8Result{Decision: DecisionSSHEligible, Class: ResultAuthenticationFailed}
+	}, Save: func(profile.Profile) error { return nil }, Audit: func(context.Context, OnboardingAuditEvent) error { return nil }, Diagnostics: recorder}
+	result := NewOnboardingService(deps).run(context.Background(), onboardingRequest(), []byte("secret"))
+	if result.Diagnostic.Class != OnboardingClassProofFailure || !result.Diagnostic.Written {
+		t.Fatalf("malformed proof result=%+v", result)
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	result = NewOnboardingService(deps).run(cancelled, onboardingRequest(), []byte("secret"))
+	if result.Code != OnboardingCancelled || len(recorder.calls) != 1 {
+		t.Fatalf("cancelled result=%+v calls=%d", result, len(recorder.calls))
+	}
+}
+
+func TestOnboardingDiagnosticRecorderFailureDoesNotChangePrimaryFailureOrLeakCanaries(t *testing.T) {
+	const canary = "raw-error-and-secret-canary"
+	recorder := &onboardingDiagnosticRecorderStub{err: errors.New(canary)}
+	deps := OnboardingDeps{Inspect: func(context.Context, string, int) (remote.HostKeyObservation, error) {
+		return remote.HostKeyObservation{}, errors.New(canary)
+	}, Proof: successfulProofFunc, Save: func(profile.Profile) error { return nil }, Audit: func(context.Context, OnboardingAuditEvent) error { return nil }, Diagnostics: recorder}
+	result := NewOnboardingService(deps).run(context.Background(), onboardingRequest(), []byte(canary))
+	encoded, err := json.Marshal(result)
+	if err != nil || result.Code != OnboardingFailed || result.Diagnostic.Written || result.Diagnostic.Reference != "" || strings.Contains(string(encoded), canary) || strings.Contains(fmt.Sprintf("%+v", result), canary) {
+		t.Fatalf("result=%+v json=%s err=%v", result, encoded, err)
+	}
 }

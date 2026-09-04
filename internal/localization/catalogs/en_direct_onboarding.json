@@ -43,5 +43,19 @@
   {"id":"profile.validation.java_home","translation":"Enter a valid IBM i Java home path."},
   {"id":"profile.validation.mapepire_jar","translation":"Enter a valid absolute Mapepire JAR path."},
   {"id":"profile.validation.credential_mode","translation":"Select a valid credential mode."},
-  {"id":"profile.validation.profile","translation":"Review the profile fields and try again."}
+  {"id":"profile.validation.profile","translation":"Review the profile fields and try again."},
+  {"id":"onboarding.completion_saved","translation":"Onboarding complete"},
+  {"id":"onboarding.completion_failed","translation":"Onboarding failed"},
+  {"id":"onboarding.diagnostic.details","translation":"Phase: {{.Phase}}\nFailure code: {{.Class}}"},
+  {"id":"onboarding.diagnostic.reference","translation":"Diagnostic reference:\n{{.Reference}}"},
+  {"id":"onboarding.diagnostic.written_guidance","translation":"Consult local BAC Nexus onboarding diagnostics. Share only this reference and the displayed codes."},
+  {"id":"onboarding.diagnostic.unavailable_guidance","translation":"Local onboarding diagnostics are unavailable. Retry safely or contact support with the displayed phase and failure code."},
+  {"id":"onboarding.diagnostic.phase.host_key_inspection","translation":"Host-key inspection"},
+  {"id":"onboarding.diagnostic.phase.existing_identity","translation":"Existing identity check"},
+  {"id":"onboarding.diagnostic.phase.authenticated_proof","translation":"Authenticated proof"},
+  {"id":"onboarding.diagnostic.phase.bootstrap_audit","translation":"Bootstrap audit"},
+  {"id":"onboarding.diagnostic.phase.keyring_precondition","translation":"Keyring precondition"},
+  {"id":"onboarding.diagnostic.phase.commit","translation":"Commit"},
+  {"id":"onboarding.diagnostic.phase.save","translation":"Save"},
+  {"id":"onboarding.diagnostic.phase.unavailable","translation":"Unavailable"}
 ]

@@ -28,6 +28,7 @@ import (
 	"bac-nexus/internal/localstate"
 	"bac-nexus/internal/mapepire"
 	"bac-nexus/internal/mcp"
+	"bac-nexus/internal/onboardingdiagnostics"
 	ownershipsqlite "bac-nexus/internal/ownership/sqlite"
 	"bac-nexus/internal/profile"
 	"bac-nexus/internal/release"
@@ -610,7 +611,7 @@ func newDirectOnboardingService(store profile.Store) *configuration.OnboardingSe
 			}
 			return &existing, nil
 		},
-		Proof: func(ctx context.Context, p profile.Profile, secret []byte) error {
+		Proof: func(ctx context.Context, p profile.Profile, secret []byte) configuration.Step8Result {
 			service := newStep8ProductionRunnerWithCredentials(store, capturedCredential{secret: secret})
 			request := configuration.Step8Request{RequestID: "direct-" + p.Name, Generation: 1, Profile: p, WSSConsent: true}
 			result := service.Run(ctx, request)
@@ -618,15 +619,15 @@ func newDirectOnboardingService(store profile.Store) *configuration.OnboardingSe
 				grant, allowed := (configuration.PolicyFallbackAuthorizer{}).Authorize(request.RequestID, request.Generation, result.FallbackClass)
 				sshRequest, consented := (configuration.PolicySSHConsent{}).From(grant, request.RequestID, request.Generation)
 				if !allowed || !consented {
-					return errors.New("authenticated proof fallback was not authorized")
+					return configuration.Step8Result{Decision: configuration.DecisionTerminal, Class: configuration.ResultProofFailure}
 				}
 				sshRequest.Profile, sshRequest.FallbackTicket = p, result.FallbackTicket
 				result = service.RunSSH(ctx, sshRequest)
 			}
-			if result.Class != configuration.ResultProofSuccess || result.ProofRevision != mapepire.FixedProofRevision || !result.Cleanup || (result.Decision != configuration.DecisionWSSSelected && result.Decision != configuration.DecisionSSHEligible) {
-				return errors.New("authenticated proof did not complete")
+			if result.Class == configuration.ResultProofSuccess && result.ProofRevision != mapepire.FixedProofRevision {
+				return configuration.Step8Result{Decision: configuration.DecisionTerminal, Class: configuration.ResultProofFailure}
 			}
-			return nil
+			return result
 		},
 		Save: func(p profile.Profile) error { _, err := store.Save(p); return err },
 		Delete: func(name string) error {
@@ -717,6 +718,12 @@ func newDirectOnboardingService(store profile.Store) *configuration.OnboardingSe
 			}
 			return result
 		},
+		Diagnostics: onboardingdiagnostics.New(onboardingdiagnostics.Config{
+			UserConfigDir: os.UserConfigDir,
+			Platform:      localstate.NewPlatform(os.UserConfigDir),
+			Now:           time.Now,
+			Random:        rand.Reader,
+		}),
 	})
 }
 
