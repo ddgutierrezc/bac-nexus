@@ -109,7 +109,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Verify profile store on Windows
-        run: go test -count=1 ./internal/profile
+      - name: Verify profile store and bundle resolver on Windows
+        run: go test -count=1 ./internal/profile ./internal/configuration
       - name: Verify profile store vet on Windows
         run: go vet ./internal/profile
