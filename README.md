@@ -72,6 +72,10 @@ Plain local builds display `dev`. For a non-release local preview in PowerShell:
 go build -ldflags "-X main.releaseVersion=v0.0.0-preview -X main.vcsRevision=local" -o nexus.exe ./cmd/nexus
 ```
 
+## Offline handoff
+
+Extract the complete release ZIP and launch `platforms/<your-goos>-<your-goarch>/nexus[.exe]` in place. Do not copy only `nexus`: the fixed bundle topology also contains the shared Mapepire component, GPLv3 license, notice, source archive, and checksums.
+
 ## Documentation
 
 - [DESIGN.md](DESIGN.md) — canonical terminal design system for the local TUI.

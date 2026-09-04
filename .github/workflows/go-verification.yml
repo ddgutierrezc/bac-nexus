@@ -65,6 +65,12 @@ jobs:
           done < <(git ls-files '*.go')
           python3 -c 'from pathlib import Path; text = Path("docs/IBM_I_VALIDATION.md").read_text(encoding="utf-8"); required = ["## Prerequisites", "## Binary and manifest verification", "## Manual validation checklist", "## Sanitized external evidence template", "## Abort and rollback", "ready_for_controlled_ibmi_validation", "not_validated_on_ibmi"]; forbidden = ["source text:", "host/user IDs:", "raw errors:", "commands:", "SQL:", "cursors:"]; assert all(marker in text for marker in required); assert not any(marker in text for marker in forbidden); assert "only exact recorded owned paths" in text; workflow = Path(".github/workflows/go-verification.yml").read_text(encoding="utf-8"); assert "git" + " ls-remote" not in workflow; assert "go test -tags=" + "ibmi_integration" not in workflow; assert "release_tag_pattern=" in workflow'
 
+      - name: Verify offline handoff fixture assembly
+        shell: bash
+        run: |
+          scripts/test-fetch-mapepire-2.3.6.sh
+          scripts/test-package-handoff.sh
+
       - name: Build and verify handoff package
         shell: bash
         env:
@@ -90,12 +96,22 @@ jobs:
               -goos "$goos" \
               -goarch "$goarch"
           done
+          if [[ "${GITHUB_REF_TYPE}" == 'tag' ]]; then
+             artifact_dir="${RUNNER_TEMP}/mapepire-2.3.6"
+             rm -rf "$artifact_dir"
+             scripts/fetch-mapepire-2.3.6.sh "$artifact_dir"
+             scripts/package-handoff.sh "build/v1-mcp-foundation/${VERSION}" \
+               "$artifact_dir/mapepire-server.jar" "$artifact_dir/mapepire-server-e39e54e7d3779ee513e0cab1f62acea095219c3b.tar.gz" \
+               "$artifact_dir/LICENSE-GPL-3.0.txt" "build/nexus-${VERSION}-offline.zip"
+             rm -rf "$artifact_dir"
+          fi
 
       - name: Upload operator handoff package
+        if: github.ref_type == 'tag'
         uses: actions/upload-artifact@v4
         with:
           name: nexus-v1-mcp-foundation-${{ github.sha }}
-          path: build/v1-mcp-foundation
+          path: build/nexus-*-offline.zip*
           if-no-files-found: error
 
   profile-windows:
