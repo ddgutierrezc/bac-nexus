@@ -746,6 +746,23 @@ func (e *MapepireLaunchError) Error() string {
 	return "Mapepire SSH launch unavailable: " + string(e.Stage)
 }
 
+// MapepireLaunchStageFor returns only an allowlisted launch diagnostic stage.
+func MapepireLaunchStageFor(err error) MapepireLaunchStage {
+	var launchErr *MapepireLaunchError
+	if errors.As(err, &launchErr) && validMapepireLaunchStage(launchErr.Stage) {
+		return launchErr.Stage
+	}
+	return ""
+}
+
+func validMapepireLaunchStage(stage MapepireLaunchStage) bool {
+	switch stage {
+	case MapepireLaunchSession, MapepireLaunchStdin, MapepireLaunchStdout, MapepireLaunchStart:
+		return true
+	}
+	return false
+}
+
 func (c *sessionChannel) Read(p []byte) (int, error)  { return c.stdout.Read(p) }
 func (c *sessionChannel) Write(p []byte) (int, error) { return c.stdin.Write(p) }
 func (c *sessionChannel) Close() error {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 
@@ -135,7 +136,12 @@ func TestSSHRuntimeProveMapsLaunchSessionAndProofFailures(t *testing.T) {
 		runtime   *SSHRuntime
 		wantClass ResultClass
 	}{
-		{name: "launch", runtime: &SSHRuntime{client: &proofRuntimeClientFake{launchErr: errors.New("launch")}}, wantClass: ResultLaunchFailure},
+		{name: "unknown launch", runtime: &SSHRuntime{client: &proofRuntimeClientFake{launchErr: errors.New("secret-host /secret/path")}}, wantClass: ResultLaunchFailure},
+		{name: "launch session", runtime: &SSHRuntime{client: &proofRuntimeClientFake{launchErr: &remote.MapepireLaunchError{Stage: remote.MapepireLaunchSession}}}, wantClass: ResultLaunchSessionFailure},
+		{name: "launch stdin", runtime: &SSHRuntime{client: &proofRuntimeClientFake{launchErr: &remote.MapepireLaunchError{Stage: remote.MapepireLaunchStdin}}}, wantClass: ResultLaunchStdinFailure},
+		{name: "launch stdout", runtime: &SSHRuntime{client: &proofRuntimeClientFake{launchErr: &remote.MapepireLaunchError{Stage: remote.MapepireLaunchStdout}}}, wantClass: ResultLaunchStdoutFailure},
+		{name: "launch start", runtime: &SSHRuntime{client: &proofRuntimeClientFake{launchErr: &remote.MapepireLaunchError{Stage: remote.MapepireLaunchStart}}}, wantClass: ResultLaunchStartFailure},
+		{name: "invalid launch stage", runtime: &SSHRuntime{client: &proofRuntimeClientFake{launchErr: &remote.MapepireLaunchError{Stage: "arbitrary"}}}, wantClass: ResultLaunchFailure},
 		{name: "session", runtime: &SSHRuntime{client: &proofRuntimeClientFake{}}, wantClass: ResultSessionFailure},
 		{name: "proof", runtime: &SSHRuntime{client: &proofRuntimeClientFake{transport: failingProofTransport{}}}, wantClass: ResultProofFailure},
 	}
@@ -145,8 +151,15 @@ func TestSSHRuntimeProveMapsLaunchSessionAndProofFailures(t *testing.T) {
 			if result.Decision != DecisionTerminal || result.Class != tt.wantClass {
 				t.Fatalf("result=%+v", result)
 			}
+			if strings.Contains(resultString(result), "secret-host") || strings.Contains(resultString(result), "/secret/path") {
+				t.Fatalf("result leaked launch error detail: %+v", result)
+			}
 		})
 	}
+}
+
+func resultString(result Step8Result) string {
+	return string(result.Class) + result.ProofRevision + result.Outcome
 }
 
 func TestProofErrorClassMapsTypedTerminalFailures(t *testing.T) {
