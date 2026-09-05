@@ -177,6 +177,16 @@ func proofErrorClass(ctx context.Context, err error) ResultClass {
 	}
 	switch remote.FixedProofStageFor(err) {
 	case remote.FixedProofLaunchStage:
+		switch remote.MapepireLaunchStageFor(err) {
+		case remote.MapepireLaunchSession:
+			return ResultLaunchSessionFailure
+		case remote.MapepireLaunchStdin:
+			return ResultLaunchStdinFailure
+		case remote.MapepireLaunchStdout:
+			return ResultLaunchStdoutFailure
+		case remote.MapepireLaunchStart:
+			return ResultLaunchStartFailure
+		}
 		return ResultLaunchFailure
 	case remote.FixedProofSessionStage:
 		return ResultSessionFailure

@@ -91,6 +91,21 @@ func TestStep8AuditorRecordsTerminalFailureWithoutRevision(t *testing.T) {
 	}
 }
 
+func TestStep8AuditorRecordsOnlyAllowlistedLaunchFailureStages(t *testing.T) {
+	for _, class := range []string{"launch_session_failure", "launch_stdin_failure", "launch_stdout_failure", "launch_start_failure"} {
+		t.Run(class, func(t *testing.T) {
+			recorder := NewRecorder()
+			if err := NewStep8Auditor(recorder).Record(context.Background(), Step8Event{Transport: "ssh", Class: class}); err != nil {
+				t.Fatalf("Record() error = %v", err)
+			}
+			events := recorder.Events()
+			if len(events) != 1 || events[0].Reason != "step8:ssh:"+class+":incomplete" {
+				t.Fatalf("recorded events = %+v, want allowlisted launch stage", events)
+			}
+		})
+	}
+}
+
 func TestStep8AuditorRejectsInvalidArtifactStageCombinations(t *testing.T) {
 	for _, event := range []Step8Event{
 		{Transport: "wss", Class: "upload_failure", ArtifactStage: mapepirestdio.ArtifactStageTransfer},

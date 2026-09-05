@@ -79,13 +79,17 @@ const (
 	ResultJavaFailure            ResultClass = "java_failure"
 	ResultUploadFailure          ResultClass = "upload_failure"
 	ResultLaunchFailure          ResultClass = "launch_failure"
+	ResultLaunchSessionFailure   ResultClass = "launch_session_failure"
+	ResultLaunchStdinFailure     ResultClass = "launch_stdin_failure"
+	ResultLaunchStdoutFailure    ResultClass = "launch_stdout_failure"
+	ResultLaunchStartFailure     ResultClass = "launch_start_failure"
 	ResultSessionFailure         ResultClass = "session_failure"
 	ResultProofFailure           ResultClass = "proof_failure"
 )
 
 func IsTerminalResult(c ResultClass) bool {
 	switch c {
-	case ResultIdentityFailure, ResultTrustMismatch, ResultProtocolFailure, ResultFramingFailure, ResultMalformedResponse, ResultDowngradeBlocked, ResultCredentialsUnavailable, ResultAuthenticationFailed, ResultAuthorizationDenied, ResultCancelled, ResultOperationTimeout, ResultProofTimeout, ResultCleanupTimeout, ResultCleanupFailure, ResultLimitExceeded, ResultConsentDeclined, ResultArtifactFailure, ResultJavaFailure, ResultUploadFailure, ResultLaunchFailure, ResultSessionFailure, ResultProofFailure:
+	case ResultIdentityFailure, ResultTrustMismatch, ResultProtocolFailure, ResultFramingFailure, ResultMalformedResponse, ResultDowngradeBlocked, ResultCredentialsUnavailable, ResultAuthenticationFailed, ResultAuthorizationDenied, ResultCancelled, ResultOperationTimeout, ResultProofTimeout, ResultCleanupTimeout, ResultCleanupFailure, ResultLimitExceeded, ResultConsentDeclined, ResultArtifactFailure, ResultJavaFailure, ResultUploadFailure, ResultLaunchFailure, ResultLaunchSessionFailure, ResultLaunchStdinFailure, ResultLaunchStdoutFailure, ResultLaunchStartFailure, ResultSessionFailure, ResultProofFailure:
 		return true
 	}
 	return false

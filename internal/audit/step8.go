@@ -49,7 +49,7 @@ func ValidateStep8Event(e Step8Event) error {
 }
 func step8Class(c string) bool {
 	switch c {
-	case "proof_success", "identity_failure", "trust_mismatch", "protocol_failure", "framing_failure", "malformed_response", "downgrade_blocked", "credentials_unavailable", "authentication_failed", "authorization_denied", "cancelled", "operation_timeout", "proof_timeout", "cleanup_timeout", "cleanup_failure", "limit_exceeded", "consent_declined_or_absent", "artifact_failure", "java_failure", "upload_failure", "launch_failure", "session_failure", "proof_failure":
+	case "proof_success", "identity_failure", "trust_mismatch", "protocol_failure", "framing_failure", "malformed_response", "downgrade_blocked", "credentials_unavailable", "authentication_failed", "authorization_denied", "cancelled", "operation_timeout", "proof_timeout", "cleanup_timeout", "cleanup_failure", "limit_exceeded", "consent_declined_or_absent", "artifact_failure", "java_failure", "upload_failure", "launch_failure", "launch_session_failure", "launch_stdin_failure", "launch_stdout_failure", "launch_start_failure", "session_failure", "proof_failure":
 		return true
 	}
 	return false

@@ -40,7 +40,7 @@ func TestStep8DecisionReasonsAreExhaustiveAndFailClosed(t *testing.T) {
 }
 
 func TestStep8ResultClassesMapOnlyKnownValues(t *testing.T) {
-	classes := []ResultClass{ResultIdentityFailure, ResultTrustMismatch, ResultProtocolFailure, ResultFramingFailure, ResultMalformedResponse, ResultDowngradeBlocked, ResultCredentialsUnavailable, ResultAuthenticationFailed, ResultAuthorizationDenied, ResultCancelled, ResultOperationTimeout, ResultProofTimeout, ResultCleanupTimeout, ResultCleanupFailure, ResultLimitExceeded, ResultConsentDeclined, ResultArtifactFailure, ResultJavaFailure, ResultUploadFailure, ResultLaunchFailure, ResultSessionFailure, ResultProofFailure}
+	classes := []ResultClass{ResultIdentityFailure, ResultTrustMismatch, ResultProtocolFailure, ResultFramingFailure, ResultMalformedResponse, ResultDowngradeBlocked, ResultCredentialsUnavailable, ResultAuthenticationFailed, ResultAuthorizationDenied, ResultCancelled, ResultOperationTimeout, ResultProofTimeout, ResultCleanupTimeout, ResultCleanupFailure, ResultLimitExceeded, ResultConsentDeclined, ResultArtifactFailure, ResultJavaFailure, ResultUploadFailure, ResultLaunchFailure, ResultLaunchSessionFailure, ResultLaunchStdinFailure, ResultLaunchStdoutFailure, ResultLaunchStartFailure, ResultSessionFailure, ResultProofFailure}
 	for _, class := range classes {
 		if !IsTerminalResult(class) {
 			t.Fatalf("%q is not terminal", class)
