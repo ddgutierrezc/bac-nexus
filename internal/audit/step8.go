@@ -49,7 +49,7 @@ func ValidateStep8Event(e Step8Event) error {
 }
 func step8Class(c string) bool {
 	switch c {
-	case "proof_success", "identity_failure", "trust_mismatch", "protocol_failure", "framing_failure", "malformed_response", "downgrade_blocked", "credentials_unavailable", "authentication_failed", "authorization_denied", "cancelled", "operation_timeout", "proof_timeout", "cleanup_timeout", "cleanup_failure", "limit_exceeded", "consent_declined_or_absent", "artifact_failure", "java_failure", "upload_failure", "launch_failure", "launch_session_failure", "launch_stdin_failure", "launch_stdout_failure", "launch_start_failure", "session_failure", "proof_failure":
+	case "proof_success", "identity_failure", "trust_mismatch", "protocol_failure", "framing_failure", "malformed_response", "downgrade_blocked", "credentials_unavailable", "authentication_failed", "authorization_denied", "cancelled", "operation_timeout", "proof_timeout", "cleanup_timeout", "cleanup_failure", "limit_exceeded", "consent_declined_or_absent", "artifact_failure", "java_failure", "upload_failure", "launch_failure", "launch_receipt_binding_invalid", "launch_reverify_stat_failure", "launch_reverify_artifact_invalid", "launch_reverify_open_failure", "launch_reverify_read_failure", "launch_reverify_size_changed", "launch_reverify_hash_mismatch", "launch_command_policy_failure", "launch_new_session_prohibited", "launch_new_session_connection_failed", "launch_new_session_unknown_channel_type", "launch_new_session_resource_shortage", "launch_new_session_failure", "launch_session_failure", "launch_stdin_failure", "launch_stdout_failure", "launch_start_failure", "session_failure", "proof_failure":
 		return true
 	}
 	return false

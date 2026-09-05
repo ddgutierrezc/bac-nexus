@@ -572,7 +572,7 @@ func TestStartMapepireSanitizesFailuresAndClosesPartialResources(t *testing.T) {
 		make func() *fakeMapepireSession
 		want MapepireLaunchStage
 	}{
-		{"session", func() *fakeMapepireSession { return nil }, MapepireLaunchSession},
+		{"new session", func() *fakeMapepireSession { return nil }, MapepireLaunchNewSessionFailure},
 		{"stdin", func() *fakeMapepireSession { return &fakeMapepireSession{stdinErr: errors.New("secret stdin failure")} }, MapepireLaunchStdin},
 		{"stdout", func() *fakeMapepireSession {
 			return &fakeMapepireSession{stdoutErr: errors.New("secret stdout failure")}
@@ -596,6 +596,49 @@ func TestStartMapepireSanitizesFailuresAndClosesPartialResources(t *testing.T) {
 				t.Fatal("failed launch left session open")
 			}
 		})
+	}
+}
+
+func TestMapepireLaunchStagesAreClosedAndRedacted(t *testing.T) {
+	admissions := []struct {
+		stage mapepirestdio.AdmissionStage
+		want  MapepireLaunchStage
+	}{
+		{mapepirestdio.AdmissionReceiptBindingInvalid, MapepireLaunchReceiptBindingInvalid},
+		{mapepirestdio.AdmissionReverifyStatFailure, MapepireLaunchReverifyStatFailure},
+		{mapepirestdio.AdmissionReverifyArtifactInvalid, MapepireLaunchReverifyArtifactInvalid},
+		{mapepirestdio.AdmissionReverifyOpenFailure, MapepireLaunchReverifyOpenFailure},
+		{mapepirestdio.AdmissionReverifyReadFailure, MapepireLaunchReverifyReadFailure},
+		{mapepirestdio.AdmissionReverifySizeChanged, MapepireLaunchReverifySizeChanged},
+		{mapepirestdio.AdmissionReverifyHashMismatch, MapepireLaunchReverifyHashMismatch},
+		{mapepirestdio.AdmissionCommandPolicyFailure, MapepireLaunchCommandPolicyFailure},
+	}
+	for _, tt := range admissions {
+		if got := launchStageForAdmission(tt.stage); got != tt.want {
+			t.Fatalf("admission %q = %q, want %q", tt.stage, got, tt.want)
+		}
+	}
+	for _, tt := range []struct {
+		name string
+		err  error
+		want MapepireLaunchStage
+	}{
+		{"prohibited", &ssh.OpenChannelError{Reason: ssh.Prohibited, Message: "untrusted message canary"}, MapepireLaunchNewSessionProhibited},
+		{"connection failed", &ssh.OpenChannelError{Reason: ssh.ConnectionFailed, Message: "untrusted message canary"}, MapepireLaunchNewSessionConnectionFailed},
+		{"unknown channel", &ssh.OpenChannelError{Reason: ssh.UnknownChannelType, Message: "untrusted message canary"}, MapepireLaunchNewSessionUnknownChannelType},
+		{"resource shortage", &ssh.OpenChannelError{Reason: ssh.ResourceShortage, Message: "untrusted message canary"}, MapepireLaunchNewSessionResourceShortage},
+		{"unknown reason", &ssh.OpenChannelError{Reason: 99, Message: "untrusted message canary"}, MapepireLaunchNewSessionFailure},
+		{"arbitrary", errors.New("untrusted message canary"), MapepireLaunchNewSessionFailure},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := newSessionLaunchError(tt.err)
+			if got := MapepireLaunchStageFor(err); got != tt.want || strings.Contains(err.Error(), "untrusted message canary") {
+				t.Fatalf("stage/error = %q/%v", got, err)
+			}
+		})
+	}
+	if got := launchStageForAdmission("arbitrary"); got != MapepireLaunchFailure {
+		t.Fatalf("unknown admission = %q", got)
 	}
 }
 
