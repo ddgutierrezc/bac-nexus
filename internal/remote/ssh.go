@@ -734,10 +734,23 @@ func (s sshMapepireSession) SetStderr(writer io.Writer) { s.Stderr = writer }
 type MapepireLaunchStage string
 
 const (
-	MapepireLaunchSession MapepireLaunchStage = "session"
-	MapepireLaunchStdin   MapepireLaunchStage = "stdin"
-	MapepireLaunchStdout  MapepireLaunchStage = "stdout"
-	MapepireLaunchStart   MapepireLaunchStage = "start"
+	MapepireLaunchReceiptBindingInvalid        MapepireLaunchStage = "receipt_binding_invalid"
+	MapepireLaunchReverifyStatFailure          MapepireLaunchStage = "reverify_stat_failure"
+	MapepireLaunchReverifyArtifactInvalid      MapepireLaunchStage = "reverify_artifact_invalid"
+	MapepireLaunchReverifyOpenFailure          MapepireLaunchStage = "reverify_open_failure"
+	MapepireLaunchReverifyReadFailure          MapepireLaunchStage = "reverify_read_failure"
+	MapepireLaunchReverifySizeChanged          MapepireLaunchStage = "reverify_size_changed"
+	MapepireLaunchReverifyHashMismatch         MapepireLaunchStage = "reverify_hash_mismatch"
+	MapepireLaunchCommandPolicyFailure         MapepireLaunchStage = "command_policy_failure"
+	MapepireLaunchNewSessionProhibited         MapepireLaunchStage = "new_session_prohibited"
+	MapepireLaunchNewSessionConnectionFailed   MapepireLaunchStage = "new_session_connection_failed"
+	MapepireLaunchNewSessionUnknownChannelType MapepireLaunchStage = "new_session_unknown_channel_type"
+	MapepireLaunchNewSessionResourceShortage   MapepireLaunchStage = "new_session_resource_shortage"
+	MapepireLaunchNewSessionFailure            MapepireLaunchStage = "new_session_failure"
+	MapepireLaunchStdin                        MapepireLaunchStage = "stdin"
+	MapepireLaunchStdout                       MapepireLaunchStage = "stdout"
+	MapepireLaunchStart                        MapepireLaunchStage = "start"
+	MapepireLaunchFailure                      MapepireLaunchStage = "failure"
 )
 
 type MapepireLaunchError struct{ Stage MapepireLaunchStage }
@@ -757,7 +770,12 @@ func MapepireLaunchStageFor(err error) MapepireLaunchStage {
 
 func validMapepireLaunchStage(stage MapepireLaunchStage) bool {
 	switch stage {
-	case MapepireLaunchSession, MapepireLaunchStdin, MapepireLaunchStdout, MapepireLaunchStart:
+	case MapepireLaunchReceiptBindingInvalid, MapepireLaunchReverifyStatFailure, MapepireLaunchReverifyArtifactInvalid,
+		MapepireLaunchReverifyOpenFailure, MapepireLaunchReverifyReadFailure, MapepireLaunchReverifySizeChanged,
+		MapepireLaunchReverifyHashMismatch, MapepireLaunchCommandPolicyFailure, MapepireLaunchNewSessionProhibited,
+		MapepireLaunchNewSessionConnectionFailed, MapepireLaunchNewSessionUnknownChannelType,
+		MapepireLaunchNewSessionResourceShortage, MapepireLaunchNewSessionFailure, MapepireLaunchStdin,
+		MapepireLaunchStdout, MapepireLaunchStart, MapepireLaunchFailure:
 		return true
 	}
 	return false
@@ -793,11 +811,11 @@ func (c *Client) mapepireSession() (mapepireSession, error) {
 		return c.newSession()
 	}
 	if c == nil || c.ssh == nil {
-		return nil, errors.New("SSH session client is unavailable")
+		return nil, &MapepireLaunchError{Stage: MapepireLaunchNewSessionFailure}
 	}
 	session, err := c.ssh.NewSession()
 	if err != nil {
-		return nil, err
+		return nil, newSessionLaunchError(err)
 	}
 	return sshMapepireSession{session}, nil
 }
@@ -812,7 +830,7 @@ func (c *Client) StartMapepire(ctx context.Context, receipt mapepirestdio.Verifi
 		launch, renderErr = sshstdio.VerifiedSingleMode(receipt)
 		return renderErr
 	}); err != nil {
-		return nil, &MapepireLaunchError{Stage: MapepireLaunchSession}
+		return nil, &MapepireLaunchError{Stage: launchStageForAdmission(mapepirestdio.AdmissionStageFor(err))}
 	}
 	return c.startMapepireSession(ctx, launch.Command)
 }
@@ -820,7 +838,10 @@ func (c *Client) StartMapepire(ctx context.Context, receipt mapepirestdio.Verifi
 func (c *Client) startMapepireSession(ctx context.Context, command string) (Channel, error) {
 	session, err := c.mapepireSession()
 	if err != nil {
-		return nil, &MapepireLaunchError{Stage: MapepireLaunchSession}
+		if stage := MapepireLaunchStageFor(err); stage != "" {
+			return nil, err
+		}
+		return nil, &MapepireLaunchError{Stage: MapepireLaunchNewSessionFailure}
 	}
 	stdin, err := session.StdinPipe()
 	if err != nil {
@@ -842,6 +863,46 @@ func (c *Client) startMapepireSession(ctx context.Context, command string) (Chan
 	channel := &sessionChannel{stdin: stdin, stdout: stdout, sess: session, done: make(chan struct{})}
 	channel.watcher = closeOnCancellation(ctx, channel.done, func() { _ = channel.Close() })
 	return channel, nil
+}
+
+func launchStageForAdmission(stage mapepirestdio.AdmissionStage) MapepireLaunchStage {
+	switch stage {
+	case mapepirestdio.AdmissionReceiptBindingInvalid:
+		return MapepireLaunchReceiptBindingInvalid
+	case mapepirestdio.AdmissionReverifyStatFailure:
+		return MapepireLaunchReverifyStatFailure
+	case mapepirestdio.AdmissionReverifyArtifactInvalid:
+		return MapepireLaunchReverifyArtifactInvalid
+	case mapepirestdio.AdmissionReverifyOpenFailure:
+		return MapepireLaunchReverifyOpenFailure
+	case mapepirestdio.AdmissionReverifyReadFailure:
+		return MapepireLaunchReverifyReadFailure
+	case mapepirestdio.AdmissionReverifySizeChanged:
+		return MapepireLaunchReverifySizeChanged
+	case mapepirestdio.AdmissionReverifyHashMismatch:
+		return MapepireLaunchReverifyHashMismatch
+	case mapepirestdio.AdmissionCommandPolicyFailure:
+		return MapepireLaunchCommandPolicyFailure
+	default:
+		return MapepireLaunchFailure
+	}
+}
+
+func newSessionLaunchError(err error) error {
+	var channelErr *ssh.OpenChannelError
+	if errors.As(err, &channelErr) {
+		switch channelErr.Reason {
+		case ssh.Prohibited:
+			return &MapepireLaunchError{Stage: MapepireLaunchNewSessionProhibited}
+		case ssh.ConnectionFailed:
+			return &MapepireLaunchError{Stage: MapepireLaunchNewSessionConnectionFailed}
+		case ssh.UnknownChannelType:
+			return &MapepireLaunchError{Stage: MapepireLaunchNewSessionUnknownChannelType}
+		case ssh.ResourceShortage:
+			return &MapepireLaunchError{Stage: MapepireLaunchNewSessionResourceShortage}
+		}
+	}
+	return &MapepireLaunchError{Stage: MapepireLaunchNewSessionFailure}
 }
 
 // StartMapepireTransport exposes only the typed transport boundary to callers.

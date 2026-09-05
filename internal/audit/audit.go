@@ -305,7 +305,7 @@ func validateReason(reason string) error {
 	}
 	lower := strings.ToLower(reason)
 	for _, forbidden := range forbiddenReasonSubstrings {
-		if strings.Contains(lower, forbidden) {
+		if strings.Contains(lower, forbidden) && !(forbidden == "command" && (lower == "step8:ssh:launch_command_policy_failure:incomplete" || lower == "step8:ssh:launch_command_policy_failure:cleanup")) {
 			return ErrReasonRejected
 		}
 	}

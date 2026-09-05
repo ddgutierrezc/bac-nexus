@@ -92,7 +92,7 @@ func TestStep8AuditorRecordsTerminalFailureWithoutRevision(t *testing.T) {
 }
 
 func TestStep8AuditorRecordsOnlyAllowlistedLaunchFailureStages(t *testing.T) {
-	for _, class := range []string{"launch_session_failure", "launch_stdin_failure", "launch_stdout_failure", "launch_start_failure"} {
+	for _, class := range []string{"launch_receipt_binding_invalid", "launch_reverify_stat_failure", "launch_reverify_artifact_invalid", "launch_reverify_open_failure", "launch_reverify_read_failure", "launch_reverify_size_changed", "launch_reverify_hash_mismatch", "launch_command_policy_failure", "launch_new_session_prohibited", "launch_new_session_connection_failed", "launch_new_session_unknown_channel_type", "launch_new_session_resource_shortage", "launch_new_session_failure", "launch_stdin_failure", "launch_stdout_failure", "launch_start_failure"} {
 		t.Run(class, func(t *testing.T) {
 			recorder := NewRecorder()
 			if err := NewStep8Auditor(recorder).Record(context.Background(), Step8Event{Transport: "ssh", Class: class}); err != nil {

@@ -103,6 +103,46 @@ type VerifiedMapepireArtifactReceipt struct {
 	policyRevision string
 }
 
+// AdmissionStage is the closed diagnostic vocabulary for receipt admission.
+type AdmissionStage string
+
+const (
+	AdmissionReceiptBindingInvalid   AdmissionStage = "receipt_binding_invalid"
+	AdmissionReverifyStatFailure     AdmissionStage = "reverify_stat_failure"
+	AdmissionReverifyArtifactInvalid AdmissionStage = "reverify_artifact_invalid"
+	AdmissionReverifyOpenFailure     AdmissionStage = "reverify_open_failure"
+	AdmissionReverifyReadFailure     AdmissionStage = "reverify_read_failure"
+	AdmissionReverifySizeChanged     AdmissionStage = "reverify_size_changed"
+	AdmissionReverifyHashMismatch    AdmissionStage = "reverify_hash_mismatch"
+	AdmissionCommandPolicyFailure    AdmissionStage = "command_policy_failure"
+)
+
+// AdmissionError intentionally omits all remote operation detail.
+type AdmissionError struct{ stage AdmissionStage }
+
+func (e *AdmissionError) Error() string { return "Mapepire artifact admission failed" }
+
+// AdmissionStageFor returns only an allowlisted admission diagnostic stage.
+func AdmissionStageFor(err error) AdmissionStage {
+	var admissionErr *AdmissionError
+	if errors.As(err, &admissionErr) && validAdmissionStage(admissionErr.stage) {
+		return admissionErr.stage
+	}
+	return ""
+}
+
+func validAdmissionStage(stage AdmissionStage) bool {
+	switch stage {
+	case AdmissionReceiptBindingInvalid, AdmissionReverifyStatFailure, AdmissionReverifyArtifactInvalid,
+		AdmissionReverifyOpenFailure, AdmissionReverifyReadFailure, AdmissionReverifySizeChanged,
+		AdmissionReverifyHashMismatch, AdmissionCommandPolicyFailure:
+		return true
+	}
+	return false
+}
+
+func admissionFailure(stage AdmissionStage) error { return &AdmissionError{stage: stage} }
+
 type artifactHooks struct {
 	afterLocalHash func(string, *os.File) error
 }
@@ -134,11 +174,30 @@ func newArtifactReceipt(files MapepireArtifactRemote, hostIdentity, remotePath, 
 // remote capability and immediately rehashes the exact receipt path.
 func (r VerifiedMapepireArtifactReceipt) Reverify(files MapepireArtifactRemote) error {
 	if r.files == nil || files == nil || r.files != files || r.hostIdentity == "" || files.MapepireHostIdentity() != r.hostIdentity || r.policyRevision != mapepireLaunchPolicyRevision || !safeRemoteJARPath(r.remotePath) {
-		return errors.New("Mapepire artifact receipt is invalid")
+		return admissionFailure(AdmissionReceiptBindingInvalid)
 	}
-	actual, err := remoteSHA256(files, r.remotePath)
-	if err != nil || actual != r.sha256 {
-		return errors.New("Mapepire artifact receipt verification failed")
+	info, err := files.Stat(r.remotePath)
+	if err != nil {
+		return admissionFailure(AdmissionReverifyStatFailure)
+	}
+	if !info.Mode().IsRegular() || info.Size() < 0 || info.Size() > MaxServerJARBytes {
+		return admissionFailure(AdmissionReverifyArtifactInvalid)
+	}
+	file, err := files.OpenRead(r.remotePath)
+	if err != nil {
+		return admissionFailure(AdmissionReverifyOpenFailure)
+	}
+	defer file.Close()
+	hash := sha256.New()
+	written, err := io.Copy(hash, io.LimitReader(file, MaxServerJARBytes+1))
+	if err != nil {
+		return admissionFailure(AdmissionReverifyReadFailure)
+	}
+	if written != info.Size() {
+		return admissionFailure(AdmissionReverifySizeChanged)
+	}
+	if hex.EncodeToString(hash.Sum(nil)) != r.sha256 {
+		return admissionFailure(AdmissionReverifyHashMismatch)
 	}
 	return nil
 }
@@ -147,13 +206,19 @@ func (r VerifiedMapepireArtifactReceipt) Reverify(files MapepireArtifactRemote) 
 // injectable fixed-start seam. The callback deliberately receives no command
 // or launch inputs, so it cannot become a caller-controlled execution API.
 func (r VerifiedMapepireArtifactReceipt) AdmitFixedStart(files MapepireArtifactRemote, start func() error) error {
-	if start == nil || r.Reverify(files) != nil {
-		return errors.New("Mapepire artifact receipt is invalid")
+	if start == nil {
+		return admissionFailure(AdmissionCommandPolicyFailure)
+	}
+	if err := r.Reverify(files); err != nil {
+		return err
 	}
 	if _, err := BuildCommand(r); err != nil {
-		return errors.New("Mapepire artifact receipt is invalid")
+		return admissionFailure(AdmissionCommandPolicyFailure)
 	}
-	return start()
+	if err := start(); err != nil {
+		return admissionFailure(AdmissionCommandPolicyFailure)
+	}
+	return nil
 }
 
 func (r VerifiedMapepireArtifactReceipt) commandPath() (string, error) {

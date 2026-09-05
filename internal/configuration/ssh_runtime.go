@@ -178,8 +178,32 @@ func proofErrorClass(ctx context.Context, err error) ResultClass {
 	switch remote.FixedProofStageFor(err) {
 	case remote.FixedProofLaunchStage:
 		switch remote.MapepireLaunchStageFor(err) {
-		case remote.MapepireLaunchSession:
-			return ResultLaunchSessionFailure
+		case remote.MapepireLaunchReceiptBindingInvalid:
+			return ResultLaunchReceiptBindingInvalid
+		case remote.MapepireLaunchReverifyStatFailure:
+			return ResultLaunchReverifyStatFailure
+		case remote.MapepireLaunchReverifyArtifactInvalid:
+			return ResultLaunchReverifyArtifactInvalid
+		case remote.MapepireLaunchReverifyOpenFailure:
+			return ResultLaunchReverifyOpenFailure
+		case remote.MapepireLaunchReverifyReadFailure:
+			return ResultLaunchReverifyReadFailure
+		case remote.MapepireLaunchReverifySizeChanged:
+			return ResultLaunchReverifySizeChanged
+		case remote.MapepireLaunchReverifyHashMismatch:
+			return ResultLaunchReverifyHashMismatch
+		case remote.MapepireLaunchCommandPolicyFailure:
+			return ResultLaunchCommandPolicyFailure
+		case remote.MapepireLaunchNewSessionProhibited:
+			return ResultLaunchNewSessionProhibited
+		case remote.MapepireLaunchNewSessionConnectionFailed:
+			return ResultLaunchNewSessionConnectionFailed
+		case remote.MapepireLaunchNewSessionUnknownChannelType:
+			return ResultLaunchNewSessionUnknownChannelType
+		case remote.MapepireLaunchNewSessionResourceShortage:
+			return ResultLaunchNewSessionResourceShortage
+		case remote.MapepireLaunchNewSessionFailure:
+			return ResultLaunchNewSessionFailure
 		case remote.MapepireLaunchStdin:
 			return ResultLaunchStdinFailure
 		case remote.MapepireLaunchStdout:

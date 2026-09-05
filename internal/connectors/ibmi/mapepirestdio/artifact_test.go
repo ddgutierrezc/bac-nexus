@@ -45,6 +45,11 @@ type memoryRemote struct {
 	renameErrs      map[int]error
 	renames         int
 	corruptFinal    bool
+	statErr         error
+	openErr         error
+	openReader      io.ReadCloser
+	statCalls       int
+	openCalls       int
 }
 
 func newMemoryRemote() *memoryRemote {
@@ -61,6 +66,10 @@ func (m *memoryRemote) Chmod(remotePath string, _ os.FileMode) error {
 	return nil
 }
 func (m *memoryRemote) Stat(remotePath string) (os.FileInfo, error) {
+	m.statCalls++
+	if m.statErr != nil {
+		return nil, m.statErr
+	}
 	mode, modeExists := m.modes[remotePath]
 	data, dataExists := m.files[remotePath]
 	if !modeExists && !dataExists {
@@ -72,12 +81,24 @@ func (m *memoryRemote) Stat(remotePath string) (os.FileInfo, error) {
 	return memoryFileInfo{size: int64(len(data)), mode: mode}, nil
 }
 func (m *memoryRemote) OpenRead(remotePath string) (io.ReadCloser, error) {
+	m.openCalls++
+	if m.openErr != nil {
+		return nil, m.openErr
+	}
+	if m.openReader != nil {
+		return m.openReader, nil
+	}
 	data, ok := m.files[remotePath]
 	if !ok || !m.mode(remotePath).IsRegular() {
 		return nil, os.ErrNotExist
 	}
 	return io.NopCloser(bytes.NewReader(data)), nil
 }
+
+type failingReadCloser struct{ err error }
+
+func (r failingReadCloser) Read([]byte) (int, error) { return 0, r.err }
+func (failingReadCloser) Close() error               { return nil }
 func (m *memoryRemote) OpenWriteExclusive(remotePath string) (io.WriteCloser, error) {
 	if _, ok := m.files[remotePath]; ok {
 		return nil, os.ErrExist
@@ -272,6 +293,55 @@ func TestVerifiedMapepireArtifactReceiptBlocksFixedStartBeforeSessionAllocation(
 				t.Fatalf("fixed start calls = %d, want 0", starts)
 			}
 		})
+	}
+}
+
+func TestVerifiedMapepireArtifactReceiptAdmissionIsClosedAndPrecedesStart(t *testing.T) {
+	data := []byte("test JAR bytes")
+	hash := sha256.Sum256(data)
+	expected := hex.EncodeToString(hash[:])
+	remote := func() *memoryRemote {
+		value := newMemoryRemote()
+		value.files["/home/NEXUS/"+RemoteJar] = append([]byte(nil), data...)
+		return value
+	}
+	tests := []struct {
+		name    string
+		setup   func(*memoryRemote)
+		receipt func(*memoryRemote) VerifiedMapepireArtifactReceipt
+		want    AdmissionStage
+	}{
+		{"receipt binding", nil, func(*memoryRemote) VerifiedMapepireArtifactReceipt { return VerifiedMapepireArtifactReceipt{} }, AdmissionReceiptBindingInvalid},
+		{"stat", func(r *memoryRemote) { r.statErr = errors.New("remote stat canary") }, nil, AdmissionReverifyStatFailure},
+		{"metadata", func(r *memoryRemote) { r.modes["/home/NEXUS/"+RemoteJar] = os.ModeDir }, nil, AdmissionReverifyArtifactInvalid},
+		{"open", func(r *memoryRemote) { r.openErr = errors.New("remote open canary") }, nil, AdmissionReverifyOpenFailure},
+		{"read", func(r *memoryRemote) { r.openReader = failingReadCloser{errors.New("remote read canary")} }, nil, AdmissionReverifyReadFailure},
+		{"size changed", func(r *memoryRemote) { r.openReader = io.NopCloser(bytes.NewReader(data[:1])) }, nil, AdmissionReverifySizeChanged},
+		{"hash mismatch", func(r *memoryRemote) { r.files["/home/NEXUS/"+RemoteJar] = []byte("changed bytes") }, nil, AdmissionReverifyHashMismatch},
+		{"command policy", nil, nil, AdmissionCommandPolicyFailure},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			files := remote()
+			if tt.setup != nil {
+				tt.setup(files)
+			}
+			receipt := newArtifactReceipt(files, files.MapepireHostIdentity(), "/home/NEXUS/"+RemoteJar, expected)
+			if tt.receipt != nil {
+				receipt = tt.receipt(files)
+			}
+			starts := 0
+			err := receipt.AdmitFixedStart(files, func() error {
+				starts++
+				return nil
+			})
+			if got := AdmissionStageFor(err); got != tt.want || starts != 0 || strings.Contains(err.Error(), "canary") {
+				t.Fatalf("stage/starts/error = %q/%d/%v", got, starts, err)
+			}
+		})
+	}
+	if got := AdmissionStageFor(errors.New("arbitrary")); got != "" {
+		t.Fatalf("unknown admission stage = %q", got)
 	}
 }
 
