@@ -1,0 +1,105 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  createCodeForIAdapter,
+  type CodeForIExports,
+  type CodeForIConnection,
+  type CodeForIInstance,
+} from "./codeforiAdapter.js";
+import { CANONICAL_PROOF_QUERY } from "./query.js";
+
+class Deferred<T> {
+  readonly promise: Promise<T>;
+  private resolve!: (value: T) => void;
+
+  constructor() {
+    this.promise = new Promise<T>((resolve) => {
+      this.resolve = resolve;
+    });
+  }
+
+  complete(value: T): void {
+    this.resolve(value);
+  }
+}
+
+function createFakeExports(
+  runSQL: CodeForIConnection["runSQL"],
+): { exports: CodeForIExports; emit: (event: "connected" | "disconnected") => void } {
+  const callbacks = new Map<string, () => void>();
+  const instance: CodeForIInstance = {
+    getConnection: () => ({ runSQL }),
+    subscribe: (_context, event, _name, callback) => {
+      callbacks.set(event, callback as () => void);
+    },
+  };
+
+  return {
+    exports: { instance },
+    emit: (event) => callbacks.get(event)?.(),
+  };
+}
+
+describe("Code for IBM i public adapter", () => {
+  it("uses the canonical proof query and normalizes an arbitrary raw column label", async () => {
+    const calls: Array<[string | string[], { rows?: number } | undefined]> = [];
+    const fake = createFakeExports(async (sql, options) => {
+      calls.push([sql, options]);
+      return [{ DIFFERENT_RAW_LABEL: "QUSER" }];
+    });
+    const adapter = createCodeForIAdapter(fake.exports, {});
+
+    await expect(adapter.query(" select\tcurrent_user\r\nfrom sysibm.sysdummy1 ")).resolves.toEqual({
+      state: "ok",
+      rows: [{ value: "QUSER" }],
+    });
+    expect(calls).toEqual([[CANONICAL_PROOF_QUERY, { rows: 1 }]]);
+  });
+
+  it("rejects broader SQL before it can reach runSQL", async () => {
+    let calls = 0;
+    const fake = createFakeExports(async () => {
+      calls += 1;
+      return [{ VALUE: "QUSER" }];
+    });
+    const adapter = createCodeForIAdapter(fake.exports, {});
+
+    await expect(adapter.query("SELECT CURRENT_USER FROM SYSIBM.SYSDUMMY1;")).resolves.toEqual({
+      state: "invalid_query",
+    });
+    expect(calls).toBe(0);
+  });
+
+  it("suppresses raw errors and malformed rows as failed", async () => {
+    const rawFailure = createFakeExports(async () => {
+      throw new Error("raw failure for QUSER");
+    });
+    const malformed = createFakeExports(async () => [{ VALUE: "QUSER", EXTRA: "ignored" }]);
+    const symbolColumn = Symbol("unexpected");
+    const withExtraEnumerableColumn = { VALUE: "QUSER", [symbolColumn]: "ignored" };
+    const nonStringColumn = createFakeExports(async () => [withExtraEnumerableColumn]);
+
+    await expect(
+      createCodeForIAdapter(rawFailure.exports, {}).query(CANONICAL_PROOF_QUERY),
+    ).resolves.toEqual({ state: "failed" });
+    await expect(
+      createCodeForIAdapter(malformed.exports, {}).query(CANONICAL_PROOF_QUERY),
+    ).resolves.toEqual({ state: "failed" });
+    await expect(
+      createCodeForIAdapter(nonStringColumn.exports, {}).query(CANONICAL_PROOF_QUERY),
+    ).resolves.toEqual({ state: "failed" });
+  });
+
+  it("suppresses a result that arrives after a disconnected event", async () => {
+    const deferred = new Deferred<Array<Record<string, string>>>();
+    const fake = createFakeExports(async () => deferred.promise);
+    const adapter = createCodeForIAdapter(fake.exports, {});
+
+    const result = adapter.query(CANONICAL_PROOF_QUERY);
+    fake.emit("disconnected");
+    deferred.complete([{ UNVERIFIED_LABEL: "QUSER" }]);
+
+    await expect(result).resolves.toEqual({ state: "unavailable" });
+    expect(adapter.sessionStatus()).toEqual({ state: "connection_unavailable" });
+  });
+});
