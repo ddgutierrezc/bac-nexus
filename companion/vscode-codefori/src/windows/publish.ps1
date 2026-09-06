@@ -48,6 +48,7 @@ try {
   }
 
   [Console]::Out.Write("READY`n")
+  [Console]::Out.Flush()
   $input = [Console]::In.ReadToEnd()
   $inputBytes = [System.Text.Encoding]::UTF8.GetBytes($input)
   if ($inputBytes.Length -eq 0 -or $inputBytes.Length -gt 512) {

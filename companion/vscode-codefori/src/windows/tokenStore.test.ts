@@ -256,6 +256,9 @@ describe("fixed Windows descriptor token store", () => {
     expect(publish).toContain("[System.IO.FileMode]::CreateNew");
     expect(publish).toContain("$fileItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint");
     expect(publish).toContain('[Console]::Out.Write("READY`n")');
+    expect(publish).toMatch(
+      /\[Console\]::Out\.Write\("READY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)\r?\n\s*\$input = \[Console\]::In\.ReadToEnd\(\)/,
+    );
     expect(cleanup).toContain("$descriptor.generation -ne $request.generation");
     expect(cleanup).toContain('[Console]::Out.Write("CLEANED`n")');
     expect(publish).not.toContain("param(");

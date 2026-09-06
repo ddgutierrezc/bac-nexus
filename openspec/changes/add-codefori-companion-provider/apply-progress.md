@@ -522,3 +522,36 @@ No RED/GREEN cycle is fabricated: the user explicitly authorized passive workflo
 - The four Slice 7 native Windows evidence tasks remain unchecked. This remediation does not satisfy ACL, cross-user, transient-file, descriptor-consumer, extension-host, or IBM i validation.
 - The cross-user test remains skipped. A fresh Windows validation run must repeat the scoped Go consumer and opt-in TypeScript producer checks before any native task can be marked complete.
 - Remediation source/test delta is 4 additions and 4 deletions (8 changed lines) before this evidence append; it remains within the 120-line remediation cap when this progress entry is included.
+
+## Bounded remediation — Windows pre-READY stdout handshake
+
+### Superseding diagnosis
+
+- Failed evidence revision: GitHub Actions run `34004033450` at commit `4da55d8242af38904cd301e08da151a659f95dc4` repeated the two native `publish()` failures after approximately 2005–2013 ms.
+- This supersedes only the earlier startup-duration inference: the fixed 2,000 ms deadline is still reached because `publish.ps1` writes `READY\n` and immediately blocks in `ReadToEnd()` without flushing stdout.
+- The corrected root cause is a bounded pre-READY handshake emission failure, not evidence that the deadline should be relaxed again. The fixed 2,000 ms deadline remains unchanged.
+
+### Correction
+
+- `publish.ps1` now performs the fixed `[Console]::Out.Flush()` immediately after writing `READY\n` and before reading descriptor stdin.
+- The static focused test proves that exact write-flush-read order while retaining all protected directory/file, `CreateNew`, ownership, and cleanup assertions.
+- The change emits no diagnostic, path, raw error, or secret; it does not alter ACL validation, readiness-before-RNG, stdin-only secret transfer, fixed process values, retry behavior, cleanup ownership, or bounds.
+
+### TDD Cycle Evidence — pre-READY handshake remediation
+
+| Task | Test file | Layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| Flush fixed PowerShell stdout before blocking descriptor input | `companion/vscode-codefori/src/windows/tokenStore.test.ts` | Unit/static source contract | `npm test -- --run src/windows/tokenStore.test.ts` exited 0: 1 file, 8 tests passed | Added the exact adjacent `READY` → `Flush` → `ReadToEnd` expectation; focused command exited 1: 1 assertion failed | Added one `[Console]::Out.Flush()` call; focused command exited 0: 1 file, 8 tests passed | Skipped: this is one fixed structural ordering with one valid output; existing test independently asserts security-sensitive script content | No further refactor was needed; the explicit call is the minimal fixed handshake correction |
+
+### Work Unit Evidence — pre-READY handshake remediation
+
+| Evidence | Exact result |
+|---|---|
+| Focused test command and exact result | `npm test -- --run src/windows/tokenStore.test.ts` exited 0: 1 test file and 8 tests passed. `npm run typecheck` exited 0. `npm run lint` exited 0. `git diff --check` exited 0. |
+| Runtime harness command/scenario and exact result | Fresh native Windows evidence is required and was not launched. Parent owns the final runtime attempt and settlement token `sha256:37db2d7edfca670152200caa33a557786da1bda5b2c5c5d143708570ddde935d` for failed evidence revision `sha256:cb5f61d3a562e653e8d48121470879f1a045bd7340690d8356b50af2a3fb689b`. No native Windows, VS Code, IBM i, or live network success is claimed. |
+| Rollback boundary | Revert only the `Out.Flush()` line in `companion/vscode-codefori/src/windows/publish.ps1` and its ordering assertion in `companion/vscode-codefori/src/windows/tokenStore.test.ts`. This removes the handshake correction without changing ACL, secret, timeout, or Native behavior. |
+
+### Native-evidence status after final remediation
+
+- The four Slice 7 native Windows evidence tasks remain unchecked, and the cross-user test remains skipped.
+- This is the final authorized runtime correction attempt. A passing fresh Windows run must validate the scoped Go consumer and opt-in TypeScript producer checks before task completion can be considered.
