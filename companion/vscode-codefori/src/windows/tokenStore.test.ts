@@ -90,7 +90,7 @@ describe("fixed Windows descriptor token store", () => {
       env: { LOCALAPPDATA: "C:\\Users\\operator\\AppData\\Local", SystemRoot: "C:\\Windows" },
       shell: false,
       stdio: ["pipe", "pipe", "pipe"],
-      timeout: 1_000,
+      timeout: 2_000,
       windowsHide: true,
     });
     expect(mocks.randomBytes).not.toHaveBeenCalled();
@@ -140,7 +140,7 @@ describe("fixed Windows descriptor token store", () => {
     expect(outputChild.killed).toBe(true);
 
     const timeoutPromise = createWindowsTokenStore().publish();
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(2_000);
     await expect(timeoutPromise).resolves.toBeUndefined();
     expect(timeoutChild.killed).toBe(true);
     expect(mocks.randomBytes).not.toHaveBeenCalled();
@@ -197,7 +197,7 @@ describe("fixed Windows descriptor token store", () => {
       env: { LOCALAPPDATA: "C:\\Users\\operator\\AppData\\Local", SystemRoot: "C:\\Windows" },
       shell: false,
       stdio: ["pipe", "pipe", "pipe"],
-      timeout: 1_000,
+      timeout: 2_000,
       windowsHide: true,
     });
     expect(JSON.parse(cleanupChild.stdin.writes[0]?.toString() ?? "")).toEqual({

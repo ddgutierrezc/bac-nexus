@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { isAbsolute, win32 } from "node:path";
 
-const PROCESS_DEADLINE_MS = 1_000;
+const PROCESS_DEADLINE_MS = 2_000;
 const MAX_STDOUT_BYTES = 64;
 const MAX_STDERR_BYTES = 256;
 const MAX_DESCRIPTOR_BYTES = 512;

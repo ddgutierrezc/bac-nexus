@@ -488,3 +488,37 @@ No RED/GREEN cycle is fabricated: the user explicitly authorized passive workflo
 - `not_validated_on_ibmi` remains in force; the workflow contains no IBM i access.
 - The deferred critical `GHSA-5xrq-8626-4rwp` advisory for `vitest@3.2.4` remains a pre-delivery blocker and was not remediated.
 - GitHub-hosted runner execution requires separate commit/push authorization; the orchestrator owns runtime-acquire settlement.
+
+## Bounded remediation — native Windows token-store deadline
+
+### Diagnosis
+
+- Failed evidence revision: GitHub Actions run `34003682639` at commit `7ef09199b3ba25dcacde972860fb3f90b8ed4746`.
+- The scoped native TypeScript command `npm test -- --run src/windows/tokenStore.windows.test.ts` failed the clean-creation and generation-cleanup tests at lines 68 and 97 because `createWindowsTokenStore().publish()` returned `undefined` after about 1003–1013 ms.
+- `tokenStore.ts` applied the same fixed 1,000 ms deadline to the PowerShell child-process option and its fail-closed fallback timer. That budget is shorter than observed hosted-runner startup, so the test evidence supports correcting only this deadline.
+
+### Correction
+
+- Increased the private, fixed, non-user-configurable process deadline from 1,000 ms to 2,000 ms in both deadline paths by changing the shared `PROCESS_DEADLINE_MS` constant.
+- Updated the fake process expectations to retain proof that publish and cleanup receive the exact same fixed 2,000 ms timeout and that timeout termination remains fail-closed.
+- No stdio cap, ACL validation, secret lifecycle, fixed executable/script/arguments/environment, retry behavior, or generation-owned cleanup behavior changed.
+
+### TDD Cycle Evidence — bounded remediation
+
+| Task | Test file | Layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| Extend the fixed PowerShell deadline for native hosted-runner startup | `companion/vscode-codefori/src/windows/tokenStore.test.ts` | Unit with fake child process | `npm test -- --run src/windows/tokenStore.test.ts` exited 0: 1 file, 8 tests passed before the test change | After changing only the expected timeout and fake-timer advance to 2,000 ms, the focused command exited 1: 2 assertions expected 2,000 but observed 1,000 | After changing only `PROCESS_DEADLINE_MS`, the focused command exited 0: 1 file, 8 tests passed | Publish spawn, cleanup spawn, and fallback deadline use distinct assertions against the same immutable bound | No further refactor was needed; one shared constant keeps child and fallback deadlines aligned |
+
+### Work Unit Evidence — bounded remediation
+
+| Evidence | Exact result |
+|---|---|
+| Focused test command and exact result | `npm test -- --run src/windows/tokenStore.test.ts` exited 0: 1 test file and 8 tests passed. `npm run typecheck` exited 0. `npm run lint` exited 0. `git diff --check` exited 0. |
+| Runtime harness command/scenario and exact result | A fresh native Windows run is required and was not launched by this remediation. The prior failing command was `npm test -- --run src/windows/tokenStore.windows.test.ts`; no native Windows, PowerShell, VS Code, IBM i, or live network success is claimed. Parent retains settlement of token `sha256:46cfad30cc31a43c9239fca84bb5dae721569e762f4f18ee6d621e839796d13a`. |
+| Rollback boundary | Revert only the `PROCESS_DEADLINE_MS` value in `companion/vscode-codefori/src/windows/tokenStore.ts` and the corresponding 2,000 ms assertions in `companion/vscode-codefori/src/windows/tokenStore.test.ts`. This restores the prior deadline without changing unrelated Companion or Native behavior. |
+
+### Native-evidence status after remediation
+
+- The four Slice 7 native Windows evidence tasks remain unchecked. This remediation does not satisfy ACL, cross-user, transient-file, descriptor-consumer, extension-host, or IBM i validation.
+- The cross-user test remains skipped. A fresh Windows validation run must repeat the scoped Go consumer and opt-in TypeScript producer checks before any native task can be marked complete.
+- Remediation source/test delta is 4 additions and 4 deletions (8 changed lines) before this evidence append; it remains within the 120-line remediation cap when this progress entry is included.
