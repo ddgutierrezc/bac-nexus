@@ -1,0 +1,74 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  decodeRequest,
+  encodeResponse,
+  PROTOCOL_VERSION,
+} from "./protocol.js";
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+describe("Companion protocol", () => {
+  it("accepts only the canonical SQL request envelope", () => {
+    const request = decodeRequest(
+      encoder.encode(
+        '{"version":1,"request_id":"request","method":"sql.query","params":{"sql":"SELECT CURRENT_USER FROM SYSIBM.SYSDUMMY1"}}',
+      ),
+    );
+
+    expect(request).toEqual({
+      version: PROTOCOL_VERSION,
+      requestID: "request",
+      method: "sql.query",
+      params: { sql: "SELECT CURRENT_USER FROM SYSIBM.SYSDUMMY1" },
+    });
+  });
+
+  it("encodes a correlated normalized success result", () => {
+    const body = encodeResponse(
+      {
+        version: PROTOCOL_VERSION,
+        requestID: "request",
+        method: "sql.query",
+        params: { sql: "SELECT CURRENT_USER FROM SYSIBM.SYSDUMMY1" },
+      },
+      { state: "ok", rows: [{ value: "QUSER" }] },
+    );
+
+    expect(JSON.parse(decoder.decode(body))).toEqual({
+      version: PROTOCOL_VERSION,
+      request_id: "request",
+      result: { state: "ok", rows: [{ value: "QUSER" }] },
+    });
+  });
+
+  it.each([
+    '{"version":1,"version":1,"request_id":"request","method":"session.status","params":{}}',
+    '{"version":1,"request_id":"request","method":"session.status","params":{},"unknown":true}',
+    '{"version":1,"request_id":"request","method":"session.status","params":{}} trailing',
+    '{"version":1,"method":"session.status","params":{}}',
+  ])("rejects duplicate, unknown, trailing, and incomplete request bodies", (body) => {
+    expect(decodeRequest(encoder.encode(body))).toBeNull();
+  });
+
+  it("rejects over-limit bodies and strips invalid non-success result data", () => {
+    expect(decodeRequest(encoder.encode("x".repeat(513)))).toBeNull();
+
+    const response = encodeResponse(
+      {
+        version: PROTOCOL_VERSION,
+        requestID: "request",
+        method: "sql.query",
+        params: { sql: "SELECT CURRENT_USER FROM SYSIBM.SYSDUMMY1" },
+      },
+      { state: "failed", rows: [{ value: "must not leave the broker" }] },
+    );
+
+    expect(JSON.parse(decoder.decode(response))).toEqual({
+      version: PROTOCOL_VERSION,
+      request_id: "request",
+      result: { state: "failed" },
+    });
+  });
+});

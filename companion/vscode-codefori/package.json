@@ -1,0 +1,36 @@
+{
+  "name": "nexus-codefori-companion",
+  "version": "0.1.0",
+  "publisher": "ddgutierrezc",
+  "displayName": "Nexus Code for IBM i Companion (Preview)",
+  "description": "Unofficial personal preview for bounded local Code for IBM i session checks.",
+  "categories": ["Other"],
+  "keywords": ["IBM i", "Code for IBM i", "Nexus", "Companion"],
+  "preview": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "activationEvents": ["onStartupFinished"],
+  "extensionKind": ["ui"],
+  "extensionDependencies": ["halcyontechltd.code-for-ibmi"],
+  "type": "module",
+  "main": "./dist/extension.js",
+  "scripts": {
+    "lint": "eslint src --max-warnings=0",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc",
+    "vscode:prepublish": "npm run build",
+    "package:vsix": "npx --yes @vscode/vsce@3.9.2 package --pre-release --allow-missing-repository --skip-license --no-dependencies"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.31.0",
+    "@halcyontech/vscode-ibmi-types": "3.0.12",
+    "@types/node": "24.3.0",
+    "eslint": "9.31.0",
+    "typescript": "5.8.3",
+    "typescript-eslint": "8.38.0",
+    "vitest": "3.2.7"
+  }
+}

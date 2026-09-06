@@ -282,7 +282,7 @@ func TestRunCommandCLIParsing(t *testing.T) {
 		{"empty list is rejected", []string{}, nil},
 		{"unknown subcommand is rejected", []string{"unknown"}, nil},
 		{"root flag is rejected", []string{"--bogus"}, nil},
-		{"serve without profile is rejected", []string{"serve"}, nil},
+		{"removed provider flag is rejected", []string{"serve", "-provider", "native"}, nil},
 		{"help serve returns flag.ErrHelp", []string{"help", "serve"}, flag.ErrHelp},
 	}
 	for _, tt := range tests {
@@ -352,24 +352,119 @@ func TestRunCommandServeHelpTextContract(t *testing.T) {
 		t.Fatalf("runCommand(help serve) error = %v, want flag.ErrHelp", err)
 	}
 	lower := strings.ToLower(out.String())
-	for _, want := range []string{"resolve_catalog_candidates", "read_selected_source"} {
+	for _, want := range []string{"session.status", "sql.query", "resolve_catalog_candidates", "read_selected_source"} {
 		if !strings.Contains(lower, want) {
 			t.Fatalf("help text missing required tool %q: %s", want, out.String())
 		}
 	}
-	for _, forbidden := range []string{"ssh", "shell", "exec", "sql", "delete", "remove", "tmp path"} {
+	for _, forbidden := range []string{"ssh", "shell", "exec", "delete", "remove", "tmp path"} {
 		if strings.Contains(lower, forbidden) {
 			t.Fatalf("help text mentions forbidden capability %q: %s", forbidden, out.String())
 		}
 	}
 }
 
-func TestRegisterServeFlagsExposesProfileFlag(t *testing.T) {
+func TestRegisterServeFlagsExposesOnlyProfileFlag(t *testing.T) {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	registerServeFlags(fs)
 	if fs.Lookup("profile") == nil {
 		t.Fatal("serve flag set is missing the required -profile flag")
+	}
+	if fs.Lookup("provider") != nil {
+		t.Fatal("serve flag set must not expose the removed -provider flag")
+	}
+}
+
+func TestSelectServeModeUsesOnlyProfilePresence(t *testing.T) {
+	tests := []struct {
+		name    string
+		profile string
+		want    serveMode
+	}{
+		{name: "no profile selects companion", want: serveModeCompanion},
+		{name: "profile selects native", profile: "approved", want: serveModeNative},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := selectServeMode(tc.profile)
+			if err != nil || got != tc.want {
+				t.Fatalf("selectServeMode() = %q, %v; want %q, nil", got, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestRunServeSelectsOneCompositionWithoutFallback(t *testing.T) {
+	previousNative, previousCompanion := runNativeServe, runCompanionServe
+	t.Cleanup(func() { runNativeServe, runCompanionServe = previousNative, previousCompanion })
+	nativeCalls, companionCalls := 0, 0
+	runNativeServe = func(context.Context, string) error {
+		nativeCalls++
+		return nil
+	}
+	runCompanionServe = func(context.Context) error {
+		companionCalls++
+		return nil
+	}
+
+	if err := runServe(nil, io.Discard); err != nil {
+		t.Fatalf("no-profile runServe() error = %v", err)
+	}
+	if nativeCalls != 0 || companionCalls != 1 {
+		t.Fatalf("no-profile composition calls = native %d, companion %d; want 0, 1", nativeCalls, companionCalls)
+	}
+
+	if err := runServe([]string{"-profile", "approved"}, io.Discard); err != nil {
+		t.Fatalf("profile runServe() error = %v", err)
+	}
+	if nativeCalls != 1 || companionCalls != 1 {
+		t.Fatalf("profile composition calls = native %d, companion %d; want 1, 1", nativeCalls, companionCalls)
+	}
+
+	runCompanionServe = func(context.Context) error {
+		companionCalls++
+		return errServeMCPUnavailable
+	}
+	if err := runServe(nil, io.Discard); !errors.Is(err, errServeMCPUnavailable) {
+		t.Fatalf("unavailable Companion runServe() error = %v, want %v", err, errServeMCPUnavailable)
+	}
+	if nativeCalls != 1 || companionCalls != 2 {
+		t.Fatalf("unavailable Companion switched composition: native %d, companion %d; want 1, 2", nativeCalls, companionCalls)
+	}
+}
+
+func TestRunCompanionWithDepsBuildsOnlyCompanionMCP(t *testing.T) {
+	stub := &runnerStub{}
+	var tools []string
+	err := runCompanionWithDeps(context.Background(), companionDeps{
+		ServerFactory: func(server *internalmcp.CodeForIServer) (runner, error) {
+			tools = server.ToolNames()
+			return stub, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("runCompanionWithDeps() error = %v", err)
+	}
+	if stub.runCalls != 1 {
+		t.Fatalf("Companion runner calls = %d, want 1", stub.runCalls)
+	}
+	if want := []string{"session.status", "sql.query"}; !reflect.DeepEqual(tools, want) {
+		t.Fatalf("Companion tools = %v, want %v", tools, want)
+	}
+}
+
+func TestCompanionDepsExcludeNativeConstructionInputs(t *testing.T) {
+	typ := reflect.TypeOf(companionDeps{})
+	want := map[string]bool{"Provider": true, "ServerFactory": true}
+	if typ.NumField() != len(want) {
+		t.Fatalf("companionDeps field count = %d, want %d", typ.NumField(), len(want))
+	}
+	for index := 0; index < typ.NumField(); index++ {
+		name := typ.Field(index).Name
+		if !want[name] {
+			t.Fatalf("companionDeps has Native construction input %q", name)
+		}
 	}
 }
 

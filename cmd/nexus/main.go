@@ -756,16 +756,15 @@ func newStep8ProductionRunnerWithCredentials(store profile.Store, credentials co
 func printServeHelp(out io.Writer) error {
 	fmt.Fprintln(out, "nexus serve — run the typed stdio MCP server")
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "usage: nexus serve -profile <name> [flags]")
+	fmt.Fprintln(out, "usage: nexus serve [-profile <name>]")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "flags:")
-	fmt.Fprintln(out, "  -profile string   Approved Nexus profile name. Required.")
+	fmt.Fprintln(out, "  -profile string   Approved Nexus profile name. Selects Native mode.")
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "tools exposed:")
-	fmt.Fprintln(out, "  resolve_catalog_candidates   Resolve up to 50 catalog candidates for a bounded query.")
-	fmt.Fprintln(out, "  read_selected_source         Read a single source page for the exact selection bound to a cursor.")
+	fmt.Fprintln(out, "without -profile, Companion tools: session.status and sql.query")
+	fmt.Fprintln(out, "with -profile, Native tools: resolve_catalog_candidates and read_selected_source")
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "Only the two tools above are exposed. No generic surface is offered.")
+	fmt.Fprintln(out, "Only the selected mode's two tools are exposed. No generic surface or fallback is offered.")
 	return flag.ErrHelp
 }
 
@@ -777,15 +776,16 @@ func runServe(args []string, out io.Writer) error {
 		return err
 	}
 	profile := fs.Lookup("profile").Value.String()
-	if strings.TrimSpace(profile) == "" {
-		fmt.Fprintln(out, "nexus serve requires -profile <name>")
-		return errors.New("serve requires a non-empty profile")
+	mode, err := selectServeMode(profile)
+	if err != nil {
+		return err
 	}
-	deps := defaultDeps()
-	deps.Profile = profile
-	return runWithDeps(context.Background(), deps)
+	if mode == serveModeNative {
+		return runNativeServe(context.Background(), profile)
+	}
+	return runCompanionServe(context.Background())
 }
 
 func registerServeFlags(fs *flag.FlagSet) {
-	fs.String("profile", "", "approved Nexus profile name (required)")
+	fs.String("profile", "", "approved Nexus profile name; selects Native mode")
 }
