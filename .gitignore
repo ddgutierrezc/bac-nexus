@@ -29,6 +29,10 @@ extension-items-ibmi-main
 .codegraph/
 .atl/
 
+# Local agent state and JavaScript dependencies.
+/.pi/
+node_modules/
+
 # Local SSH transport harness secrets and generated Compose state.
 /internal/remote/testdata/ssh/.env
 /internal/remote/testdata/ssh/.env.*
