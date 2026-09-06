@@ -7,13 +7,14 @@ const PRE_READY_DEADLINE_MS = 10_000;
 const POST_READY_DEADLINE_MS = 2_000;
 const PUBLISH_PROCESS_DEADLINE_MS = PRE_READY_DEADLINE_MS + POST_READY_DEADLINE_MS;
 const CLEANUP_DEADLINE_MS = 10_000;
-const MAX_STDOUT_BYTES = 80;
+const MAX_STDOUT_BYTES = 104;
 const MAX_STDERR_BYTES = 256;
 const MAX_DESCRIPTOR_BYTES = 512;
 const PUBLISH_STAGES = [
   { output: "PROCESS_ENTRY\n", stage: "process_entry" },
   { output: "SID_READY\n", stage: "sid_ready" },
   { output: "ROOT_READY\n", stage: "root_ready" },
+  { output: "DIRECTORY_SECURITY_READY\n", stage: "directory_security_ready" },
   { output: "DIRECTORY_CREATED\n", stage: "directory_created" },
   { output: "DIRECTORY_VALIDATED\n", stage: "directory_validated" },
   { output: "READY\n", stage: "ready" },

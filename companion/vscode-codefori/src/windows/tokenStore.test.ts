@@ -38,7 +38,7 @@ class FakeChild extends EventEmitter {
   }
 
   ready(): void {
-    this.stdout.emit("data", Buffer.from("PROCESS_ENTRY\nSID_READY\nROOT_READY\nDIRECTORY_CREATED\nDIRECTORY_VALIDATED\nREADY\n"));
+    this.stdout.emit("data", Buffer.from("PROCESS_ENTRY\nSID_READY\nROOT_READY\nDIRECTORY_SECURITY_READY\nDIRECTORY_CREATED\nDIRECTORY_VALIDATED\nREADY\n"));
   }
 
   cleaned(): void {
@@ -139,18 +139,18 @@ describe("fixed Windows descriptor token store", () => {
     expect(stages).toEqual(["process_entry", "sid_ready"]);
     expect(mocks.randomBytes).not.toHaveBeenCalled();
 
-    child.stdout.emit("data", Buffer.from("READY\nDIRECTORY_CREATED\nDIRECTORY_"));
-    expect(stages).toEqual(["process_entry", "sid_ready", "root_ready", "directory_created"]);
+    child.stdout.emit("data", Buffer.from("READY\nDIRECTORY_SECURITY_READY\nDIRECTORY_CREATED\nDIRECTORY_"));
+    expect(stages).toEqual(["process_entry", "sid_ready", "root_ready", "directory_security_ready", "directory_created"]);
     expect(mocks.randomBytes).not.toHaveBeenCalled();
 
     child.stdout.emit("data", Buffer.from("VALIDATED\nREA"));
-    expect(stages).toEqual(["process_entry", "sid_ready", "root_ready", "directory_created", "directory_validated"]);
+    expect(stages).toEqual(["process_entry", "sid_ready", "root_ready", "directory_security_ready", "directory_created", "directory_validated"]);
     child.stdout.emit("data", Buffer.from("DY\n"));
     child.close();
     await expect(publicationPromise).resolves.toMatchObject({
       generation: "07070707070707070707070707070707",
     });
-    expect(stages).toEqual(["process_entry", "sid_ready", "root_ready", "directory_created", "directory_validated", "ready"]);
+    expect(stages).toEqual(["process_entry", "sid_ready", "root_ready", "directory_security_ready", "directory_created", "directory_validated", "ready"]);
   });
 
   it("terminates bounded stdio and deadline failures without exposing child details", async () => {
@@ -309,7 +309,7 @@ describe("fixed Windows descriptor token store", () => {
     expect(publish).toContain("[System.IO.FileMode]::CreateNew");
     expect(publish).toContain("$fileItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint");
     expect(publish).toMatch(
-      /\[Console\]::Out\.Write\("PROCESS_ENTRY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)\r?\n[\s\S]*\[Console\]::Out\.Write\("SID_READY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)\r?\n[\s\S]*\[Console\]::Out\.Write\("ROOT_READY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)\r?\n[\s\S]*\[Console\]::Out\.Write\("DIRECTORY_CREATED`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)\r?\n[\s\S]*\[Console\]::Out\.Write\("DIRECTORY_VALIDATED`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)\r?\n\s*\[Console\]::Out\.Write\("READY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)\r?\n\s*\$input = \[Console\]::In\.ReadToEnd\(\)/,
+      /\[Console\]::Out\.Write\("PROCESS_ENTRY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)\r?\n[\s\S]*\[Console\]::Out\.Write\("SID_READY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)\r?\n[\s\S]*\[Console\]::Out\.Write\("ROOT_READY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)\r?\n[\s\S]*\[Console\]::Out\.Write\("DIRECTORY_SECURITY_READY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)\r?\n\s*\[void\]\[System\.IO\.Directory\]::CreateDirectory\(\$directoryPath, \$directorySecurity\)\r?\n\s*\[Console\]::Out\.Write\("DIRECTORY_CREATED`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)\r?\n[\s\S]*\[Console\]::Out\.Write\("DIRECTORY_VALIDATED`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)\r?\n\s*\[Console\]::Out\.Write\("READY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)\r?\n\s*\$input = \[Console\]::In\.ReadToEnd\(\)/,
     );
     expect(publish).toContain('[Console]::Out.Write("READY`n")');
     expect(publish).toMatch(

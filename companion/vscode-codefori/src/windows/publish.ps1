@@ -48,6 +48,8 @@ try {
     [System.Security.AccessControl.PropagationFlags]::None,
     [System.Security.AccessControl.AccessControlType]::Allow
   )))
+  [Console]::Out.Write("DIRECTORY_SECURITY_READY`n")
+  [Console]::Out.Flush()
   [void][System.IO.Directory]::CreateDirectory($directoryPath, $directorySecurity)
   [Console]::Out.Write("DIRECTORY_CREATED`n")
   [Console]::Out.Flush()
