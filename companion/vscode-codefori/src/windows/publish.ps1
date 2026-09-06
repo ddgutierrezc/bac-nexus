@@ -28,10 +28,14 @@ try {
   [Console]::Out.Write("PROCESS_ENTRY`n")
   [Console]::Out.Flush()
   $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+  [Console]::Out.Write("SID_READY`n")
+  [Console]::Out.Flush()
   $root = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
   if ([string]::IsNullOrWhiteSpace($root)) {
     throw 'LocalApplicationData is unavailable'
   }
+  [Console]::Out.Write("ROOT_READY`n")
+  [Console]::Out.Flush()
   $directoryPath = Join-Path $root 'BAC Nexus\companion-v1'
 
   $directorySecurity = New-Object System.Security.AccessControl.DirectorySecurity
@@ -45,6 +49,8 @@ try {
     [System.Security.AccessControl.AccessControlType]::Allow
   )))
   [void][System.IO.Directory]::CreateDirectory($directoryPath, $directorySecurity)
+  [Console]::Out.Write("DIRECTORY_CREATED`n")
+  [Console]::Out.Flush()
   if (-not (Test-ExactDirectory $directoryPath $sid)) {
     throw 'descriptor directory security is not exact'
   }
