@@ -317,6 +317,8 @@ describe("fixed Windows descriptor token store", () => {
     expect(cleanup).toContain('[Console]::Out.Write("CLEANED`n")');
     expect(nativeTest).toContain("async function publishWithFixedStageEvidence");
     expect(nativeTest).toContain("throw new Error(`windows fixed stage: ${lastStage}`)");
+    expect(nativeTest).toContain("const NATIVE_TEST_TIMEOUT_MS = 60_000;");
+    expect(nativeTest).toContain("}, NATIVE_TEST_TIMEOUT_MS);");
     expect(publish).not.toContain("param(");
     expect(cleanup).not.toContain("param(");
   });

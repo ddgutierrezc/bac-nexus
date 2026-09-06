@@ -608,3 +608,24 @@ No RED/GREEN cycle is fabricated: the user explicitly authorized passive workflo
 ### Native-evidence status
 
 - The four Slice 7 native Windows evidence tasks remain unchecked until the remote scoped Go consumer and opt-in TypeScript producer evidence passes.
+
+## Authorized harness correction — windows-native-test-timeout-alignment
+
+- GitHub Actions run `34006973636` was preempted by Vitest's default 5,000 ms per-test timeout, before the 10,000 ms pre-READY and 12,000 ms production bounds could be evaluated.
+- The two active native producer tests now use the fixed test-only `NATIVE_TEST_TIMEOUT_MS = 60_000`. This exceeds the first test's bounded 44,000 ms sequence (publish 12s, cleanup 10s, publish 12s, afterEach cleanup 10s) with bounded runner overhead; the skipped cross-user contract is unchanged.
+
+### TDD Cycle Evidence — native timeout alignment
+
+| Task | Test file | Layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| Align active native test timeout with bounded production sequence | `src/windows/tokenStore.test.ts`, `src/windows/tokenStore.windows.test.ts` | Static harness contract | Focused suite exited 0: 1 file, 10 tests passed | Added static expectations for the fixed 60,000 ms declaration and active-test use; focused suite exited 1: 1 test failed | Added the fixed constant to both active tests; focused suite exited 0: 1 file, 10 tests passed | The 44,000 ms composed bound establishes that 15,000 ms is insufficient while 60,000 ms remains bounded | No refactor needed |
+
+### Work Unit Evidence — native timeout alignment
+
+| Evidence | Exact result |
+|---|---|
+| Focused test command and exact result | `npm test -- --run src/windows/tokenStore.test.ts` exited 0: 1 test file and 10 tests passed. `npm run typecheck` exited 0. `npm run lint` exited 0. `git diff --check` exited 0. |
+| Runtime harness command/scenario and exact result | Not run locally. Parent owns token `sha256:beff880be7b39ed6f79a1a0844b5c3a5d98e9262c3e8b0d4ce116cf4ef443ee0`; a passing settlement must remediate `sha256:5f2ac30d16f78d8f968f8fa98ffddedf328a27204a8757c945b7623c0b8443f8`. |
+| Rollback boundary | Revert only `NATIVE_TEST_TIMEOUT_MS`, its two active-test arguments, the static assertions, and this section. |
+
+- Native Slice 7 task checkboxes remain unchecked until the remote run passes.

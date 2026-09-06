@@ -8,6 +8,7 @@ import { createWindowsTokenStore, type TokenPublication } from "./tokenStore.js"
 
 const executeFile = promisify(execFile);
 const runNativeWindows = process.platform === "win32" && process.env.CODEFORI_WINDOWS_NATIVE_TESTS === "1";
+const NATIVE_TEST_TIMEOUT_MS = 60_000;
 const descriptorDirectory = process.env.LOCALAPPDATA
   ? win32.join(process.env.LOCALAPPDATA, "BAC Nexus", "companion-v1")
   : "";
@@ -96,14 +97,14 @@ nativeDescribe("native Windows descriptor producer security", () => {
     publication = await publishWithFixedStageEvidence();
     await assertExactCurrentUserOnlyACL(descriptorDirectory, true);
     await assertExactCurrentUserOnlyACL(descriptorPath, false);
-  });
+  }, NATIVE_TEST_TIMEOUT_MS);
 
   it("retains generation-owned cleanup and leaves no descriptor after the owner closes it", async () => {
     publication = await publishWithFixedStageEvidence();
     await publication.cleanup();
     publication = undefined;
     await mustNotExist(descriptorPath);
-  });
+  }, NATIVE_TEST_TIMEOUT_MS);
 
   it.skipIf(process.env.CODEFORI_WINDOWS_CROSS_USER_TEST !== "1")(
     "requires the native cross-user harness to prove another ordinary user cannot read the descriptor",
