@@ -17,8 +17,8 @@ function Test-ExactAccessControl([System.Security.AccessControl.FileSystemSecuri
 }
 
 function Test-ExactDirectory([string]$path, [System.Security.Principal.SecurityIdentifier]$sid) {
-  $item = Get-Item -LiteralPath $path -Force
-  if (-not $item.PSIsContainer -or ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+  $item = [System.IO.DirectoryInfo]::new($path)
+  if (-not $item.Exists -or ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
     return $false
   }
   return Test-ExactAccessControl $item.GetAccessControl() $sid
@@ -106,8 +106,8 @@ try {
     $fileSecurity
   )
   try {
-    $fileItem = Get-Item -LiteralPath $descriptorPath -Force
-    if ($fileItem.PSIsContainer -or
+    $fileItem = [System.IO.FileInfo]::new($descriptorPath)
+    if (-not $fileItem.Exists -or
         ($fileItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -or
         $stream.SafeFileHandle.IsInvalid -or
         -not (Test-ExactAccessControl $stream.GetAccessControl() $sid)) {

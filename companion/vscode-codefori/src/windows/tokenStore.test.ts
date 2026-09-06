@@ -309,6 +309,9 @@ describe("fixed Windows descriptor token store", () => {
     expect(publish).toMatch(/\$directoryPath = \[System\.IO\.Path\]::Combine\(\[System\.IO\.Path\]::Combine\(\$root, 'BAC Nexus'\), 'companion-v1'\)\r?\n\s*\[Console\]::Out\.Write\("PATH_READY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)/);
     expect(publish).not.toContain("Join-Path");
     expect(publish).not.toContain("New-Object");
+    expect(publish).not.toContain("Get-Item");
+    expect(publish).toContain("$item = [System.IO.DirectoryInfo]::new($path)");
+    expect(publish).toContain("if (-not $item.Exists -or ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint))");
     expect(publish).toMatch(/\$directorySecurity = \[System\.Security\.AccessControl\.DirectorySecurity\]::new\(\)\r?\n\s*\[Console\]::Out\.Write\("DIRECTORY_SECURITY_CREATED`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)/);
     expect(publish).toMatch(/\$directorySecurity\.SetOwner\(\$sid\)\r?\n\s*\[Console\]::Out\.Write\("OWNER_READY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)/);
     expect(publish).toMatch(/\$directorySecurity\.SetAccessRuleProtection\(\$true, \$false\)\r?\n\s*\[Console\]::Out\.Write\("ACCESS_PROTECTION_READY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)/);
@@ -316,6 +319,8 @@ describe("fixed Windows descriptor token store", () => {
     expect(publish).toMatch(/\$directorySecurity\.AddAccessRule\(\$directoryAccessRule\)\r?\n\s*\[Console\]::Out\.Write\("ACCESS_RULE_ADDED`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)/);
     expect(publish).toContain("$fileSecurity.SetAccessRuleProtection($true, $false)");
     expect(publish).toContain("$descriptorPath = [System.IO.Path]::Combine($directoryPath, 'descriptor.json')");
+    expect(publish).toContain("$fileItem = [System.IO.FileInfo]::new($descriptorPath)");
+    expect(publish).toContain("-not $fileItem.Exists -or");
     expect(publish).toContain("$fileSecurity = [System.Security.AccessControl.FileSecurity]::new()");
     expect(publish).toMatch(/\$fileSecurity\.AddAccessRule\(\(\[System\.Security\.AccessControl\.FileSystemAccessRule\]::new\([\s\S]*?\r?\n\s*\)\)\)/);
     expect(publish).toContain("$stream = [System.IO.FileStream]::new(");
