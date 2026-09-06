@@ -40,7 +40,7 @@ try {
   [Console]::Out.Write("PATH_READY`n")
   [Console]::Out.Flush()
 
-  $directorySecurity = New-Object System.Security.AccessControl.DirectorySecurity
+  $directorySecurity = [System.Security.AccessControl.DirectorySecurity]::new()
   [Console]::Out.Write("DIRECTORY_SECURITY_CREATED`n")
   [Console]::Out.Flush()
   $directorySecurity.SetOwner($sid)
@@ -49,7 +49,7 @@ try {
   $directorySecurity.SetAccessRuleProtection($true, $false)
   [Console]::Out.Write("ACCESS_PROTECTION_READY`n")
   [Console]::Out.Flush()
-  $directoryAccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+  $directoryAccessRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
     $sid,
     [System.Security.AccessControl.FileSystemRights]::FullControl,
     [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit',
@@ -87,16 +87,16 @@ try {
     throw 'descriptor input is invalid'
   }
 
-  $descriptorPath = Join-Path $directoryPath 'descriptor.json'
-  $fileSecurity = New-Object System.Security.AccessControl.FileSecurity
+  $descriptorPath = [System.IO.Path]::Combine($directoryPath, 'descriptor.json')
+  $fileSecurity = [System.Security.AccessControl.FileSecurity]::new()
   $fileSecurity.SetOwner($sid)
   $fileSecurity.SetAccessRuleProtection($true, $false)
-  $fileSecurity.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+  $fileSecurity.AddAccessRule(([System.Security.AccessControl.FileSystemAccessRule]::new(
     $sid,
     [System.Security.AccessControl.FileSystemRights]::FullControl,
     [System.Security.AccessControl.AccessControlType]::Allow
   )))
-  $stream = New-Object System.IO.FileStream(
+  $stream = [System.IO.FileStream]::new(
     $descriptorPath,
     [System.IO.FileMode]::CreateNew,
     [System.Security.AccessControl.FileSystemRights]::FullControl,
