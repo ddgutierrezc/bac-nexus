@@ -25,6 +25,8 @@ function Test-ExactDirectory([string]$path, [System.Security.Principal.SecurityI
 }
 
 try {
+  [Console]::Out.Write("PROCESS_ENTRY`n")
+  [Console]::Out.Flush()
   $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
   $root = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
   if ([string]::IsNullOrWhiteSpace($root)) {
@@ -47,6 +49,8 @@ try {
     throw 'descriptor directory security is not exact'
   }
 
+  [Console]::Out.Write("DIRECTORY_VALIDATED`n")
+  [Console]::Out.Flush()
   [Console]::Out.Write("READY`n")
   [Console]::Out.Flush()
   $input = [Console]::In.ReadToEnd()

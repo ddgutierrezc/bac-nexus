@@ -7,6 +7,12 @@ const PROCESS_DEADLINE_MS = 2_000;
 const MAX_STDOUT_BYTES = 64;
 const MAX_STDERR_BYTES = 256;
 const MAX_DESCRIPTOR_BYTES = 512;
+const PUBLISH_STAGES = [
+  { output: "PROCESS_ENTRY\n", stage: "process_entry" },
+  { output: "DIRECTORY_VALIDATED\n", stage: "directory_validated" },
+  { output: "READY\n", stage: "ready" },
+] as const;
+const PUBLISH_TRANSCRIPT = PUBLISH_STAGES.map(({ output }) => output).join("");
 const POWERSHELL_ARGUMENTS = [
   "-NoLogo",
   "-NoProfile",
@@ -26,6 +32,9 @@ export interface WindowsTokenStore {
   publish(): Promise<TokenPublication | undefined>;
 }
 
+type FixedStage = (typeof PUBLISH_STAGES)[number];
+type FixedStageObserver = (stage: FixedStage["stage"]) => void;
+
 interface SpawnedProcess {
   readonly stdin: {
     end(): void;
@@ -42,7 +51,7 @@ interface SpawnedProcess {
   once(event: "error", listener: () => void): unknown;
 }
 
-export function createWindowsTokenStore(): WindowsTokenStore {
+export function createWindowsTokenStore(onStage?: FixedStageObserver): WindowsTokenStore {
   return {
     async publish(): Promise<TokenPublication | undefined> {
       const environment = fixedEnvironment();
@@ -55,8 +64,10 @@ export function createWindowsTokenStore(): WindowsTokenStore {
       let token = "";
       const published = await runFixedOperation({
         environment,
-        expectedOutput: "READY\n",
+        expectedOutput: PUBLISH_TRANSCRIPT,
+        onStage,
         script: inboxScript("publish.ps1"),
+        stageTranscript: PUBLISH_STAGES,
         writeInputAfterReady: () => {
           generation = randomBytes(16).toString("hex");
           token = randomBytes(32).toString("hex");
@@ -120,9 +131,11 @@ function encodeInput(value: object): Uint8Array {
 
 interface FixedOperation {
   readonly environment: Readonly<Record<string, string>>;
-  readonly expectedOutput: "READY\n" | "CLEANED\n";
+  readonly expectedOutput: string;
   readonly input?: Uint8Array;
+  readonly onStage?: FixedStageObserver | undefined;
   readonly script: string;
+  readonly stageTranscript?: readonly FixedStage[];
   readonly writeInputAfterReady?: () => Uint8Array;
 }
 
@@ -153,6 +166,7 @@ function runFixedOperation(operation: FixedOperation): Promise<boolean> {
     let stdout = Buffer.alloc(0);
     let stderrBytes = 0;
     let inputWritten = false;
+    let reportedStages = 0;
     const deadline = setTimeout(() => finish(false), PROCESS_DEADLINE_MS);
 
     const finish = (result: boolean): void => {
@@ -173,10 +187,29 @@ function runFixedOperation(operation: FixedOperation): Promise<boolean> {
         return;
       }
       stdout = Buffer.concat([stdout, Buffer.from(chunk)]);
-      if (stdout.byteLength > MAX_STDOUT_BYTES || stdout.toString("utf8") !== operation.expectedOutput) {
-        if (!operation.expectedOutput.startsWith(stdout.toString("utf8"))) {
-          finish(false);
+      const output = stdout.toString("utf8");
+      while (operation.stageTranscript && reportedStages < operation.stageTranscript.length) {
+        const stage = operation.stageTranscript[reportedStages];
+        if (!stage) {
+          break;
         }
+        const transcript = operation.stageTranscript.slice(0, reportedStages + 1).map(({ output: part }) => part).join("");
+        if (!output.startsWith(transcript)) {
+          break;
+        }
+        try {
+          operation.onStage?.(stage.stage);
+        } catch {
+          finish(false);
+          return;
+        }
+        reportedStages += 1;
+      }
+      if (stdout.byteLength > MAX_STDOUT_BYTES || !operation.expectedOutput.startsWith(output)) {
+        finish(false);
+        return;
+      }
+      if (output !== operation.expectedOutput) {
         return;
       }
       if (!inputWritten && operation.writeInputAfterReady) {

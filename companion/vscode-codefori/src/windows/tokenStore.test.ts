@@ -38,7 +38,7 @@ class FakeChild extends EventEmitter {
   }
 
   ready(): void {
-    this.stdout.emit("data", Buffer.from("READY\n"));
+    this.stdout.emit("data", Buffer.from("PROCESS_ENTRY\nDIRECTORY_VALIDATED\nREADY\n"));
   }
 
   cleaned(): void {
@@ -113,18 +113,42 @@ describe("fixed Windows descriptor token store", () => {
     });
   });
 
-  it("fails closed without retrying when fixed-process readiness or output is invalid", async () => {
+  it("reports only the completed fixed stage when transcript output stops being a prefix", async () => {
     const child = new FakeChild();
     mocks.spawn.mockReturnValueOnce(child);
+    const stages: string[] = [];
 
-    const publicationPromise = createWindowsTokenStore().publish();
-    child.stdout.emit("data", Buffer.from("READY token-leak\n"));
+    const publicationPromise = createWindowsTokenStore((stage) => stages.push(stage)).publish();
+    child.stdout.emit("data", Buffer.from("PROCESS_ENTRY\nunexpected child output\n"));
     child.close();
 
     await expect(publicationPromise).resolves.toBeUndefined();
     expect(mocks.spawn).toHaveBeenCalledTimes(1);
     expect(mocks.randomBytes).not.toHaveBeenCalled();
     expect(child.killed).toBe(true);
+    expect(stages).toEqual(["process_entry"]);
+  });
+
+  it("accepts the exact fixed transcript across stdout chunk boundaries before sending a secret", async () => {
+    const child = new FakeChild();
+    mocks.spawn.mockReturnValueOnce(child);
+    const stages: string[] = [];
+
+    const publicationPromise = createWindowsTokenStore((stage) => stages.push(stage)).publish();
+    child.stdout.emit("data", Buffer.from("PROCESS_ENTRY\nDIRECTORY_"));
+    expect(stages).toEqual(["process_entry"]);
+    expect(mocks.randomBytes).not.toHaveBeenCalled();
+
+    child.stdout.emit("data", Buffer.from("VALIDATED\nREA"));
+    expect(stages).toEqual(["process_entry", "directory_validated"]);
+    expect(mocks.randomBytes).not.toHaveBeenCalled();
+
+    child.stdout.emit("data", Buffer.from("DY\n"));
+    child.close();
+    await expect(publicationPromise).resolves.toMatchObject({
+      generation: "07070707070707070707070707070707",
+    });
+    expect(stages).toEqual(["process_entry", "directory_validated", "ready"]);
   });
 
   it("terminates bounded stdio and deadline failures without exposing child details", async () => {
@@ -249,18 +273,24 @@ describe("fixed Windows descriptor token store", () => {
   it("keeps the two inbox scripts limited to protected descriptor publication and owned cleanup", async () => {
     const publish = await readFile(new URL("./publish.ps1", import.meta.url), "utf8");
     const cleanup = await readFile(new URL("./cleanup.ps1", import.meta.url), "utf8");
+    const nativeTest = await readFile(new URL("./tokenStore.windows.test.ts", import.meta.url), "utf8");
 
     expect(publish).toContain("[System.IO.Directory]::CreateDirectory($directoryPath, $directorySecurity)");
     expect(publish).toContain("$directorySecurity.SetAccessRuleProtection($true, $false)");
     expect(publish).toContain("$fileSecurity.SetAccessRuleProtection($true, $false)");
     expect(publish).toContain("[System.IO.FileMode]::CreateNew");
     expect(publish).toContain("$fileItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint");
+    expect(publish).toMatch(
+      /\[Console\]::Out\.Write\("PROCESS_ENTRY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)\r?\n[\s\S]*\[Console\]::Out\.Write\("DIRECTORY_VALIDATED`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)\r?\n\s*\[Console\]::Out\.Write\("READY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)\r?\n\s*\$input = \[Console\]::In\.ReadToEnd\(\)/,
+    );
     expect(publish).toContain('[Console]::Out.Write("READY`n")');
     expect(publish).toMatch(
       /\[Console\]::Out\.Write\("READY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)\r?\n\s*\$input = \[Console\]::In\.ReadToEnd\(\)/,
     );
     expect(cleanup).toContain("$descriptor.generation -ne $request.generation");
     expect(cleanup).toContain('[Console]::Out.Write("CLEANED`n")');
+    expect(nativeTest).toContain("async function publishWithFixedStageEvidence");
+    expect(nativeTest).toContain("throw new Error(`windows fixed stage: ${lastStage}`)");
     expect(publish).not.toContain("param(");
     expect(cleanup).not.toContain("param(");
   });

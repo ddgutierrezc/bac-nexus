@@ -555,3 +555,30 @@ No RED/GREEN cycle is fabricated: the user explicitly authorized passive workflo
 
 - The four Slice 7 native Windows evidence tasks remain unchecked, and the cross-user test remains skipped.
 - This is the final authorized runtime correction attempt. A passing fresh Windows run must validate the scoped Go consumer and opt-in TypeScript producer checks before task completion can be considered.
+
+## Maintainer-approved diagnostic objective — windows-fixed-stage-diagnostic
+
+### Fixed transcript and interpretation
+
+- `publish.ps1` emits and flushes only this ordered secret-free transcript: `PROCESS_ENTRY\nDIRECTORY_VALIDATED\nREADY\n`.
+- The token store accepts only prefixes of that exact transcript across stdout chunk boundaries and writes descriptor stdin only after the complete transcript.
+- Native tests retain only the last fixed stage and report it only when `publish()` returns unavailable: `none` means no complete stage, `process_entry` means before validated directory/ACL state, `directory_validated` means before READY, and `ready` means after the input handshake began.
+- Production still returns only its existing bounded result; no stage reaches MCP, settings, telemetry, production logs, errors, or callers.
+
+### TDD Cycle Evidence — fixed-stage diagnostic
+
+| Task | Test file | Layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| Record only fixed pre-READY stages | `src/windows/tokenStore.test.ts`, `src/windows/tokenStore.windows.test.ts` | Fake process and native-test seam | Focused suite exited 0: 1 file, 8 tests passed | Added transcript, chunk, and last-stage assertions; focused suite exited 1: 6 tests failed; native failure-wrapper contract then exited 1: 1 test failed | Added fixed transcript parser, observer, script stages, and native failure wrapper; focused suite exited 0: 1 file, 9 tests passed | A split transcript and a non-prefix after `process_entry` prove chunk handling and sanitization independently | Tightened stage reporting to retain the completed valid prefix before rejecting the invalid suffix; all focused tests stayed green |
+
+### Work Unit Evidence — fixed-stage diagnostic
+
+| Evidence | Exact result |
+|---|---|
+| Focused test command and exact result | `npm test -- --run src/windows/tokenStore.test.ts` exited 0: 1 test file and 9 tests passed. `npm run typecheck` exited 0. `npm run lint` exited 0. `git diff --check` exited 0. |
+| Runtime harness command/scenario and exact result | Not run locally. Parent owns the single workflow attempt and token `sha256:85f478f19e5e33f4270d5b7ca6819b9a797f00c4fd5394a484db4809a6a057ae` for failed evidence revision `sha256:7090a2bc2186bee3e917f01d0cc9bf989c0ae517736c058602cf750f899d994a`. |
+| Rollback boundary | Revert only the fixed transcript/observer changes in `src/windows/tokenStore.ts`, the new `PROCESS_ENTRY` and `DIRECTORY_VALIDATED` write/flush pairs in `src/windows/publish.ps1`, the two focused tests, and this section. |
+
+### Native-evidence status
+
+- The four Slice 7 native Windows evidence tasks remain unchecked; this one-run diagnostic localizes failure and does not claim a fix.

@@ -52,6 +52,17 @@ async function mustNotExist(path: string): Promise<void> {
 
 const nativeDescribe = runNativeWindows ? describe : describe.skip;
 
+async function publishWithFixedStageEvidence(): Promise<TokenPublication> {
+  let lastStage = "none";
+  const publication = await createWindowsTokenStore((stage) => {
+    lastStage = stage;
+  }).publish();
+  if (!publication) {
+    throw new Error(`windows fixed stage: ${lastStage}`);
+  }
+  return publication;
+}
+
 nativeDescribe("native Windows descriptor producer security", () => {
   let publication: TokenPublication | undefined;
 
@@ -64,12 +75,8 @@ nativeDescribe("native Windows descriptor producer security", () => {
     expect(descriptorPath).not.toBe("");
     await mustNotExist(descriptorPath);
 
-    publication = await createWindowsTokenStore().publish();
-    expect(publication).toBeDefined();
+    publication = await publishWithFixedStageEvidence();
     const initial = publication;
-    if (!initial) {
-      return;
-    }
     const descriptor = await readFile(descriptorPath, "utf8");
     expect(Buffer.byteLength(descriptor, "utf8")).toBeLessThanOrEqual(512);
     expect(JSON.parse(descriptor)).toEqual({ generation: initial.generation, token: initial.token, version: 1 });
@@ -86,20 +93,14 @@ nativeDescribe("native Windows descriptor producer security", () => {
     publication = undefined;
     await mustNotExist(descriptorPath);
 
-    publication = await createWindowsTokenStore().publish();
-    expect(publication).toBeDefined();
+    publication = await publishWithFixedStageEvidence();
     await assertExactCurrentUserOnlyACL(descriptorDirectory, true);
     await assertExactCurrentUserOnlyACL(descriptorPath, false);
   });
 
   it("retains generation-owned cleanup and leaves no descriptor after the owner closes it", async () => {
-    publication = await createWindowsTokenStore().publish();
-    expect(publication).toBeDefined();
-    const owned = publication;
-    if (!owned) {
-      return;
-    }
-    await owned.cleanup();
+    publication = await publishWithFixedStageEvidence();
+    await publication.cleanup();
     publication = undefined;
     await mustNotExist(descriptorPath);
   });
@@ -107,8 +108,7 @@ nativeDescribe("native Windows descriptor producer security", () => {
   it.skipIf(process.env.CODEFORI_WINDOWS_CROSS_USER_TEST !== "1")(
     "requires the native cross-user harness to prove another ordinary user cannot read the descriptor",
     async () => {
-      publication = await createWindowsTokenStore().publish();
-      expect(publication).toBeDefined();
+      publication = await publishWithFixedStageEvidence();
       expect(process.env.CODEFORI_WINDOWS_CROSS_USER_TEST).toBe("1");
       // The hosted runner must provide a second ordinary-user probe command.
       // This test deliberately has no credential, account, or fallback mechanism.
