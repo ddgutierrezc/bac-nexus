@@ -58,21 +58,19 @@ class Deferred<T> {
   }
 }
 
-function request(body: string, authorization = "Bearer activation-token"): BrokerRequest {
+function request(body: string): BrokerRequest {
   return {
     method: "POST",
     path: "/v1/rpc",
-    headers: { authorization },
+    headers: {},
     body: encoder.encode(body),
   };
 }
 
 describe("fixed-loopback broker", () => {
-  it("binds the one fixed address and serves an authenticated proof query", async () => {
+  it("binds the one fixed address and serves a proof query without authentication", async () => {
     const server = new FakeServer();
     const broker = createBroker({
-      generation: "generation",
-      token: "activation-token",
       serverFactory: (handler) => {
         server.requestHandler = handler;
         return server;
@@ -87,14 +85,13 @@ describe("fixed-loopback broker", () => {
 
     const response = await server.dispatch(
       request(
-        '{"version":1,"generation":"generation","request_id":"request","method":"sql.query","params":{"sql":"select current_user from sysibm.sysdummy1"}}',
+        '{"version":1,"request_id":"request","method":"sql.query","params":{"sql":"select current_user from sysibm.sysdummy1"}}',
       ),
     );
 
     expect(response.status).toBe(200);
     expect(JSON.parse(decoder.decode(response.body))).toEqual({
       version: 1,
-      generation: "generation",
       request_id: "request",
       result: { state: "ok", rows: [{ value: "QUSER" }] },
     });
@@ -103,8 +100,6 @@ describe("fixed-loopback broker", () => {
   it("fails unavailable on a fixed-port collision without another bind attempt", async () => {
     const server = new FakeServer(new Error("address in use"));
     const broker = createBroker({
-      generation: "generation",
-      token: "activation-token",
       serverFactory: () => server,
       handler: async () => ({ state: "connected" }),
     });
@@ -115,11 +110,9 @@ describe("fixed-loopback broker", () => {
     ]);
   });
 
-  it("rejects unauthenticated requests with a sanitized response", async () => {
+  it("accepts a status request with no authorization header", async () => {
     const server = new FakeServer();
     const broker = createBroker({
-      generation: "generation",
-      token: "activation-token",
       serverFactory: (handler) => {
         server.requestHandler = handler;
         return server;
@@ -128,11 +121,15 @@ describe("fixed-loopback broker", () => {
     });
     await broker.start();
 
-    const response = await server.dispatch(request("{}", "Bearer wrong-token"));
+    const response = await server.dispatch(
+      request('{"version":1,"request_id":"request","method":"session.status","params":{}}'),
+    );
 
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(200);
     expect(JSON.parse(decoder.decode(response.body))).toEqual({
-      result: { state: "unavailable" },
+      version: 1,
+      request_id: "request",
+      result: { state: "connected" },
     });
   });
 
@@ -140,8 +137,6 @@ describe("fixed-loopback broker", () => {
     const server = new FakeServer();
     let calls = 0;
     const broker = createBroker({
-      generation: "generation",
-      token: "activation-token",
       serverFactory: (handler) => {
         server.requestHandler = handler;
         return server;
@@ -155,13 +150,12 @@ describe("fixed-loopback broker", () => {
 
     const invalidRequest = await server.dispatch(
       request(
-        '{"version":1,"generation":"generation","request_id":"request","method":"sql.query","params":{"sql":"SELECT CURRENT_USER FROM SYSIBM.SYSDUMMY1;"}}',
+        '{"version":1,"request_id":"request","method":"sql.query","params":{"sql":"SELECT CURRENT_USER FROM SYSIBM.SYSDUMMY1;"}}',
       ),
     );
     expect(invalidRequest.status).toBe(200);
     expect(JSON.parse(decoder.decode(invalidRequest.body))).toEqual({
       version: 1,
-      generation: "generation",
       request_id: "request",
       result: { state: "invalid_query" },
     });
@@ -169,10 +163,10 @@ describe("fixed-loopback broker", () => {
     for (const malformed of [
       request("{}"),
       request(
-        '{"version":2,"generation":"generation","request_id":"request","method":"session.status","params":{}}',
+        '{"version":2,"request_id":"request","method":"session.status","params":{}}',
       ),
       request(
-        '{"version":1,"generation":"stale","request_id":"request","method":"session.status","params":{}}',
+        '{"version":1,"request_id":"request","method":"session.status","params":{},"generation":"stale"}',
       ),
       { ...request("{}"), method: "GET" },
       { ...request("{}"), path: "/other" },
@@ -188,8 +182,6 @@ describe("fixed-loopback broker", () => {
   it("sanitizes handler failures without exposing request details", async () => {
     const server = new FakeServer();
     const broker = createBroker({
-      generation: "generation",
-      token: "activation-token",
       serverFactory: (handler) => {
         server.requestHandler = handler;
         return server;
@@ -202,13 +194,12 @@ describe("fixed-loopback broker", () => {
 
     const response = await server.dispatch(
       request(
-        '{"version":1,"generation":"generation","request_id":"request","method":"sql.query","params":{"sql":"SELECT CURRENT_USER FROM SYSIBM.SYSDUMMY1"}}',
+        '{"version":1,"request_id":"request","method":"sql.query","params":{"sql":"SELECT CURRENT_USER FROM SYSIBM.SYSDUMMY1"}}',
       ),
     );
 
     expect(JSON.parse(decoder.decode(response.body))).toEqual({
       version: 1,
-      generation: "generation",
       request_id: "request",
       result: { state: "failed" },
     });
@@ -230,8 +221,6 @@ describe("fixed-loopback broker", () => {
     };
     const adapter = createCodeForIAdapter({ instance } satisfies CodeForIExports, {});
     const broker = createBroker({
-      generation: "generation",
-      token: "activation-token",
       serverFactory: (handler) => {
         server.requestHandler = handler;
         return server;
@@ -243,7 +232,7 @@ describe("fixed-loopback broker", () => {
     const responses = Array.from({ length: 10 }, (_, index) =>
       server.dispatch(
         request(
-          `{"version":1,"generation":"generation","request_id":"request-${index}","method":"sql.query","params":{"sql":"SELECT CURRENT_USER FROM SYSIBM.SYSDUMMY1"}}`,
+          `{"version":1,"request_id":"request-${index}","method":"sql.query","params":{"sql":"SELECT CURRENT_USER FROM SYSIBM.SYSDUMMY1"}}`,
         ),
       ),
     );
@@ -262,7 +251,7 @@ describe("fixed-loopback broker", () => {
         status: 200,
         headers: { "content-type": "application/json" },
         body: encoder.encode(
-          `{"version":1,"generation":"generation","request_id":"request-${index}","result":{"state":"ok","rows":[{"value":"value-${index}"}]}}`,
+          `{"version":1,"request_id":"request-${index}","result":{"state":"ok","rows":[{"value":"value-${index}"}]}}`,
         ),
       })),
     );

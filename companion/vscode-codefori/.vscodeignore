@@ -1,0 +1,12 @@
+# Include only the runtime and Marketplace listing artifacts.
+**
+!package.json
+!README.md
+!CHANGELOG.md
+!dist/admission.js
+!dist/broker.js
+!dist/codeforiAdapter.js
+!dist/extension.js
+!dist/httpServer.js
+!dist/protocol.js
+!dist/query.js

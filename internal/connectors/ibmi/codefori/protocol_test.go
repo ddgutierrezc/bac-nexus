@@ -8,7 +8,7 @@ import (
 )
 
 func TestDecodeResponseRejectsUnknownDuplicateAndTrailingJSON(t *testing.T) {
-	valid := `{"version":1,"generation":"generation-1","request_id":"request-1","result":{"state":"ok","rows":[{"value":"BACUSER"}]}}`
+	valid := `{"version":1,"request_id":"request-1","result":{"state":"ok","rows":[{"value":"BACUSER"}]}}`
 	tests := []struct {
 		name string
 		body string
@@ -32,9 +32,9 @@ func TestDecodeResponseRequiresExactNormalizedResult(t *testing.T) {
 		name string
 		body string
 	}{
-		{name: "unknown result field", body: `{"version":1,"generation":"generation-1","request_id":"request-1","result":{"state":"ok","rows":[{"value":"BACUSER"}],"raw":"forbidden"}}`},
-		{name: "duplicate normalized value", body: `{"version":1,"generation":"generation-1","request_id":"request-1","result":{"state":"ok","rows":[{"value":"BACUSER","value":"OTHER"}]}}`},
-		{name: "non-success rows", body: `{"version":1,"generation":"generation-1","request_id":"request-1","result":{"state":"unavailable","rows":[]}}`},
+		{name: "unknown result field", body: `{"version":1,"request_id":"request-1","result":{"state":"ok","rows":[{"value":"BACUSER"}],"raw":"forbidden"}}`},
+		{name: "duplicate normalized value", body: `{"version":1,"request_id":"request-1","result":{"state":"ok","rows":[{"value":"BACUSER","value":"OTHER"}]}}`},
+		{name: "non-success rows", body: `{"version":1,"request_id":"request-1","result":{"state":"unavailable","rows":[]}}`},
 	}
 
 	for _, tt := range tests {
@@ -48,10 +48,9 @@ func TestDecodeResponseRequiresExactNormalizedResult(t *testing.T) {
 
 func TestProtocolRoundTripPreservesBoundedNormalizedResult(t *testing.T) {
 	encoded, err := encodeResponse(rpcResponse{
-		Version:    protocolVersion,
-		Generation: "generation-1",
-		RequestID:  "request-1",
-		Result:     provider.QueryResult{State: provider.QueryOK, Rows: []provider.NormalizedRow{{Value: "BACUSER"}}},
+		Version:   protocolVersion,
+		RequestID: "request-1",
+		Result:    provider.QueryResult{State: provider.QueryOK, Rows: []provider.NormalizedRow{{Value: "BACUSER"}}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -66,7 +65,7 @@ func TestProtocolRoundTripPreservesBoundedNormalizedResult(t *testing.T) {
 }
 
 func TestDecodeRequestRejectsUnknownDuplicateAndInvalidParams(t *testing.T) {
-	valid := `{"version":1,"generation":"generation-1","request_id":"request-1","method":"sql.query","params":{"sql":"SELECT CURRENT_USER FROM SYSIBM.SYSDUMMY1"}}`
+	valid := `{"version":1,"request_id":"request-1","method":"sql.query","params":{"sql":"SELECT CURRENT_USER FROM SYSIBM.SYSDUMMY1"}}`
 	tests := []struct {
 		name string
 		body string
@@ -85,8 +84,19 @@ func TestDecodeRequestRejectsUnknownDuplicateAndInvalidParams(t *testing.T) {
 	}
 }
 
+func TestProtocolRejectsRemovedGenerationFields(t *testing.T) {
+	request := `{"version":1,"generation":"obsolete","request_id":"request-1","method":"session.status","params":{}}`
+	if _, err := decodeRequest([]byte(request)); err == nil {
+		t.Fatal("decodeRequest() accepted removed generation field")
+	}
+	response := `{"version":1,"generation":"obsolete","request_id":"request-1","result":{"state":"unavailable"}}`
+	if _, err := decodeResponse([]byte(response)); err == nil {
+		t.Fatal("decodeResponse() accepted removed generation field")
+	}
+}
+
 func TestProtocolEnforcesRequestAndResponseByteLimits(t *testing.T) {
-	overgrown := rpcRequest{Version: protocolVersion, Generation: strings.Repeat("g", maxRequestBytes), RequestID: "request-1", Method: methodSQLQuery}
+	overgrown := rpcRequest{Version: protocolVersion, RequestID: strings.Repeat("r", maxRequestBytes), Method: methodSQLQuery}
 	overgrown.Params.SQL = provider.CanonicalProofQuery
 	if _, err := encodeRequest(overgrown); err == nil {
 		t.Fatal("encodeRequest() succeeded for an oversized body")
@@ -97,7 +107,7 @@ func TestProtocolEnforcesRequestAndResponseByteLimits(t *testing.T) {
 	if body, err := readBoundedBody(strings.NewReader(`{"state":"ok"}`), maxResponseBytes); err != nil || string(body) != `{"state":"ok"}` {
 		t.Fatalf("readBoundedBody() = %q, %v", body, err)
 	}
-	validEnvelope := `{"version":1,"generation":"generation-1","request_id":"request-1","result":{"state":"unavailable"}}`
+	validEnvelope := `{"version":1,"request_id":"request-1","result":{"state":"unavailable"}}`
 	if _, err := decodeEnvelope([]byte(validEnvelope + strings.Repeat(" ", maxResponseBytes))); err == nil {
 		t.Fatal("decodeEnvelope() succeeded for an oversized response")
 	}

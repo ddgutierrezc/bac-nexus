@@ -629,3 +629,184 @@ No RED/GREEN cycle is fabricated: the user explicitly authorized passive workflo
 | Rollback boundary | Revert only `NATIVE_TEST_TIMEOUT_MS`, its two active-test arguments, the static assertions, and this section. |
 
 - Native Slice 7 task checkboxes remain unchecked until the remote run passes.
+
+## Completed work unit 1 — direct Go client
+
+Completed only the PR 1 task boundary and marked the corresponding current-revision checkboxes in `tasks.md`:
+
+- [x] 1.3 RED: construction counters prove no-profile selects Companion, `-profile` selects Native, and an unavailable Companion never switches composition.
+- [x] 1.4 RED: direct fixed-loopback request tests remove descriptor, bearer, token, and generation contracts while retaining strict correlation, request/result bounds, and deadlines.
+- [x] 2.1 GREEN: fixed unauthenticated `127.0.0.1:64139` client and profile-only CLI selection without Native fallback.
+
+### Files changed — work unit 1
+
+- `cmd/nexus/main.go`
+- `cmd/nexus/codefori.go`
+- `cmd/nexus/main_test.go`
+- `internal/connectors/ibmi/codefori/client.go`
+- `internal/connectors/ibmi/codefori/client_test.go`
+- `internal/connectors/ibmi/codefori/protocol.go`
+- `internal/connectors/ibmi/codefori/protocol_test.go`
+- `openspec/changes/add-codefori-companion-provider/tasks.md`
+- `openspec/changes/add-codefori-companion-provider/apply-progress.md`
+
+### TDD Cycle Evidence — work unit 1
+
+| Task | Test file | Layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| 1.3 | `cmd/nexus/main_test.go` | Unit with composition counters | `go test -count=1 ./internal/connectors/ibmi/codefori ./cmd/nexus` exited 0: both packages reported `ok` before changes | Same command exited 1 because `selectServeMode` still required the removed provider selector | Passed after profile-only selection and `-provider` removal | No-profile Companion, explicit Native profile, unavailable Companion no-fallback, and removed-flag rejection cover distinct selection paths | No further refactor was needed; final focused command passed |
+| 1.4 | `internal/connectors/ibmi/codefori/{client_test.go,protocol_test.go}` | Unit with fake `http.RoundTripper` | Same focused command exited 0 before changes | Same command exited 1 because the old client required `DescriptorReader` and the old selector signature | Passed after direct unauthenticated request/protocol changes | Version and request-ID mismatch, oversized response, removed generation rejection, normalized result validation, and independent status/query deadlines cover distinct protocol paths | No further refactor was needed; final focused command passed |
+| 2.1 | `cmd/nexus/main_test.go`, `internal/connectors/ibmi/codefori/{client_test.go,protocol_test.go}` | Unit with fake `http.RoundTripper` and composition counters | Same focused command exited 0 before changes | Tests written for no descriptor/bearer/token/generation request fields and no `-provider` flag failed against the previous construction and protocol contracts | Passed after fixed direct `POST /v1/rpc`, correlation-only envelopes, and profile-only selection | Direct request asserts no authorization header or removed JSON fields; unavailable Companion proves no Native construction; protocol rejects removed generation fields | No further refactor was needed; final focused command passed |
+
+### Work Unit Evidence — work unit 1
+
+| Evidence | Exact result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/connectors/ibmi/codefori ./cmd/nexus` exited 0: `ok bac-nexus/internal/connectors/ibmi/codefori` and `ok bac-nexus/cmd/nexus`. |
+| Runtime harness command/scenario and exact result | N/A — this unit has no runtime boundary beyond fake HTTP transport and construction counters. No network listener, VS Code host, Windows process, generated binary/JAR, or IBM i operation ran. |
+| Rollback boundary | Revert only `cmd/nexus/{main.go,codefori.go,main_test.go}`, `internal/connectors/ibmi/codefori/{client.go,client_test.go,protocol.go,protocol_test.go}`, and these three task checkboxes/progress section. This restores the pre-unit descriptor-authenticated client and optional provider selector without removing unrelated work. |
+
+### Work unit 1 design deviations
+
+The obsolete descriptor factories remain untouched for work unit 3. `NewClient` temporarily accepts and ignores a compatibility `DescriptorReader` variadic argument so those unchanged files keep compiling; the direct client does not read it or include descriptor, bearer, token, or generation data in requests.
+
+### Work unit 1 delivery and evidence
+
+- Delivery: feature-branch-chain, PR 1 targeting the feature/tracker branch; no branch, commit, staging, tag, release, or PR was created.
+- Authored source/test diff: 112 additions and 190 deletions, 302 changed lines. Current task/progress artifact reconciliation is additional planning text; pre-existing proposal/spec/design/task planning changes are excluded.
+- RED command: `go test -count=1 ./internal/connectors/ibmi/codefori ./cmd/nexus` exited 1 with `NewClient` arity and `selectServeMode` signature build failures, proving the requested no-auth/profile-only contracts were absent.
+- GREEN and final focused command: `go test -count=1 ./internal/connectors/ibmi/codefori ./cmd/nexus` exited 0: `ok bac-nexus/internal/connectors/ibmi/codefori`; `ok bac-nexus/cmd/nexus`.
+- Evidence revision: `sha256:a3f1d5ada0c1bcf8edb9dde5d71c89d97bc258f6a9421e2e3adaae0b6e47f613`, computed from the seven scoped source/test diffs plus the normalized exact focused-test outcome stated above.
+- Current revised task state: 8/17 complete; remaining work begins with tasks 1.1, 1.2, 1.5, and 2.2.
+
+## Completed work unit 2 — activated HTTP Companion
+
+Completed only the PR 2 boundary and marked the corresponding current-revision checkboxes in `tasks.md`:
+
+- [x] 1.1 RED: Origin-bearing valid, malformed, and oversized bodies are rejected before decode or broker execution.
+- [x] 1.2 RED: the real listener uses only `127.0.0.1:64139`, fails a fixed-port collision, and safely repeats start/stop.
+- [x] 1.5 RED: activation obtains the exported Code for IBM i instance through a fake host boundary, starts the no-auth broker, and deactivation closes owned resources.
+- [x] 2.2 GREEN: activation, fixed loopback HTTP lifecycle, Origin-first gate, strict bounds/parsing, existing adapter/admission, correlation, sanitization, and idempotent teardown are wired.
+
+### Files changed — work unit 2
+
+- `companion/vscode-codefori/src/{httpServer.ts,httpServer.test.ts,extension.ts,extension.test.ts,broker.ts,broker.test.ts,protocol.ts,protocol.test.ts}`
+- `openspec/changes/add-codefori-companion-provider/{tasks.md,apply-progress.md}`
+
+### TDD Cycle Evidence — work unit 2
+
+| Task | Test file | Layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| 1.1 | `src/httpServer.test.ts` | Offline loopback integration | `npm test -- --run src/broker.test.ts src/protocol.test.ts` exited 0: 2 files, 13 tests passed | New focused command exited 1: `httpServer.js` was absent; the existing extension did not call the host boundary | Passed: valid, malformed, and 513-byte Origin-bearing bodies each return exact 403 body and invoke the broker zero times | Mixed-case and empty Origin headers are separately recognized; three body shapes prove the gate precedes decoding | Removed dead header forwarding after authentication removal; final focused command stayed green |
+| 1.2 | `src/httpServer.test.ts` | Offline loopback integration | Same 13/13 safety net | Same absent-server RED run | Passed: first fixed listener starts, second collides, repeated start/stop is safe, and a replacement listener starts after cleanup | Actual listener test proves collision has no alternate bind and post-stop port reuse | Listener close is idempotent; final focused command stayed green |
+| 1.5 | `src/extension.test.ts` | Unit with fake Code for IBM i host | Same 13/13 safety net | Initial focused command exited 1: the scaffold never queried the host or started a broker | Passed: fake host export flows into the existing adapter, canonical query runs without auth fields, and double deactivation closes once | Host lookup, async export activation, adapter query, fixed bind, and teardown assert distinct lifecycle paths | Replaced an over-complex inferred factory type with a local structural boundary; final focused command stayed green |
+| 2.2 | `src/{httpServer,extension,broker,protocol}.test.ts` | Offline loopback integration and unit fakes | Same 13/13 safety net | Missing HTTP server and inactive extension prevented the new acceptance tests | Passed after fixed server, activation wiring, and no-auth correlation-only protocol changes | The protocol suite passed 7/7; the broker suite proves generation is rejected as an unknown field while preserving 16-slot admission, five-second deadline, late-result suppression, and correlation | No mutating formatter is configured; lint/typecheck and final focused tests pass |
+
+### Work Unit Evidence — work unit 2
+
+| Evidence | Exact result |
+|---|---|
+| Focused test command and exact result | `npm test -- --run src/httpServer.test.ts src/extension.test.ts src/broker.test.ts` exited 0: 3 test files and 9 tests passed. `npm test -- --run src/protocol.test.ts` exited 0: 1 test file and 7 tests passed. `npm run typecheck` and `npm run lint` each exited 0 with no diagnostics. |
+| Runtime harness command/scenario and exact result | The final focused command used an actual offline `127.0.0.1:64139` listener plus fake Code for IBM i host. It returned exact Origin rejections for valid, malformed, and oversized bodies; a concurrent second fixed listener failed; after repeated stops, a replacement listener bound and closed successfully. No non-loopback network, VS Code host, generated Nexus/JAR, Windows process, or IBM i operation ran. |
+| Rollback boundary | Revert only `companion/vscode-codefori/src/{httpServer.ts,httpServer.test.ts,extension.ts,extension.test.ts,broker.ts,broker.test.ts,protocol.ts,protocol.test.ts}` and these four task checkboxes/progress section. This removes the activated Companion HTTP boundary without changing work unit 1 Go/CLI behavior or later Windows, workflow, documentation, or live IBM i work. |
+
+### Work unit 2 delivery and evidence
+
+- Delivery: feature-branch-chain, PR 2 based on PR 1. No branch, commit, staging, tag, release, publication, or PR was created.
+- Authored source/test diff: 334 additions and 65 deletions, 399 changed lines. Required OpenSpec bookkeeping is additional planning text; pre-existing work is excluded.
+- Final source-mutating normalization: no mutating formatter is configured in the Companion package; no formatter was invented. `npm run lint` is check-only and passed.
+- Listener cleanup evidence: the test closes the first and collision brokers, repeats first stop, then starts and stops a replacement listener on the same fixed port.
+- Evidence revision: `sha256:fa032abecf87e3fa7b4ff47dcf8fb79249f4b8bda75803f525ea5921d63eb3ee`, computed from the eight scoped source/test diffs plus normalized final focused-test outcome (`exit=0`, 3 files, 9 tests).
+- Current revised task state: 12/17 complete; remaining work begins with tasks 3.1, 3.2, 3.3, 4.1, and 4.2.
+
+## Completed work unit 3 — retire obsolete security and document v1
+
+Completed the three PR 3 tasks and preserved all prior progress evidence.
+
+- [x] 3.1 Removed descriptor readers, platform constructors, and the temporary variadic `NewClient` compatibility seam.
+- [x] 3.2 Removed Windows token/PowerShell artifacts, replaced the workflow with offline Go/Node checks, and pinned only Vitest to `3.2.7`.
+- [x] 3.3 Added the v1 local-machine trust, limits, verification, and rollback documentation.
+
+### Files changed — work unit 3
+
+- Deleted `internal/connectors/ibmi/codefori/{descriptor.go,descriptor_windows.go,descriptor_other.go,descriptor_windows_test.go}`.
+- Deleted `companion/vscode-codefori/src/windows/{tokenStore.ts,tokenStore.test.ts,tokenStore.windows.test.ts,publish.ps1,cleanup.ps1}`.
+- Modified `internal/connectors/ibmi/codefori/client.go`, `.github/workflows/release-companion.yml`, and `companion/vscode-codefori/{package.json,package-lock.json}`.
+- Created `docs/CODEFORI_COMPANION.md`.
+
+### TDD Cycle Evidence — work unit 3
+
+| Task | Test file | Layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| 3.1 | `client_test.go` | Go unit | `go test -count=1 ./internal/connectors/ibmi/codefori ./cmd/nexus` exited 0 before deletion | N/A — deletion-only retirement; no new runtime behavior | Same focused command exited 0 after removal | N/A — no branches added | Removed descriptor seam; production `client.go` has no descriptor, token, or generation-authentication reference |
+| 3.2 | `tokenStore.test.ts` | Vitest unit | `npm ci` exited 0; token-store suite: 10 passed, 3 Windows-only skipped | N/A — deletion-only retirement and deterministic dependency pin | Final offline suite exited 0: Vitest 3.2.7, 7 files, 32 tests | N/A — no new behavior | Workflow contains no PowerShell, ACL, or native Windows execution; lock diff updates only Vitest and its transitive packages |
+| 3.3 | N/A | Documentation | N/A — new document | N/A — no production contract | `git diff --check` exited 0 | N/A — one prescribed documentation surface | Concise English document records all required v1 limits and rollback |
+
+### Work Unit Evidence — work unit 3
+
+| Evidence | Exact result |
+|---|---|
+| Focused test command and exact result | `go test -count=1 ./internal/connectors/ibmi/codefori ./cmd/nexus` exited 0 before and after removal. `npm ci` exited 0; `npm run lint`, `npm run typecheck`, `npm test`, and `npm run build` each exited 0. Vitest 3.2.7 reported 7 files and 32 tests passed. `git diff --check` exited 0. |
+| Runtime harness command/scenario and exact result | N/A — this cleanup unit creates no runtime boundary. Offline retained tests cover fake/loopback behavior only; no Windows/PowerShell, VS Code host, IBM i, generated Nexus/JAR, or non-loopback network path ran. |
+| Rollback boundary | Revert only the nine deleted descriptor/Windows files, the `NewClient` signature cleanup, offline workflow, Vitest pin/lock entries, `docs/CODEFORI_COMPANION.md`, the three task checkboxes, and this section. Native `-profile` behavior and the activated Companion remain unchanged. |
+
+### Work unit 3 scope and evidence
+
+- Approved delivery: feature-branch-chain PR 3 based on PR 2, with maintainer-approved `size:exception` capped at 1,650 changed lines.
+- Scoped implementation count: 1,230 deleted obsolete lines; 4 client-seam lines; 49 workflow lines; 2 manifest lines; 100 lockfile lines; 54 documentation lines; 6 task-checkbox lines; and 40 progress lines: **1,485 additions + deletions**.
+- `docs/CODEFORI_COMPANION.md` is intentionally untracked for native settlement.
+- `dist/` was removed after `npm run build`; process inspection found no `go`, `npm`, `node`, `vitest`, or `tsc` process and no listener on `127.0.0.1:64139`.
+- Evidence revision: `sha256:77567fef89aa3690dd454cc530ebcdca99756d163583a5b2d3df3a617c2bf3ed`, computed from the scoped patch before this self-referential progress entry plus normalized focused outcomes.
+- Remaining tasks: 4.1 offline verification evidence and 4.2 separately authorized Extension Development Host proof.
+
+## Completed task 4.1 — independent offline verification
+
+- [x] Ran check-only formatting, focused Go test/vet/race validation, and deterministic Node install/lint/typecheck/test/build/package checks.
+- [x] Confirmed fake/loopback evidence only; it is not live VS Code or IBM i proof and does not satisfy task 4.2.
+
+### TDD Cycle Evidence — task 4.1
+
+| Task | Test file | Layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| 4.1 | Existing Go and Vitest suites | Offline verification | N/A — verification-only task | N/A — no production behavior or test was added | All required focused checks passed | N/A — no new behavior | No source refactor performed |
+
+### Work Unit Evidence — task 4.1
+
+| Evidence | Exact result |
+|---|---|
+| Focused test command and exact result | `gofmt -l` over the seven existing changed Go files exited 0 with no output. `go test -count=1 ./internal/provider ./internal/connectors/ibmi/codefori ./internal/mcp ./cmd/nexus` exited 0: all four packages reported `ok`. `go vet` over the same packages exited 0 with no diagnostics. `go test -race -count=1` over the same packages exited 0: all four packages reported `ok`. |
+| Runtime harness command/scenario and exact result | `npm ci`, `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, and `npm pack --dry-run` each exited 0. Vitest 3.2.7 reported 7 files and 32 tests passed; the dry-run package listed 31 files and created no archive. The deterministic Node suite exercised and released its local `127.0.0.1:64139` lifecycle test. |
+| Cleanup and proof limit | Removed `dist/`; confirmed no `.tgz`, Go/npm/node/Vitest/tsc process, or listener on `127.0.0.1:64139` remained. No generated Nexus/JAR, Windows/PowerShell, VS Code Extension Development Host, non-loopback network, IBM i, or live proof query ran. |
+| Rollback boundary | Revert only the 4.1 checkbox and this progress section; no production behavior changed. |
+
+- `git diff --check` exited 0.
+- Evidence revision: `sha256:cf3bc2599efefff11a362cb2d4af7607848098164d0f3ab574b0b81ba81e4204`, computed from the task-state patch before this self-referential progress entry plus normalized offline outcomes.
+- Remaining task: 4.2, separately authorized live Extension Development Host proof only.
+
+## Task 4.2 — authorized live proof unavailable
+
+- Status: `unavailable`.
+- The required local capability gate did not pass: the available `code` executable reported version `1.136.1`, but its extension inventory contained no `halcyontechltd.code-for-ibmi@3.0.12` entry. A graphical display was available and three generic Extension Development Host candidates were observed, but neither establishes the required Code for IBM i 3.0.12 installation or an active session.
+- Primary failure: Code for IBM i exactly `3.0.12` was not available to the local VS Code executable.
+- Verification consequence: no Extension Development Host was launched, no listener or process was created, no request was sent to `127.0.0.1:64139`, and task 4.2 remains unchecked.
+
+### TDD Cycle Evidence — task 4.2
+
+| Task | Test file | Layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| 4.2 | None — authorized live proof only | Extension Development Host | N/A — no source files were modified | Not applicable — capability gate failed before execution | Not run — no suitable host | Not applicable — no execution | Not applicable — no source refactor |
+
+### Work Unit Evidence — task 4.2
+
+| Evidence | Exact result |
+|---|---|
+| Focused test command and exact result | Not run. The task authorizes one bounded live host operation, not an offline or automated test suite; the required Code for IBM i 3.0.12 capability was unavailable. |
+| Runtime harness command/scenario and exact result | Capability-only inspection: `code --version` exited 0 and reported `1.136.1`; `code --list-extensions --show-versions` produced no `halcyontechltd.code-for-ibmi@3.0.12` entry; graphical-display availability was `true`; generic Extension Development Host candidate count was `3`. Result: `unavailable`. Exact permitted operation shape, not executed: `POST http://127.0.0.1:64139/v1/rpc` with method `session.status` only and empty parameters. No SQL text or `sql.query` operation was constructed or sent. |
+| Process/listener cleanup | None required. No host, listener, or child process was launched or created; no existing VS Code process or session was touched. |
+| Rollback boundary | Revert only this unavailable-evidence section. No production, test, configuration, dependency, source, or task-checkbox change was made. |
+
+### Task 4.2 proof limitations
+
+- The required Code for IBM i `3.0.12` installation and active session were not evidenced, so this is not a live Companion, VS Code, or IBM i proof.
+- No substitute host, mock, offline test, retry, remote operation, credential access, raw extension log, host, username, profile, or environment value was used or disclosed.
+- Task progress remains **16/17 complete**; task 4.2 is the sole pending task.

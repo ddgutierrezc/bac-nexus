@@ -23,31 +23,28 @@ var (
 )
 
 type rpcRequest struct {
-	Version    int
-	Generation string
-	RequestID  string
-	Method     string
-	Params     struct {
+	Version   int
+	RequestID string
+	Method    string
+	Params    struct {
 		SQL string
 	}
 }
 
 type rpcResponse struct {
-	Version    int
-	Generation string
-	RequestID  string
-	Result     provider.QueryResult
+	Version   int
+	RequestID string
+	Result    provider.QueryResult
 }
 
 type rpcEnvelope struct {
-	Version    int
-	Generation string
-	RequestID  string
-	Result     json.RawMessage
+	Version   int
+	RequestID string
+	Result    json.RawMessage
 }
 
 func encodeRequest(request rpcRequest) ([]byte, error) {
-	if request.Version != protocolVersion || request.Generation == "" || request.RequestID == "" {
+	if request.Version != protocolVersion || request.RequestID == "" {
 		return nil, errInvalidProtocol
 	}
 	params := map[string]string{}
@@ -65,12 +62,11 @@ func encodeRequest(request rpcRequest) ([]byte, error) {
 		return nil, errInvalidProtocol
 	}
 	body, err := json.Marshal(struct {
-		Version    int               `json:"version"`
-		Generation string            `json:"generation"`
-		RequestID  string            `json:"request_id"`
-		Method     string            `json:"method"`
-		Params     map[string]string `json:"params"`
-	}{request.Version, request.Generation, request.RequestID, request.Method, params})
+		Version   int               `json:"version"`
+		RequestID string            `json:"request_id"`
+		Method    string            `json:"method"`
+		Params    map[string]string `json:"params"`
+	}{request.Version, request.RequestID, request.Method, params})
 	if err != nil {
 		return nil, errInvalidProtocol
 	}
@@ -84,16 +80,13 @@ func decodeRequest(body []byte) (rpcRequest, error) {
 	if len(body) > maxRequestBytes {
 		return rpcRequest{}, errBodyLimit
 	}
-	fields, err := decodeExactObject(body, "version", "generation", "request_id", "method", "params")
+	fields, err := decodeExactObject(body, "version", "request_id", "method", "params")
 	if err != nil {
 		return rpcRequest{}, err
 	}
 	request := rpcRequest{}
 	if err := json.Unmarshal(fields["version"], &request.Version); err != nil {
 		return rpcRequest{}, errInvalidProtocol
-	}
-	if request.Generation, err = decodeString(fields["generation"]); err != nil {
-		return rpcRequest{}, err
 	}
 	if request.RequestID, err = decodeString(fields["request_id"]); err != nil {
 		return rpcRequest{}, err
@@ -120,7 +113,7 @@ func decodeRequest(body []byte) (rpcRequest, error) {
 	default:
 		return rpcRequest{}, errInvalidProtocol
 	}
-	if request.Version != protocolVersion || request.Generation == "" || request.RequestID == "" {
+	if request.Version != protocolVersion || request.RequestID == "" {
 		return rpcRequest{}, errInvalidProtocol
 	}
 	return request, nil
@@ -135,11 +128,10 @@ func encodeResponse(response rpcResponse) ([]byte, error) {
 		result["rows"] = []map[string]string{{"value": response.Result.Rows[0].Value}}
 	}
 	body, err := json.Marshal(struct {
-		Version    int    `json:"version"`
-		Generation string `json:"generation"`
-		RequestID  string `json:"request_id"`
-		Result     any    `json:"result"`
-	}{response.Version, response.Generation, response.RequestID, result})
+		Version   int    `json:"version"`
+		RequestID string `json:"request_id"`
+		Result    any    `json:"result"`
+	}{response.Version, response.RequestID, result})
 	if err != nil {
 		return nil, errInvalidProtocol
 	}
@@ -158,14 +150,14 @@ func decodeResponse(body []byte) (rpcResponse, error) {
 	if err != nil {
 		return rpcResponse{}, err
 	}
-	return rpcResponse{Version: envelope.Version, Generation: envelope.Generation, RequestID: envelope.RequestID, Result: result}, nil
+	return rpcResponse{Version: envelope.Version, RequestID: envelope.RequestID, Result: result}, nil
 }
 
 func decodeEnvelope(body []byte) (rpcEnvelope, error) {
 	if len(body) > maxResponseBytes {
 		return rpcEnvelope{}, errBodyLimit
 	}
-	fields, err := decodeExactObject(body, "version", "generation", "request_id", "result")
+	fields, err := decodeExactObject(body, "version", "request_id", "result")
 	if err != nil {
 		return rpcEnvelope{}, err
 	}
@@ -173,13 +165,10 @@ func decodeEnvelope(body []byte) (rpcEnvelope, error) {
 	if err := json.Unmarshal(fields["version"], &envelope.Version); err != nil {
 		return rpcEnvelope{}, errInvalidProtocol
 	}
-	if envelope.Generation, err = decodeString(fields["generation"]); err != nil {
-		return rpcEnvelope{}, err
-	}
 	if envelope.RequestID, err = decodeString(fields["request_id"]); err != nil {
 		return rpcEnvelope{}, err
 	}
-	if envelope.Version != protocolVersion || envelope.Generation == "" || envelope.RequestID == "" {
+	if envelope.Version != protocolVersion || envelope.RequestID == "" {
 		return rpcEnvelope{}, errInvalidProtocol
 	}
 	return envelope, nil

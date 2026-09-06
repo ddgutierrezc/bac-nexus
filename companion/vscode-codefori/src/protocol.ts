@@ -29,7 +29,6 @@ type ValidQueryResult =
 
 export interface RpcRequest {
   version: typeof PROTOCOL_VERSION;
-  generation: string;
   requestID: string;
   method: BrokerMethod;
   params: Record<string, never> | { sql: string };
@@ -65,12 +64,11 @@ export function decodeRequest(body: Uint8Array): RpcRequest | null {
     return null;
   }
 
-  if (!hasExactKeys(value, ["version", "generation", "request_id", "method", "params"])) {
+  if (!hasExactKeys(value, ["version", "request_id", "method", "params"])) {
     return null;
   }
   if (
     value.version !== PROTOCOL_VERSION ||
-    !isBoundedASCIIString(value.generation) ||
     !isBoundedASCIIString(value.request_id) ||
     (value.method !== "session.status" && value.method !== "sql.query")
   ) {
@@ -83,7 +81,6 @@ export function decodeRequest(body: Uint8Array): RpcRequest | null {
     }
     return {
       version: PROTOCOL_VERSION,
-      generation: value.generation,
       requestID: value.request_id,
       method: value.method,
       params: {},
@@ -95,7 +92,6 @@ export function decodeRequest(body: Uint8Array): RpcRequest | null {
   }
   return {
     version: PROTOCOL_VERSION,
-    generation: value.generation,
     requestID: value.request_id,
     method: value.method,
     params: { sql: value.params.sql },
@@ -107,7 +103,6 @@ export function encodeResponse(request: RpcRequest, result: BrokerResult): Uint8
   const body = encoder.encode(
     JSON.stringify({
       version: PROTOCOL_VERSION,
-      generation: request.generation,
       request_id: request.requestID,
       result: safeResult,
     }),

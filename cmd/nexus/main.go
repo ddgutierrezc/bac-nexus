@@ -756,11 +756,10 @@ func newStep8ProductionRunnerWithCredentials(store profile.Store, credentials co
 func printServeHelp(out io.Writer) error {
 	fmt.Fprintln(out, "nexus serve — run the typed stdio MCP server")
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "usage: nexus serve [-profile <name>] [-provider <companion|native>]")
+	fmt.Fprintln(out, "usage: nexus serve [-profile <name>]")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "flags:")
 	fmt.Fprintln(out, "  -profile string   Approved Nexus profile name. Selects Native mode.")
-	fmt.Fprintln(out, "  -provider string  Optional selector matching the mode implied by -profile.")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "without -profile, Companion tools: session.status and sql.query")
 	fmt.Fprintln(out, "with -profile, Native tools: resolve_catalog_candidates and read_selected_source")
@@ -777,7 +776,7 @@ func runServe(args []string, out io.Writer) error {
 		return err
 	}
 	profile := fs.Lookup("profile").Value.String()
-	mode, err := selectServeMode(profile, fs.Lookup("provider").Value.String())
+	mode, err := selectServeMode(profile)
 	if err != nil {
 		return err
 	}
@@ -789,5 +788,4 @@ func runServe(args []string, out io.Writer) error {
 
 func registerServeFlags(fs *flag.FlagSet) {
 	fs.String("profile", "", "approved Nexus profile name; selects Native mode")
-	fs.String("provider", "", "optional provider selector matching profile presence")
 }

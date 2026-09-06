@@ -1,4 +1,4 @@
-name: Companion Windows Validation
+name: Companion Verification and Pre-release Publishing
 
 on:
   workflow_dispatch:
@@ -12,6 +12,8 @@ on:
   push:
     branches:
       - "**"
+    tags:
+      - "companion-v*"
     paths:
       - .github/workflows/release-companion.yml
       - internal/connectors/ibmi/codefori/**
@@ -22,15 +24,10 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: companion-windows-validation-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  native-windows:
-    name: Native Windows descriptor validation
-    runs-on: windows-latest
-    timeout-minutes: 15
+  offline-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -44,12 +41,8 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Run Go CodeForI Windows consumer tests
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $ProgressPreference = "SilentlyContinue"
-          go test -count=1 -timeout=2m ./internal/connectors/ibmi/codefori
+      - name: Run focused Go tests
+        run: go test -count=1 ./internal/connectors/ibmi/codefori ./cmd/nexus
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -60,18 +53,73 @@ jobs:
 
       - name: Install Companion dependencies from the lockfile
         working-directory: companion/vscode-codefori
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $ProgressPreference = "SilentlyContinue"
-          npm ci --no-audit --no-fund
+        run: npm ci
 
-      - name: Run opt-in native Windows token-store tests
+      - name: Lint Companion
         working-directory: companion/vscode-codefori
-        shell: pwsh
-        env:
-          CODEFORI_WINDOWS_NATIVE_TESTS: "1"
+        run: npm run lint
+
+      - name: Typecheck Companion
+        working-directory: companion/vscode-codefori
+        run: npm run typecheck
+
+      - name: Test Companion
+        working-directory: companion/vscode-codefori
+        run: npm test
+
+      - name: Build Companion
+        working-directory: companion/vscode-codefori
+        run: npm run build
+
+      - name: Verify release tag matches Companion version
+        if: startsWith(github.ref, 'refs/tags/companion-v')
+        working-directory: companion/vscode-codefori
         run: |
-          $ErrorActionPreference = "Stop"
-          $ProgressPreference = "SilentlyContinue"
-          npm test -- --run src/windows/tokenStore.windows.test.ts
+          tag_version="${GITHUB_REF_NAME#companion-v}"
+          package_version="$(node -p "require('./package.json').version")"
+          if [ "$tag_version" != "$package_version" ]; then
+            printf 'Release tag version %s does not match package version %s.\n' "$tag_version" "$package_version" >&2
+            exit 1
+          fi
+
+      - name: Confirm no VSIX exists before packaging
+        if: startsWith(github.ref, 'refs/tags/companion-v')
+        working-directory: companion/vscode-codefori
+        run: |
+          shopt -s nullglob
+          vsix_files=(*.vsix)
+          if ((${#vsix_files[@]} != 0)); then
+            printf 'Expected no VSIX files before packaging; found %d.\n' "${#vsix_files[@]}" >&2
+            exit 1
+          fi
+
+      - name: Package Companion pre-release VSIX
+        if: startsWith(github.ref, 'refs/tags/companion-v')
+        working-directory: companion/vscode-codefori
+        run: npm run package:vsix
+
+      - name: Verify exactly one VSIX was packaged
+        if: startsWith(github.ref, 'refs/tags/companion-v')
+        id: packaged-vsix
+        working-directory: companion/vscode-codefori
+        run: |
+          shopt -s nullglob
+          vsix_files=(*.vsix)
+          if ((${#vsix_files[@]} != 1)); then
+            printf 'Expected exactly one packaged VSIX; found %d.\n' "${#vsix_files[@]}" >&2
+            exit 1
+          fi
+          printf 'path=%s\n' "${vsix_files[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish Companion pre-release VSIX
+        if: startsWith(github.ref, 'refs/tags/companion-v')
+        working-directory: companion/vscode-codefori
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          VSIX_PATH: ${{ steps.packaged-vsix.outputs.path }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            printf 'VSCE_PAT repository secret is required for publishing.\n' >&2
+            exit 1
+          fi
+          npx --yes @vscode/vsce@3.9.2 publish --pre-release --packagePath "$VSIX_PATH"

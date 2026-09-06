@@ -13,13 +13,12 @@ describe("Companion protocol", () => {
   it("accepts only the canonical SQL request envelope", () => {
     const request = decodeRequest(
       encoder.encode(
-        '{"version":1,"generation":"generation","request_id":"request","method":"sql.query","params":{"sql":"SELECT CURRENT_USER FROM SYSIBM.SYSDUMMY1"}}',
+        '{"version":1,"request_id":"request","method":"sql.query","params":{"sql":"SELECT CURRENT_USER FROM SYSIBM.SYSDUMMY1"}}',
       ),
     );
 
     expect(request).toEqual({
       version: PROTOCOL_VERSION,
-      generation: "generation",
       requestID: "request",
       method: "sql.query",
       params: { sql: "SELECT CURRENT_USER FROM SYSIBM.SYSDUMMY1" },
@@ -30,7 +29,6 @@ describe("Companion protocol", () => {
     const body = encodeResponse(
       {
         version: PROTOCOL_VERSION,
-        generation: "generation",
         requestID: "request",
         method: "sql.query",
         params: { sql: "SELECT CURRENT_USER FROM SYSIBM.SYSDUMMY1" },
@@ -40,17 +38,16 @@ describe("Companion protocol", () => {
 
     expect(JSON.parse(decoder.decode(body))).toEqual({
       version: PROTOCOL_VERSION,
-      generation: "generation",
       request_id: "request",
       result: { state: "ok", rows: [{ value: "QUSER" }] },
     });
   });
 
   it.each([
-    '{"version":1,"version":1,"generation":"generation","request_id":"request","method":"session.status","params":{}}',
-    '{"version":1,"generation":"generation","request_id":"request","method":"session.status","params":{},"unknown":true}',
-    '{"version":1,"generation":"generation","request_id":"request","method":"session.status","params":{}} trailing',
-    '{"version":1,"generation":"generation","method":"session.status","params":{}}',
+    '{"version":1,"version":1,"request_id":"request","method":"session.status","params":{}}',
+    '{"version":1,"request_id":"request","method":"session.status","params":{},"unknown":true}',
+    '{"version":1,"request_id":"request","method":"session.status","params":{}} trailing',
+    '{"version":1,"method":"session.status","params":{}}',
   ])("rejects duplicate, unknown, trailing, and incomplete request bodies", (body) => {
     expect(decodeRequest(encoder.encode(body))).toBeNull();
   });
@@ -61,7 +58,6 @@ describe("Companion protocol", () => {
     const response = encodeResponse(
       {
         version: PROTOCOL_VERSION,
-        generation: "generation",
         requestID: "request",
         method: "sql.query",
         params: { sql: "SELECT CURRENT_USER FROM SYSIBM.SYSDUMMY1" },
@@ -71,7 +67,6 @@ describe("Companion protocol", () => {
 
     expect(JSON.parse(decoder.decode(response))).toEqual({
       version: PROTOCOL_VERSION,
-      generation: "generation",
       request_id: "request",
       result: { state: "failed" },
     });

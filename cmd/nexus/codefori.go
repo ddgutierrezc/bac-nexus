@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"bac-nexus/internal/connectors/ibmi/codefori"
 	internalmcp "bac-nexus/internal/mcp"
@@ -26,20 +25,9 @@ type companionDeps struct {
 var runNativeServe = runNativeServeComposition
 var runCompanionServe = runCompanionServeComposition
 
-func selectServeMode(profileName, requested string) (serveMode, error) {
-	profilePresent := strings.TrimSpace(profileName) != ""
-	selector := strings.ToLower(strings.TrimSpace(requested))
-	if selector != "" && selector != string(serveModeCompanion) && selector != string(serveModeNative) {
-		return "", errors.New("serve provider must be companion or native")
-	}
-	if profilePresent {
-		if selector == string(serveModeCompanion) {
-			return "", errors.New("serve companion provider cannot use -profile")
-		}
+func selectServeMode(profileName string) (serveMode, error) {
+	if profileName != "" {
 		return serveModeNative, nil
-	}
-	if selector == string(serveModeNative) {
-		return "", errors.New("serve native provider requires -profile")
 	}
 	return serveModeCompanion, nil
 }
@@ -56,7 +44,7 @@ func runCompanionServeComposition(ctx context.Context) error {
 
 func defaultCompanionDeps() companionDeps {
 	return companionDeps{
-		Provider: codefori.NewPlatformClient(),
+		Provider: codefori.NewClient(),
 		ServerFactory: func(server *internalmcp.CodeForIServer) (runner, error) {
 			return server, nil
 		},

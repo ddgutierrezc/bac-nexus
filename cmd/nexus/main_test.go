@@ -282,7 +282,7 @@ func TestRunCommandCLIParsing(t *testing.T) {
 		{"empty list is rejected", []string{}, nil},
 		{"unknown subcommand is rejected", []string{"unknown"}, nil},
 		{"root flag is rejected", []string{"--bogus"}, nil},
-		{"serve native without profile is rejected", []string{"serve", "-provider", "native"}, nil},
+		{"removed provider flag is rejected", []string{"serve", "-provider", "native"}, nil},
 		{"help serve returns flag.ErrHelp", []string{"help", "serve"}, flag.ErrHelp},
 	}
 	for _, tt := range tests {
@@ -364,40 +364,30 @@ func TestRunCommandServeHelpTextContract(t *testing.T) {
 	}
 }
 
-func TestRegisterServeFlagsExposesProfileFlag(t *testing.T) {
+func TestRegisterServeFlagsExposesOnlyProfileFlag(t *testing.T) {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	registerServeFlags(fs)
 	if fs.Lookup("profile") == nil {
 		t.Fatal("serve flag set is missing the required -profile flag")
 	}
+	if fs.Lookup("provider") != nil {
+		t.Fatal("serve flag set must not expose the removed -provider flag")
+	}
 }
 
-func TestSelectServeModeFailsClosedOnContradictorySelectors(t *testing.T) {
+func TestSelectServeModeUsesOnlyProfilePresence(t *testing.T) {
 	tests := []struct {
-		name     string
-		profile  string
-		provider string
-		want     serveMode
-		wantErr  bool
+		name    string
+		profile string
+		want    serveMode
 	}{
 		{name: "no profile selects companion", want: serveModeCompanion},
-		{name: "explicit companion without profile", provider: "companion", want: serveModeCompanion},
 		{name: "profile selects native", profile: "approved", want: serveModeNative},
-		{name: "explicit native with profile", profile: "approved", provider: "native", want: serveModeNative},
-		{name: "companion with profile is rejected", profile: "approved", provider: "companion", wantErr: true},
-		{name: "native without profile is rejected", provider: "native", wantErr: true},
-		{name: "unknown provider is rejected", provider: "other", wantErr: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := selectServeMode(tc.profile, tc.provider)
-			if tc.wantErr {
-				if err == nil {
-					t.Fatal("selectServeMode() error = nil, want rejection")
-				}
-				return
-			}
+			got, err := selectServeMode(tc.profile)
 			if err != nil || got != tc.want {
 				t.Fatalf("selectServeMode() = %q, %v; want %q, nil", got, err, tc.want)
 			}
@@ -405,7 +395,7 @@ func TestSelectServeModeFailsClosedOnContradictorySelectors(t *testing.T) {
 	}
 }
 
-func TestRunServeSelectsOneCompositionBeforeDependencyConstruction(t *testing.T) {
+func TestRunServeSelectsOneCompositionWithoutFallback(t *testing.T) {
 	previousNative, previousCompanion := runNativeServe, runCompanionServe
 	t.Cleanup(func() { runNativeServe, runCompanionServe = previousNative, previousCompanion })
 	nativeCalls, companionCalls := 0, 0
@@ -432,11 +422,15 @@ func TestRunServeSelectsOneCompositionBeforeDependencyConstruction(t *testing.T)
 		t.Fatalf("profile composition calls = native %d, companion %d; want 1, 1", nativeCalls, companionCalls)
 	}
 
-	if err := runServe([]string{"-profile", "approved", "-provider", "companion"}, io.Discard); err == nil {
-		t.Fatal("contradictory runServe() error = nil, want rejection")
+	runCompanionServe = func(context.Context) error {
+		companionCalls++
+		return errServeMCPUnavailable
 	}
-	if nativeCalls != 1 || companionCalls != 1 {
-		t.Fatalf("contradiction constructed a composition: native %d, companion %d", nativeCalls, companionCalls)
+	if err := runServe(nil, io.Discard); !errors.Is(err, errServeMCPUnavailable) {
+		t.Fatalf("unavailable Companion runServe() error = %v, want %v", err, errServeMCPUnavailable)
+	}
+	if nativeCalls != 1 || companionCalls != 2 {
+		t.Fatalf("unavailable Companion switched composition: native %d, companion %d; want 1, 2", nativeCalls, companionCalls)
 	}
 }
 

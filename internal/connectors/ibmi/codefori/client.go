@@ -19,17 +19,14 @@ const (
 )
 
 type Client struct {
-	readDescriptor DescriptorReader
-	httpClient     *http.Client
+	httpClient *http.Client
 }
 
 var _ provider.Provider = (*Client)(nil)
 
-// NewClient constructs the fixed-loopback provider with a descriptor reader.
-// A nil reader fails closed, which is the deterministic unsupported-platform path.
-func NewClient(reader DescriptorReader) *Client {
+// NewClient constructs the fixed unauthenticated loopback provider.
+func NewClient() *Client {
 	return &Client{
-		readDescriptor: reader,
 		httpClient: &http.Client{Transport: &http.Transport{
 			ResponseHeaderTimeout: responseHeaderTimeout,
 		}},
@@ -39,11 +36,7 @@ func NewClient(reader DescriptorReader) *Client {
 func (client *Client) SessionStatus(ctx context.Context) provider.SessionStatusResult {
 	ctx, cancel := context.WithTimeout(ctx, statusTimeout)
 	defer cancel()
-	descriptor, ok := client.descriptor()
-	if !ok {
-		return provider.SessionStatusResult{State: provider.SessionCompanionUnavailable}
-	}
-	envelope, state := client.post(ctx, descriptor, methodStatus, "")
+	envelope, state := client.post(ctx, methodStatus, "")
 	if state != provider.QueryOK {
 		return provider.SessionStatusResult{State: provider.SessionCompanionUnavailable}
 	}
@@ -62,13 +55,9 @@ func (client *Client) Query(ctx context.Context, request provider.QueryRequest) 
 	if !ok {
 		return provider.QueryResult{State: provider.QueryInvalidQuery}
 	}
-	descriptor, ok := client.descriptor()
-	if !ok {
-		return provider.QueryResult{State: provider.QueryUnavailable}
-	}
 	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
-	envelope, state := client.post(ctx, descriptor, methodSQLQuery, canonical)
+	envelope, state := client.post(ctx, methodSQLQuery, canonical)
 	if state != provider.QueryOK {
 		return provider.QueryResult{State: state}
 	}
@@ -79,23 +68,12 @@ func (client *Client) Query(ctx context.Context, request provider.QueryRequest) 
 	return result
 }
 
-func (client *Client) descriptor() (Descriptor, bool) {
-	if client == nil || client.readDescriptor == nil {
-		return Descriptor{}, false
-	}
-	descriptor, err := client.readDescriptor()
-	if err != nil || !descriptor.valid() {
-		return Descriptor{}, false
-	}
-	return descriptor, true
-}
-
-func (client *Client) post(ctx context.Context, descriptor Descriptor, method, sql string) (rpcEnvelope, provider.QueryState) {
+func (client *Client) post(ctx context.Context, method, sql string) (rpcEnvelope, provider.QueryState) {
 	requestID, err := newRequestID()
 	if err != nil {
 		return rpcEnvelope{}, provider.QueryFailed
 	}
-	request := rpcRequest{Version: protocolVersion, Generation: descriptor.Generation, RequestID: requestID, Method: method}
+	request := rpcRequest{Version: protocolVersion, RequestID: requestID, Method: method}
 	request.Params.SQL = sql
 	body, err := encodeRequest(request)
 	if err != nil {
@@ -105,7 +83,6 @@ func (client *Client) post(ctx context.Context, descriptor Descriptor, method, s
 	if err != nil {
 		return rpcEnvelope{}, provider.QueryFailed
 	}
-	httpRequest.Header.Set("Authorization", "Bearer "+descriptor.Token)
 	httpRequest.Header.Set("Content-Type", "application/json")
 	if client.httpClient == nil {
 		return rpcEnvelope{}, provider.QueryUnavailable
@@ -123,7 +100,7 @@ func (client *Client) post(ctx context.Context, descriptor Descriptor, method, s
 		return rpcEnvelope{}, provider.QueryFailed
 	}
 	envelope, err := decodeEnvelope(responseBody)
-	if err != nil || envelope.Version != protocolVersion || envelope.Generation != descriptor.Generation || envelope.RequestID != requestID {
+	if err != nil || envelope.Version != protocolVersion || envelope.RequestID != requestID {
 		return rpcEnvelope{}, provider.QueryUnavailable
 	}
 	return envelope, provider.QueryOK

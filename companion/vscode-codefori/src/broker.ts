@@ -34,8 +34,6 @@ type RequestHandler = (request: BrokerRequest) => Promise<BrokerResponse>;
 export type BrokerHandler = (request: RpcRequest) => Promise<BrokerResult>;
 
 export interface BrokerOptions {
-  generation: string;
-  token: string;
   serverFactory: (handler: RequestHandler) => FixedLoopbackServer;
   handler: BrokerHandler;
 }
@@ -63,18 +61,10 @@ export function createBroker(options: BrokerOptions): CompanionBroker {
     if (request.method !== "POST" || request.path !== "/v1/rpc") {
       return sanitized(404);
     }
-    if (request.headers.authorization !== `Bearer ${options.token}`) {
-      return sanitized(401);
-    }
-
     const decoded = decodeRequest(request.body);
     if (!decoded) {
       return sanitized(400);
     }
-    if (decoded.generation !== options.generation) {
-      return sanitized(409);
-    }
-
     const normalized = normalizeQuery(decoded);
     if (!normalized) {
       return correlated(decoded, { state: "invalid_query" });
@@ -98,19 +88,24 @@ export function createBroker(options: BrokerOptions): CompanionBroker {
         return false;
       }
       startAttempted = true;
-      server = options.serverFactory(handle);
+      const created = options.serverFactory(handle);
+      server = created;
       try {
-        await server.listen(FIXED_LOOPBACK_HOST, FIXED_LOOPBACK_PORT);
+        await created.listen(FIXED_LOOPBACK_HOST, FIXED_LOOPBACK_PORT);
         return true;
       } catch {
-        server = undefined;
+        if (server === created) {
+          server = undefined;
+        }
+        await created.close().catch(() => undefined);
         return false;
       }
     },
     async stop(): Promise<void> {
-      if (server) {
-        await server.close();
-        server = undefined;
+      const active = server;
+      server = undefined;
+      if (active) {
+        await active.close();
       }
     },
   };

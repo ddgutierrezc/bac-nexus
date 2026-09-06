@@ -19,13 +19,9 @@ func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) 
 	return f(request)
 }
 
-func TestClientRejectsInvalidQueryBeforeDescriptorOrHTTP(t *testing.T) {
-	reads := 0
+func TestClientRejectsInvalidQueryBeforeHTTP(t *testing.T) {
 	requests := 0
-	client := NewClient(func() (Descriptor, error) {
-		reads++
-		return Descriptor{}, nil
-	})
+	client := NewClient()
 	client.httpClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		requests++
 		return nil, nil
@@ -35,18 +31,13 @@ func TestClientRejectsInvalidQueryBeforeDescriptorOrHTTP(t *testing.T) {
 	if result.State != provider.QueryInvalidQuery || len(result.Rows) != 0 {
 		t.Fatalf("Query() = %#v, want invalid_query", result)
 	}
-	if reads != 0 {
-		t.Fatalf("descriptor reads = %d, want 0", reads)
-	}
 	if requests != 0 {
 		t.Fatalf("HTTP requests = %d, want 0", requests)
 	}
 }
 
-func TestClientPostsAuthenticatedFixedLoopbackRequest(t *testing.T) {
-	client := NewClient(func() (Descriptor, error) {
-		return Descriptor{Version: protocolVersion, Generation: "generation-1", Token: "secret-token"}, nil
-	})
+func TestClientPostsUnauthenticatedFixedLoopbackRequest(t *testing.T) {
+	client := NewClient()
 	client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		if request.Method != http.MethodPost {
 			t.Fatalf("method = %q, want POST", request.Method)
@@ -54,8 +45,8 @@ func TestClientPostsAuthenticatedFixedLoopbackRequest(t *testing.T) {
 		if request.URL.String() != fixedRPCURL {
 			t.Fatalf("URL = %q, want %q", request.URL.String(), fixedRPCURL)
 		}
-		if got := request.Header.Get("Authorization"); got != "Bearer secret-token" {
-			t.Fatalf("Authorization = %q", got)
+		if got := request.Header.Get("Authorization"); got != "" {
+			t.Fatalf("Authorization = %q, want empty", got)
 		}
 		body, err := io.ReadAll(request.Body)
 		if err != nil {
@@ -68,11 +59,13 @@ func TestClientPostsAuthenticatedFixedLoopbackRequest(t *testing.T) {
 		if decoded.Method != methodSQLQuery || decoded.Params.SQL != provider.CanonicalProofQuery {
 			t.Fatalf("request = %#v, want canonical sql.query", decoded)
 		}
+		if strings.Contains(string(body), "bearer") || strings.Contains(string(body), "token") || strings.Contains(string(body), "generation") {
+			t.Fatalf("request body contains removed authentication field: %s", body)
+		}
 		return jsonResponse(t, rpcResponse{
-			Version:    protocolVersion,
-			Generation: decoded.Generation,
-			RequestID:  decoded.RequestID,
-			Result:     provider.QueryResult{State: provider.QueryOK, Rows: []provider.NormalizedRow{{Value: "BACUSER"}}},
+			Version:   protocolVersion,
+			RequestID: decoded.RequestID,
+			Result:    provider.QueryResult{State: provider.QueryOK, Rows: []provider.NormalizedRow{{Value: "BACUSER"}}},
 		}), nil
 	})}
 
@@ -96,29 +89,18 @@ func TestClientRejectsMismatchedAndOversizedResponsesWithoutRetry(t *testing.T) 
 				if err != nil {
 					t.Fatal(err)
 				}
-				return jsonResponse(t, rpcResponse{Version: protocolVersion + 1, Generation: decoded.Generation, RequestID: decoded.RequestID, Result: provider.QueryResult{State: provider.QueryOK, Rows: []provider.NormalizedRow{{Value: "BACUSER"}}}})
-			},
-			want: provider.QueryUnavailable,
-		},
-		{
-			name: "mismatched generation",
-			response: func(request *http.Request) *http.Response {
-				decoded, err := decodeRequest(mustReadAll(t, request.Body))
-				if err != nil {
-					t.Fatal(err)
-				}
-				return jsonResponse(t, rpcResponse{Version: protocolVersion, Generation: "other-generation", RequestID: decoded.RequestID, Result: provider.QueryResult{State: provider.QueryOK, Rows: []provider.NormalizedRow{{Value: "BACUSER"}}}})
+				return jsonResponse(t, rpcResponse{Version: protocolVersion + 1, RequestID: decoded.RequestID, Result: provider.QueryResult{State: provider.QueryOK, Rows: []provider.NormalizedRow{{Value: "BACUSER"}}}})
 			},
 			want: provider.QueryUnavailable,
 		},
 		{
 			name: "mismatched request ID",
 			response: func(request *http.Request) *http.Response {
-				decoded, err := decodeRequest(mustReadAll(t, request.Body))
+				_, err := decodeRequest(mustReadAll(t, request.Body))
 				if err != nil {
 					t.Fatal(err)
 				}
-				return jsonResponse(t, rpcResponse{Version: protocolVersion, Generation: decoded.Generation, RequestID: "another-request", Result: provider.QueryResult{State: provider.QueryOK, Rows: []provider.NormalizedRow{{Value: "BACUSER"}}}})
+				return jsonResponse(t, rpcResponse{Version: protocolVersion, RequestID: "another-request", Result: provider.QueryResult{State: provider.QueryOK, Rows: []provider.NormalizedRow{{Value: "BACUSER"}}}})
 			},
 			want: provider.QueryUnavailable,
 		},
@@ -134,9 +116,7 @@ func TestClientRejectsMismatchedAndOversizedResponsesWithoutRetry(t *testing.T) 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			calls := 0
-			client := NewClient(func() (Descriptor, error) {
-				return Descriptor{Version: protocolVersion, Generation: "generation-1", Token: "secret-token"}, nil
-			})
+			client := NewClient()
 			client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 				calls++
 				return tt.response(request), nil
@@ -149,40 +129,25 @@ func TestClientRejectsMismatchedAndOversizedResponsesWithoutRetry(t *testing.T) 
 			if calls != 1 {
 				t.Fatalf("HTTP calls = %d, want exactly one", calls)
 			}
-			if strings.Contains(string(result.State), "secret-token") {
-				t.Fatal("result exposed bearer token")
-			}
 		})
 	}
 }
 
-func TestClientMapsDescriptorAndTransportAbsenceToBoundedStates(t *testing.T) {
-	tests := []struct {
-		name   string
-		reader DescriptorReader
-	}{
-		{name: "missing descriptor", reader: func() (Descriptor, error) { return Descriptor{}, errors.New("missing") }},
-		{name: "stale descriptor", reader: func() (Descriptor, error) { return Descriptor{Version: 99, Generation: "old", Token: "secret"}, nil }},
-		{name: "denied descriptor", reader: func() (Descriptor, error) { return Descriptor{}, errors.New("denied") }},
+func TestClientMapsTransportAbsenceToBoundedStates(t *testing.T) {
+	client := NewClient()
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("unreachable")
+	})}
+	if got := client.Query(context.Background(), provider.QueryRequest{SQL: provider.CanonicalProofQuery}); got.State != provider.QueryUnavailable || len(got.Rows) != 0 {
+		t.Fatalf("Query() = %#v, want unavailable without rows", got)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			client := NewClient(tt.reader)
-			if got := client.Query(context.Background(), provider.QueryRequest{SQL: provider.CanonicalProofQuery}); got.State != provider.QueryUnavailable || len(got.Rows) != 0 {
-				t.Fatalf("Query() = %#v, want unavailable without rows", got)
-			}
-			if got := client.SessionStatus(context.Background()); got.State != provider.SessionCompanionUnavailable {
-				t.Fatalf("SessionStatus() = %#v, want companion_unavailable", got)
-			}
-		})
+	if got := client.SessionStatus(context.Background()); got.State != provider.SessionCompanionUnavailable {
+		t.Fatalf("SessionStatus() = %#v, want companion_unavailable", got)
 	}
 }
 
 func TestClientUsesBoundedDeadlinesAndFixedResponseHeaderTimeout(t *testing.T) {
-	client := NewClient(func() (Descriptor, error) {
-		return Descriptor{Version: protocolVersion, Generation: "generation-1", Token: "secret-token"}, nil
-	})
+	client := NewClient()
 	transport, ok := client.httpClient.Transport.(*http.Transport)
 	if !ok || transport.ResponseHeaderTimeout < responseHeaderTimeout {
 		t.Fatalf("response header timeout = %v, want at least %v", transport.ResponseHeaderTimeout, responseHeaderTimeout)
@@ -200,7 +165,7 @@ func TestClientUsesBoundedDeadlinesAndFixedResponseHeaderTimeout(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return jsonResponse(t, rpcResponse{Version: protocolVersion, Generation: decoded.Generation, RequestID: decoded.RequestID, Result: provider.QueryResult{State: provider.QueryOK, Rows: []provider.NormalizedRow{{Value: "BACUSER"}}}}), nil
+		return jsonResponse(t, rpcResponse{Version: protocolVersion, RequestID: decoded.RequestID, Result: provider.QueryResult{State: provider.QueryOK, Rows: []provider.NormalizedRow{{Value: "BACUSER"}}}}), nil
 	})}
 	if got := client.Query(context.Background(), provider.QueryRequest{SQL: provider.CanonicalProofQuery}); got.State != provider.QueryOK {
 		t.Fatalf("Query() = %#v, want ok", got)
@@ -208,9 +173,7 @@ func TestClientUsesBoundedDeadlinesAndFixedResponseHeaderTimeout(t *testing.T) {
 }
 
 func TestClientStatusUsesFixedMethodAndOneSecondDeadline(t *testing.T) {
-	client := NewClient(func() (Descriptor, error) {
-		return Descriptor{Version: protocolVersion, Generation: "generation-1", Token: "secret-token"}, nil
-	})
+	client := NewClient()
 	client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		deadline, ok := request.Context().Deadline()
 		if !ok {
@@ -227,7 +190,7 @@ func TestClientStatusUsesFixedMethodAndOneSecondDeadline(t *testing.T) {
 		if decoded.Method != methodStatus || decoded.Params.SQL != "" {
 			t.Fatalf("status request = %#v, want session.status with empty params", decoded)
 		}
-		body := `{"version":1,"generation":"generation-1","request_id":"` + decoded.RequestID + `","result":{"state":"connected"}}`
+		body := `{"version":1,"request_id":"` + decoded.RequestID + `","result":{"state":"connected"}}`
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
 	})}
 
@@ -236,8 +199,9 @@ func TestClientStatusUsesFixedMethodAndOneSecondDeadline(t *testing.T) {
 	}
 }
 
-func TestNilDescriptorReaderFailsClosedWithoutHTTP(t *testing.T) {
-	client := NewClient(nil)
+func TestNilHTTPClientFailsClosedWithoutHTTP(t *testing.T) {
+	client := NewClient()
+	client.httpClient = nil
 	if got := client.Query(context.Background(), provider.QueryRequest{SQL: provider.CanonicalProofQuery}); got.State != provider.QueryUnavailable || len(got.Rows) != 0 {
 		t.Fatalf("Query() = %#v, want unavailable without rows", got)
 	}
