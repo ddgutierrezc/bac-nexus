@@ -36,7 +36,7 @@ try {
   }
   [Console]::Out.Write("ROOT_READY`n")
   [Console]::Out.Flush()
-  $directoryPath = Join-Path $root 'BAC Nexus\companion-v1'
+  $directoryPath = [System.IO.Path]::Combine([System.IO.Path]::Combine($root, 'BAC Nexus'), 'companion-v1')
   [Console]::Out.Write("PATH_READY`n")
   [Console]::Out.Flush()
 

@@ -306,7 +306,8 @@ describe("fixed Windows descriptor token store", () => {
 
     expect(publish).toContain("[System.IO.Directory]::CreateDirectory($directoryPath, $directorySecurity)");
     expect(publish).toContain("$directorySecurity.SetAccessRuleProtection($true, $false)");
-    expect(publish).toMatch(/\$directoryPath = Join-Path \$root 'BAC Nexus\\companion-v1'\r?\n\s*\[Console\]::Out\.Write\("PATH_READY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)/);
+    expect(publish).toMatch(/\$directoryPath = \[System\.IO\.Path\]::Combine\(\[System\.IO\.Path\]::Combine\(\$root, 'BAC Nexus'\), 'companion-v1'\)\r?\n\s*\[Console\]::Out\.Write\("PATH_READY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)/);
+    expect(publish).not.toContain("$directoryPath = Join-Path");
     expect(publish).toMatch(/\$directorySecurity = New-Object System\.Security\.AccessControl\.DirectorySecurity\r?\n\s*\[Console\]::Out\.Write\("DIRECTORY_SECURITY_CREATED`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)/);
     expect(publish).toMatch(/\$directorySecurity\.SetOwner\(\$sid\)\r?\n\s*\[Console\]::Out\.Write\("OWNER_READY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)/);
     expect(publish).toMatch(/\$directorySecurity\.SetAccessRuleProtection\(\$true, \$false\)\r?\n\s*\[Console\]::Out\.Write\("ACCESS_PROTECTION_READY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)/);
