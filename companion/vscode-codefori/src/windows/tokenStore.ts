@@ -3,7 +3,10 @@ import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { isAbsolute, win32 } from "node:path";
 
-const PROCESS_DEADLINE_MS = 2_000;
+const PRE_READY_DEADLINE_MS = 10_000;
+const POST_READY_DEADLINE_MS = 2_000;
+const PUBLISH_PROCESS_DEADLINE_MS = PRE_READY_DEADLINE_MS + POST_READY_DEADLINE_MS;
+const CLEANUP_DEADLINE_MS = 10_000;
 const MAX_STDOUT_BYTES = 64;
 const MAX_STDERR_BYTES = 256;
 const MAX_DESCRIPTOR_BYTES = 512;
@@ -66,6 +69,9 @@ export function createWindowsTokenStore(onStage?: FixedStageObserver): WindowsTo
         environment,
         expectedOutput: PUBLISH_TRANSCRIPT,
         onStage,
+        deadlineMs: PRE_READY_DEADLINE_MS,
+        postReadyDeadlineMs: POST_READY_DEADLINE_MS,
+        processDeadlineMs: PUBLISH_PROCESS_DEADLINE_MS,
         script: inboxScript("publish.ps1"),
         stageTranscript: PUBLISH_STAGES,
         writeInputAfterReady: () => {
@@ -80,6 +86,8 @@ export function createWindowsTokenStore(onStage?: FixedStageObserver): WindowsTo
           environment,
           expectedOutput: "CLEANED\n",
           input: encodeInput({ generation }),
+          deadlineMs: CLEANUP_DEADLINE_MS,
+          processDeadlineMs: CLEANUP_DEADLINE_MS,
           script: inboxScript("cleanup.ps1"),
         });
       };
@@ -130,10 +138,13 @@ function encodeInput(value: object): Uint8Array {
 }
 
 interface FixedOperation {
+  readonly deadlineMs: number;
   readonly environment: Readonly<Record<string, string>>;
   readonly expectedOutput: string;
   readonly input?: Uint8Array;
   readonly onStage?: FixedStageObserver | undefined;
+  readonly postReadyDeadlineMs?: number;
+  readonly processDeadlineMs: number;
   readonly script: string;
   readonly stageTranscript?: readonly FixedStage[];
   readonly writeInputAfterReady?: () => Uint8Array;
@@ -153,7 +164,7 @@ function runFixedOperation(operation: FixedOperation): Promise<boolean> {
         env: operation.environment,
         shell: false,
         stdio: ["pipe", "pipe", "pipe"],
-        timeout: PROCESS_DEADLINE_MS,
+        timeout: operation.processDeadlineMs,
         windowsHide: true,
       },
     ) as unknown as SpawnedProcess;
@@ -167,7 +178,7 @@ function runFixedOperation(operation: FixedOperation): Promise<boolean> {
     let stderrBytes = 0;
     let inputWritten = false;
     let reportedStages = 0;
-    const deadline = setTimeout(() => finish(false), PROCESS_DEADLINE_MS);
+    let deadline = setTimeout(() => finish(false), operation.deadlineMs);
 
     const finish = (result: boolean): void => {
       if (complete) {
@@ -214,6 +225,10 @@ function runFixedOperation(operation: FixedOperation): Promise<boolean> {
       }
       if (!inputWritten && operation.writeInputAfterReady) {
         inputWritten = true;
+        if (operation.postReadyDeadlineMs !== undefined) {
+          clearTimeout(deadline);
+          deadline = setTimeout(() => finish(false), operation.postReadyDeadlineMs);
+        }
         try {
           child.stdin.write(operation.writeInputAfterReady());
           child.stdin.end();

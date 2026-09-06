@@ -582,3 +582,29 @@ No RED/GREEN cycle is fabricated: the user explicitly authorized passive workflo
 ### Native-evidence status
 
 - The four Slice 7 native Windows evidence tasks remain unchecked; this one-run diagnostic localizes failure and does not claim a fix.
+
+## Authorized correction — windows-phase-specific-deadlines
+
+### Fixed deadline model
+
+- GitHub Actions run `34006280843` reached `none` on a cold first publish and `process_entry` before `directory_validated` on a warm second publish, proving the former global 2,000 ms limit cannot cover pre-secret Windows startup and SID/ACL validation.
+- Publish now uses a fixed 10,000 ms pre-READY JavaScript deadline, resets to a fixed 2,000 ms deadline only after the complete exact transcript, and sets the fixed spawn hard cap to 12,000 ms.
+- Cleanup uses a separate fixed 10,000 ms JavaScript and spawn bound. It receives only generation ownership input; no token handling, transcript, ACL rule, process value, retry, or public result behavior changed.
+
+### TDD Cycle Evidence — phase-specific deadlines
+
+| Task | Test file | Layer | Safety net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|---|---|---|---|---|---|---|
+| Bound pre-READY, post-READY, hard-cap, and cleanup phases | `src/windows/tokenStore.test.ts` | Fake child-process unit | Focused suite exited 0: 1 file, 9 tests passed | Changed fixed timeout expectations and added a pre/post timer scenario; focused suite exited 1: 3 tests failed | Added the fixed phase deadlines and timer reset; focused suite exited 0: 1 file, 10 tests passed | The pre-READY 9,999 ms wait has no RNG or kill; the complete transcript resets to 2,000 ms and timeout triggers generation-owned cleanup | Added the cleanup fake required by the post-READY timeout path; final focused suite stayed green |
+
+### Work Unit Evidence — phase-specific deadlines
+
+| Evidence | Exact result |
+|---|---|
+| Focused test command and exact result | `npm test -- --run src/windows/tokenStore.test.ts` exited 0: 1 test file and 10 tests passed. `npm run typecheck` exited 0. `npm run lint` exited 0. `git diff --check` exited 0. |
+| Runtime harness command/scenario and exact result | Not run locally. Parent owns the single Windows attempt token `sha256:e658aeb871f3e84f11d841d4cf5bec5a859f8fef2229a204894af82f2d9a55e9`; a passing settlement must remediate `sha256:9b65201bdf3d2ad37c3b0b854de1b256a180f5bbd3f3e95279d3d80f742f68d0`. |
+| Rollback boundary | Revert only the phase deadline constants, `FixedOperation` deadline fields, timer reset, and corresponding focused test expectations in `src/windows/tokenStore.{ts,test.ts}`, plus this section. |
+
+### Native-evidence status
+
+- The four Slice 7 native Windows evidence tasks remain unchecked until the remote scoped Go consumer and opt-in TypeScript producer evidence passes.

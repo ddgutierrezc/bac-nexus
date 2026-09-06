@@ -90,7 +90,7 @@ describe("fixed Windows descriptor token store", () => {
       env: { LOCALAPPDATA: "C:\\Users\\operator\\AppData\\Local", SystemRoot: "C:\\Windows" },
       shell: false,
       stdio: ["pipe", "pipe", "pipe"],
-      timeout: 2_000,
+      timeout: 12_000,
       windowsHide: true,
     });
     expect(mocks.randomBytes).not.toHaveBeenCalled();
@@ -164,10 +164,36 @@ describe("fixed Windows descriptor token store", () => {
     expect(outputChild.killed).toBe(true);
 
     const timeoutPromise = createWindowsTokenStore().publish();
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(10_000);
     await expect(timeoutPromise).resolves.toBeUndefined();
     expect(timeoutChild.killed).toBe(true);
     expect(mocks.randomBytes).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("resets the publish deadline only after the complete fixed readiness transcript", async () => {
+    vi.useFakeTimers();
+    const child = new FakeChild();
+    const cleanupChild = new FakeChild();
+    mocks.spawn.mockReturnValueOnce(child).mockReturnValueOnce(cleanupChild);
+
+    const publicationPromise = createWindowsTokenStore().publish();
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(child.killed).toBe(false);
+    expect(mocks.randomBytes).not.toHaveBeenCalled();
+
+    child.ready();
+    expect(mocks.randomBytes).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(child.killed).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    for (let attempt = 0; attempt < 10 && mocks.spawn.mock.calls.length !== 2; attempt += 1) {
+      await Promise.resolve();
+    }
+    cleanupChild.cleaned();
+    cleanupChild.close();
+    await expect(publicationPromise).resolves.toBeUndefined();
+    expect(child.killed).toBe(true);
     vi.useRealTimers();
   });
 
@@ -221,7 +247,7 @@ describe("fixed Windows descriptor token store", () => {
       env: { LOCALAPPDATA: "C:\\Users\\operator\\AppData\\Local", SystemRoot: "C:\\Windows" },
       shell: false,
       stdio: ["pipe", "pipe", "pipe"],
-      timeout: 2_000,
+      timeout: 10_000,
       windowsHide: true,
     });
     expect(JSON.parse(cleanupChild.stdin.writes[0]?.toString() ?? "")).toEqual({
