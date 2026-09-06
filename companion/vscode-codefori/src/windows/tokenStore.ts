@@ -7,13 +7,19 @@ const PRE_READY_DEADLINE_MS = 10_000;
 const POST_READY_DEADLINE_MS = 2_000;
 const PUBLISH_PROCESS_DEADLINE_MS = PRE_READY_DEADLINE_MS + POST_READY_DEADLINE_MS;
 const CLEANUP_DEADLINE_MS = 10_000;
-const MAX_STDOUT_BYTES = 104;
+const MAX_STDOUT_BYTES = 216;
 const MAX_STDERR_BYTES = 256;
 const MAX_DESCRIPTOR_BYTES = 512;
 const PUBLISH_STAGES = [
   { output: "PROCESS_ENTRY\n", stage: "process_entry" },
   { output: "SID_READY\n", stage: "sid_ready" },
   { output: "ROOT_READY\n", stage: "root_ready" },
+  { output: "PATH_READY\n", stage: "path_ready" },
+  { output: "DIRECTORY_SECURITY_CREATED\n", stage: "directory_security_created" },
+  { output: "OWNER_READY\n", stage: "owner_ready" },
+  { output: "ACCESS_PROTECTION_READY\n", stage: "access_protection_ready" },
+  { output: "ACCESS_RULE_CREATED\n", stage: "access_rule_created" },
+  { output: "ACCESS_RULE_ADDED\n", stage: "access_rule_added" },
   { output: "DIRECTORY_SECURITY_READY\n", stage: "directory_security_ready" },
   { output: "DIRECTORY_CREATED\n", stage: "directory_created" },
   { output: "DIRECTORY_VALIDATED\n", stage: "directory_validated" },

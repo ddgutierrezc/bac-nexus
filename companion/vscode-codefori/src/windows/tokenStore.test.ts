@@ -38,7 +38,7 @@ class FakeChild extends EventEmitter {
   }
 
   ready(): void {
-    this.stdout.emit("data", Buffer.from("PROCESS_ENTRY\nSID_READY\nROOT_READY\nDIRECTORY_SECURITY_READY\nDIRECTORY_CREATED\nDIRECTORY_VALIDATED\nREADY\n"));
+    this.stdout.emit("data", Buffer.from("PROCESS_ENTRY\nSID_READY\nROOT_READY\nPATH_READY\nDIRECTORY_SECURITY_CREATED\nOWNER_READY\nACCESS_PROTECTION_READY\nACCESS_RULE_CREATED\nACCESS_RULE_ADDED\nDIRECTORY_SECURITY_READY\nDIRECTORY_CREATED\nDIRECTORY_VALIDATED\nREADY\n"));
   }
 
   cleaned(): void {
@@ -139,18 +139,18 @@ describe("fixed Windows descriptor token store", () => {
     expect(stages).toEqual(["process_entry", "sid_ready"]);
     expect(mocks.randomBytes).not.toHaveBeenCalled();
 
-    child.stdout.emit("data", Buffer.from("READY\nDIRECTORY_SECURITY_READY\nDIRECTORY_CREATED\nDIRECTORY_"));
-    expect(stages).toEqual(["process_entry", "sid_ready", "root_ready", "directory_security_ready", "directory_created"]);
+    child.stdout.emit("data", Buffer.from("READY\nPATH_READY\nDIRECTORY_SECURITY_CREATED\nOWNER_READY\nACCESS_PROTECTION_READY\nACCESS_RULE_CREATED\nACCESS_RULE_ADDED\nDIRECTORY_SECURITY_READY\nDIRECTORY_CREATED\nDIRECTORY_"));
+    expect(stages).toEqual(["process_entry", "sid_ready", "root_ready", "path_ready", "directory_security_created", "owner_ready", "access_protection_ready", "access_rule_created", "access_rule_added", "directory_security_ready", "directory_created"]);
     expect(mocks.randomBytes).not.toHaveBeenCalled();
 
     child.stdout.emit("data", Buffer.from("VALIDATED\nREA"));
-    expect(stages).toEqual(["process_entry", "sid_ready", "root_ready", "directory_security_ready", "directory_created", "directory_validated"]);
+    expect(stages).toEqual(["process_entry", "sid_ready", "root_ready", "path_ready", "directory_security_created", "owner_ready", "access_protection_ready", "access_rule_created", "access_rule_added", "directory_security_ready", "directory_created", "directory_validated"]);
     child.stdout.emit("data", Buffer.from("DY\n"));
     child.close();
     await expect(publicationPromise).resolves.toMatchObject({
       generation: "07070707070707070707070707070707",
     });
-    expect(stages).toEqual(["process_entry", "sid_ready", "root_ready", "directory_security_ready", "directory_created", "directory_validated", "ready"]);
+    expect(stages).toEqual(["process_entry", "sid_ready", "root_ready", "path_ready", "directory_security_created", "owner_ready", "access_protection_ready", "access_rule_created", "access_rule_added", "directory_security_ready", "directory_created", "directory_validated", "ready"]);
   });
 
   it("terminates bounded stdio and deadline failures without exposing child details", async () => {
@@ -302,10 +302,18 @@ describe("fixed Windows descriptor token store", () => {
     const publish = await readFile(new URL("./publish.ps1", import.meta.url), "utf8");
     const cleanup = await readFile(new URL("./cleanup.ps1", import.meta.url), "utf8");
     const nativeTest = await readFile(new URL("./tokenStore.windows.test.ts", import.meta.url), "utf8");
+    const tokenStore = await readFile(new URL("./tokenStore.ts", import.meta.url), "utf8");
 
     expect(publish).toContain("[System.IO.Directory]::CreateDirectory($directoryPath, $directorySecurity)");
     expect(publish).toContain("$directorySecurity.SetAccessRuleProtection($true, $false)");
+    expect(publish).toMatch(/\$directoryPath = Join-Path \$root 'BAC Nexus\\companion-v1'\r?\n\s*\[Console\]::Out\.Write\("PATH_READY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)/);
+    expect(publish).toMatch(/\$directorySecurity = New-Object System\.Security\.AccessControl\.DirectorySecurity\r?\n\s*\[Console\]::Out\.Write\("DIRECTORY_SECURITY_CREATED`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)/);
+    expect(publish).toMatch(/\$directorySecurity\.SetOwner\(\$sid\)\r?\n\s*\[Console\]::Out\.Write\("OWNER_READY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)/);
+    expect(publish).toMatch(/\$directorySecurity\.SetAccessRuleProtection\(\$true, \$false\)\r?\n\s*\[Console\]::Out\.Write\("ACCESS_PROTECTION_READY`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)/);
+    expect(publish).toMatch(/\$directoryAccessRule = New-Object System\.Security\.AccessControl\.FileSystemAccessRule\([\s\S]*?\r?\n\s*\)\r?\n\s*\[Console\]::Out\.Write\("ACCESS_RULE_CREATED`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)/);
+    expect(publish).toMatch(/\$directorySecurity\.AddAccessRule\(\$directoryAccessRule\)\r?\n\s*\[Console\]::Out\.Write\("ACCESS_RULE_ADDED`n"\)\r?\n\s*\[Console\]::Out\.Flush\(\)/);
     expect(publish).toContain("$fileSecurity.SetAccessRuleProtection($true, $false)");
+    expect(tokenStore).toContain("const MAX_STDOUT_BYTES = 216;");
     expect(publish).toContain("[System.IO.FileMode]::CreateNew");
     expect(publish).toContain("$fileItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint");
     expect(publish).toMatch(

@@ -37,17 +37,30 @@ try {
   [Console]::Out.Write("ROOT_READY`n")
   [Console]::Out.Flush()
   $directoryPath = Join-Path $root 'BAC Nexus\companion-v1'
+  [Console]::Out.Write("PATH_READY`n")
+  [Console]::Out.Flush()
 
   $directorySecurity = New-Object System.Security.AccessControl.DirectorySecurity
+  [Console]::Out.Write("DIRECTORY_SECURITY_CREATED`n")
+  [Console]::Out.Flush()
   $directorySecurity.SetOwner($sid)
+  [Console]::Out.Write("OWNER_READY`n")
+  [Console]::Out.Flush()
   $directorySecurity.SetAccessRuleProtection($true, $false)
-  $directorySecurity.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+  [Console]::Out.Write("ACCESS_PROTECTION_READY`n")
+  [Console]::Out.Flush()
+  $directoryAccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
     $sid,
     [System.Security.AccessControl.FileSystemRights]::FullControl,
     [System.Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit',
     [System.Security.AccessControl.PropagationFlags]::None,
     [System.Security.AccessControl.AccessControlType]::Allow
-  )))
+  )
+  [Console]::Out.Write("ACCESS_RULE_CREATED`n")
+  [Console]::Out.Flush()
+  $directorySecurity.AddAccessRule($directoryAccessRule)
+  [Console]::Out.Write("ACCESS_RULE_ADDED`n")
+  [Console]::Out.Flush()
   [Console]::Out.Write("DIRECTORY_SECURITY_READY`n")
   [Console]::Out.Flush()
   [void][System.IO.Directory]::CreateDirectory($directoryPath, $directorySecurity)
