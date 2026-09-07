@@ -8,7 +8,7 @@ function snapshot(overrides: Partial<CompanionDiagnosticSnapshot> = {}): Compani
     codeForIExtension: "found",
     codeForIActivation: "active",
     codeForIVersion: "3.0.12",
-    companionVersion: "0.2.0",
+    companionVersion: "0.2.1",
     adapter: { instance: "available", subscriptions: "registered", getConnection: "available" },
     ...overrides,
   };

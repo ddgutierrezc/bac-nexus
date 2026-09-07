@@ -1,6 +1,6 @@
 {
   "name": "nexus-codefori-companion",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "ddgutierrezc",
   "displayName": "Nexus Code for IBM i Companion (Preview)",
   "description": "Unofficial personal preview for bounded local Code for IBM i session and program metadata inspection.",
@@ -30,7 +30,8 @@
     "test": "vitest run",
     "build": "tsc",
     "vscode:prepublish": "npm run build",
-    "package:vsix": "npx --yes @vscode/vsce@3.9.2 package --pre-release --allow-missing-repository --skip-license --no-dependencies"
+    "package:vsix": "npx --yes @vscode/vsce@3.9.2 package --pre-release --allow-missing-repository --skip-license --no-dependencies",
+    "verify:vsix-runtime": "node scripts/verify-vsix-runtime.mjs"
   },
   "devDependencies": {
     "@eslint/js": "9.31.0",
