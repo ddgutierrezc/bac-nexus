@@ -109,6 +109,31 @@ describe("Code for IBM i public adapter", () => {
     expect(adapter.sessionStatus()).toEqual({ state: "connection_unavailable" });
   });
 
+  it("suppresses in-flight program matches after disconnect or reconnect", async () => {
+    for (const reconnect of [false, true]) {
+      const deferred = new Deferred<Array<{ library: string; name: string; type: string; text: string }>>();
+      const callbacks = new Map<string, () => void>();
+      let connection: CodeForIConnection | undefined = {
+        runSQL: async () => [],
+        getConfig: () => ({ currentLibrary: "LIBA", libraryList: [] }),
+        getContent: () => ({ getObjectList: async () => deferred.promise }),
+      };
+      const adapter = createCodeForIAdapter({ instance: {
+        getConnection: () => connection as CodeForIConnection,
+        subscribe: (_context, event, _name, callback) => callbacks.set(event, callback as () => void),
+      } }, {});
+      const result = adapter.resolveProgram({ name: "PISA061" });
+      connection = undefined;
+      callbacks.get("disconnected")?.();
+      if (reconnect) {
+        connection = { runSQL: async () => [], getConfig: () => ({ currentLibrary: "LIBB", libraryList: [] }), getContent: () => ({ getObjectList: async () => [] }) };
+        callbacks.get("connected")?.();
+      }
+      deferred.complete([{ library: "LIBA", name: "PISA061", type: "*PGM", text: "" }]);
+      await expect(result).resolves.toMatchObject({ state: "unavailable", reason: "stale_session", matches: [] });
+    }
+  });
+
   it("reports immutable sanitized diagnostics and refreshes them after connection events", () => {
     const fake = createFakeExports(async () => [{ VALUE: "QUSER" }]);
     const adapter = createCodeForIAdapter(fake.exports, {});

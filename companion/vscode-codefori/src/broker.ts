@@ -47,10 +47,12 @@ export function createCodeForIBrokerHandler(
   adapter: CodeForIAdapter,
   admission = new ImmediateAdmission(),
 ): BrokerHandler {
-  return async (request) =>
-    request.method === "session.status"
-      ? adapter.sessionStatus()
-      : admission.execute(undefined, () => adapter.query(request.params.sql));
+  return async (request): Promise<BrokerResult> => {
+    if (request.method === "session.status") return adapter.sessionStatus();
+    if (request.method === "program_inspection.v1.resolve") return adapter.resolveProgram(request.params as { name: string; library?: string });
+    if (request.method === "program_inspection.v1.find_source") return adapter.findProgramSource(request.params as { library: string; name: string; objectType: "*PGM" });
+    return admission.execute(undefined, () => adapter.query((request.params as { sql: string }).sql));
+  };
 }
 
 export function createBroker(options: BrokerOptions): CompanionBroker {
@@ -77,7 +79,9 @@ export function createBroker(options: BrokerOptions): CompanionBroker {
         normalized,
         normalized.method === "session.status"
           ? { state: "companion_unavailable" }
-          : { state: "failed" },
+          : normalized.method === "sql.query"
+            ? { state: "failed" }
+            : { state: "unavailable" },
       );
     }
   };
@@ -112,10 +116,10 @@ export function createBroker(options: BrokerOptions): CompanionBroker {
 }
 
 function normalizeQuery(request: RpcRequest): RpcRequest | null {
-  if (request.method === "session.status") {
+  if (request.method !== "sql.query") {
     return request;
   }
-  const sql = canonicalizeProofQuery(request.params.sql);
+  const sql = canonicalizeProofQuery((request.params as { sql: string }).sql);
   return sql ? { ...request, params: { sql } } : null;
 }
 

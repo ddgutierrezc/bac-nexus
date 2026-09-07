@@ -96,8 +96,8 @@ func TestProtocolRejectsRemovedGenerationFields(t *testing.T) {
 }
 
 func TestProtocolEnforcesRequestAndResponseByteLimits(t *testing.T) {
-	overgrown := rpcRequest{Version: protocolVersion, RequestID: strings.Repeat("r", maxRequestBytes), Method: methodSQLQuery}
-	overgrown.Params.SQL = provider.CanonicalProofQuery
+	overgrown := rpcRequest{Version: protocolVersion, RequestID: strings.Repeat("r", maxRequestBytes), Method: methodSQLQuery, Params: map[string]string{}}
+	overgrown.Params["sql"] = provider.CanonicalProofQuery
 	if _, err := encodeRequest(overgrown); err == nil {
 		t.Fatal("encodeRequest() succeeded for an oversized body")
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"bac-nexus/internal/connectors/ibmi/codefori"
+	"bac-nexus/internal/inspection"
 	internalmcp "bac-nexus/internal/mcp"
 	"bac-nexus/internal/provider"
 )
@@ -58,9 +59,11 @@ func runCompanionWithDeps(ctx context.Context, deps companionDeps) error {
 	if deps.ServerFactory == nil {
 		return errors.New("serve companion composition unavailable")
 	}
+	inspector, _ := deps.Provider.(inspection.Provider)
 	server, err := internalmcp.NewCodeForI(internalmcp.CodeForIConfig{
-		Info:     internalmcp.Info{Name: "bac-nexus", Version: "v0.0.0"},
-		Provider: deps.Provider,
+		Info:      internalmcp.Info{Name: "bac-nexus", Version: "v0.0.0"},
+		Provider:  deps.Provider,
+		Inspector: inspector,
 	})
 	if err != nil {
 		return fmt.Errorf("build companion mcp server: %w", err)

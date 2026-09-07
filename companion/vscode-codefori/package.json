@@ -1,9 +1,9 @@
 {
   "name": "nexus-codefori-companion",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "publisher": "ddgutierrezc",
   "displayName": "Nexus Code for IBM i Companion (Preview)",
-  "description": "Unofficial personal preview for bounded local Code for IBM i session checks.",
+  "description": "Unofficial personal preview for bounded local Code for IBM i session and program metadata inspection.",
   "categories": ["Other"],
   "keywords": ["IBM i", "Code for IBM i", "Nexus", "Companion"],
   "preview": true,

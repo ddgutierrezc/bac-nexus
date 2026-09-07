@@ -6,15 +6,18 @@ import (
 	"errors"
 	"io"
 
+	"bac-nexus/internal/inspection"
 	"bac-nexus/internal/provider"
 )
 
 const (
-	protocolVersion  = 1
-	methodStatus     = "session.status"
-	methodSQLQuery   = "sql.query"
-	maxRequestBytes  = 512
-	maxResponseBytes = 1024
+	protocolVersion         = 1
+	methodStatus            = "session.status"
+	methodSQLQuery          = "sql.query"
+	methodResolveProgram    = "program_inspection.v1.resolve"
+	methodFindProgramSource = "program_inspection.v1.find_source"
+	maxRequestBytes         = 512
+	maxResponseBytes        = 4096
 )
 
 var (
@@ -26,9 +29,7 @@ type rpcRequest struct {
 	Version   int
 	RequestID string
 	Method    string
-	Params    struct {
-		SQL string
-	}
+	Params    map[string]string
 }
 
 type rpcResponse struct {
@@ -50,14 +51,34 @@ func encodeRequest(request rpcRequest) ([]byte, error) {
 	params := map[string]string{}
 	switch request.Method {
 	case methodStatus:
-		if request.Params.SQL != "" {
+		if len(request.Params) != 0 {
 			return nil, errInvalidProtocol
 		}
 	case methodSQLQuery:
-		if request.Params.SQL != provider.CanonicalProofQuery {
+		if request.Params["sql"] != provider.CanonicalProofQuery || len(request.Params) != 1 {
 			return nil, errInvalidProtocol
 		}
-		params["sql"] = request.Params.SQL
+		params["sql"] = request.Params["sql"]
+	case methodResolveProgram:
+		if request.Params["name"] == "" || (len(request.Params) != 1 && len(request.Params) != 2) {
+			return nil, errInvalidProtocol
+		}
+		for key, value := range request.Params {
+			if key != "name" && key != "library" || value == "" {
+				return nil, errInvalidProtocol
+			}
+			params[key] = value
+		}
+	case methodFindProgramSource:
+		if len(request.Params) != 3 || request.Params["library"] == "" || request.Params["name"] == "" || request.Params["objectType"] != "*PGM" {
+			return nil, errInvalidProtocol
+		}
+		for key, value := range request.Params {
+			if key != "library" && key != "name" && key != "objectType" {
+				return nil, errInvalidProtocol
+			}
+			params[key] = value
+		}
 	default:
 		return nil, errInvalidProtocol
 	}
@@ -94,7 +115,7 @@ func decodeRequest(body []byte) (rpcRequest, error) {
 	if request.Method, err = decodeString(fields["method"]); err != nil {
 		return rpcRequest{}, err
 	}
-	params, err := decodeAllowedObject(fields["params"], "sql")
+	params, err := decodeAllowedObject(fields["params"], "sql", "name", "library", "objectType")
 	if err != nil {
 		return rpcRequest{}, err
 	}
@@ -107,7 +128,38 @@ func decodeRequest(body []byte) (rpcRequest, error) {
 		if len(params) != 1 {
 			return rpcRequest{}, errInvalidProtocol
 		}
-		if request.Params.SQL, err = decodeString(params["sql"]); err != nil || request.Params.SQL != provider.CanonicalProofQuery {
+		if request.Params == nil {
+			request.Params = map[string]string{}
+		}
+		if request.Params["sql"], err = decodeString(params["sql"]); err != nil || request.Params["sql"] != provider.CanonicalProofQuery {
+			return rpcRequest{}, errInvalidProtocol
+		}
+	case methodResolveProgram:
+		if len(params) != 1 && len(params) != 2 {
+			return rpcRequest{}, errInvalidProtocol
+		}
+		request.Params = map[string]string{}
+		for _, key := range []string{"name", "library"} {
+			if raw, ok := params[key]; ok {
+				if request.Params[key], err = decodeString(raw); err != nil {
+					return rpcRequest{}, err
+				}
+			}
+		}
+		if request.Params["name"] == "" {
+			return rpcRequest{}, errInvalidProtocol
+		}
+	case methodFindProgramSource:
+		if len(params) != 3 {
+			return rpcRequest{}, errInvalidProtocol
+		}
+		request.Params = map[string]string{}
+		for _, key := range []string{"library", "name", "objectType"} {
+			if request.Params[key], err = decodeString(params[key]); err != nil {
+				return rpcRequest{}, err
+			}
+		}
+		if request.Params["library"] == "" || request.Params["name"] == "" || request.Params["objectType"] != "*PGM" {
 			return rpcRequest{}, errInvalidProtocol
 		}
 	default:
@@ -117,6 +169,30 @@ func decodeRequest(body []byte) (rpcRequest, error) {
 		return rpcRequest{}, errInvalidProtocol
 	}
 	return request, nil
+}
+
+func decodeResolveProgramResult(raw json.RawMessage) (inspection.ResolveResult, error) {
+	var result inspection.ResolveResult
+	if json.Unmarshal(raw, &result) != nil || !validInspectionState(result.State) || result.RuntimeLiblVerified {
+		return inspection.ResolveResult{}, errInvalidProtocol
+	}
+	return result, nil
+}
+
+func decodeSourceResult(raw json.RawMessage) (inspection.SourceResult, error) {
+	var result inspection.SourceResult
+	if json.Unmarshal(raw, &result) != nil || !validInspectionState(result.State) || result.RuntimeLiblVerified {
+		return inspection.SourceResult{}, errInvalidProtocol
+	}
+	return result, nil
+}
+
+func validInspectionState(state inspection.State) bool {
+	switch state {
+	case inspection.StateResolved, inspection.StateAmbiguous, inspection.StateNotFound, inspection.StateTruncated, inspection.StateUnavailable:
+		return true
+	}
+	return false
 }
 
 func encodeResponse(response rpcResponse) ([]byte, error) {
