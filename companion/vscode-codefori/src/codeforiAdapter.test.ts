@@ -27,8 +27,11 @@ function createFakeExports(
   runSQL: CodeForIConnection["runSQL"],
 ): { exports: CodeForIExports; emit: (event: "connected" | "disconnected") => void } {
   const callbacks = new Map<string, () => void>();
+  let connectionAvailable = true;
   const instance: CodeForIInstance = {
-    getConnection: () => ({ runSQL }),
+    getConnection: () => connectionAvailable
+      ? { runSQL }
+      : (undefined as unknown as CodeForIConnection),
     subscribe: (_context, event, _name, callback) => {
       callbacks.set(event, callback as () => void);
     },
@@ -36,7 +39,10 @@ function createFakeExports(
 
   return {
     exports: { instance },
-    emit: (event) => callbacks.get(event)?.(),
+    emit: (event) => {
+      connectionAvailable = event === "connected";
+      callbacks.get(event)?.();
+    },
   };
 }
 
@@ -101,5 +107,79 @@ describe("Code for IBM i public adapter", () => {
 
     await expect(result).resolves.toEqual({ state: "unavailable" });
     expect(adapter.sessionStatus()).toEqual({ state: "connection_unavailable" });
+  });
+
+  it("reports immutable sanitized diagnostics and refreshes them after connection events", () => {
+    const fake = createFakeExports(async () => [{ VALUE: "QUSER" }]);
+    const adapter = createCodeForIAdapter(fake.exports, {});
+    let refreshes = 0;
+    const unsubscribe = adapter.onSessionChange(() => { refreshes += 1; });
+
+    expect(adapter.diagnostics()).toEqual({
+      instance: "available",
+      subscriptions: "registered",
+      getConnection: "available",
+    });
+    expect(Object.isFrozen(adapter.diagnostics())).toBe(true);
+
+    fake.emit("disconnected");
+
+    expect(refreshes).toBe(1);
+    expect(adapter.diagnostics()).toEqual({
+      instance: "available",
+      subscriptions: "registered",
+      getConnection: "unavailable",
+    });
+    unsubscribe();
+  });
+
+  it("reports a getConnection exception without exposing its error", () => {
+    const adapter = createCodeForIAdapter({
+      instance: {
+        getConnection: () => { throw new Error("host.example QUSER secret"); },
+        subscribe: () => undefined,
+      },
+    }, {});
+
+    expect(adapter.diagnostics()).toEqual({
+      instance: "available",
+      subscriptions: "registered",
+      getConnection: "threw",
+    });
+  });
+
+  it("recovers from a missed connection event by re-probing status, diagnostics, and the query gate", async () => {
+    let available = false;
+    let queryCalls = 0;
+    const runSQL: CodeForIConnection["runSQL"] = async () => {
+      queryCalls += 1;
+      return [{ VALUE: "QUSER" }];
+    };
+    const exports: CodeForIExports = {
+      instance: {
+        getConnection: () => available
+          ? { runSQL }
+          : (undefined as unknown as CodeForIConnection),
+        subscribe: () => undefined,
+      },
+    };
+    const adapter = createCodeForIAdapter(exports, {});
+
+    expect(adapter.sessionStatus()).toEqual({ state: "connection_unavailable" });
+    expect(adapter.diagnostics().getConnection).toBe("unavailable");
+
+    available = true;
+
+    expect(adapter.sessionStatus()).toEqual({ state: "connected" });
+    expect(adapter.diagnostics().getConnection).toBe("available");
+
+    available = false;
+    const queryAdapter = createCodeForIAdapter(exports, {});
+    available = true;
+    await expect(queryAdapter.query(CANONICAL_PROOF_QUERY)).resolves.toEqual({
+      state: "ok",
+      rows: [{ value: "QUSER" }],
+    });
+    expect(queryCalls).toBe(1);
   });
 });

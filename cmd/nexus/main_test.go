@@ -352,7 +352,7 @@ func TestRunCommandServeHelpTextContract(t *testing.T) {
 		t.Fatalf("runCommand(help serve) error = %v, want flag.ErrHelp", err)
 	}
 	lower := strings.ToLower(out.String())
-	for _, want := range []string{"session.status", "sql.query", "resolve_catalog_candidates", "read_selected_source"} {
+	for _, want := range []string{"session_status", "sql_query", "resolve_catalog_candidates", "read_selected_source"} {
 		if !strings.Contains(lower, want) {
 			t.Fatalf("help text missing required tool %q: %s", want, out.String())
 		}
@@ -449,7 +449,7 @@ func TestRunCompanionWithDepsBuildsOnlyCompanionMCP(t *testing.T) {
 	if stub.runCalls != 1 {
 		t.Fatalf("Companion runner calls = %d, want 1", stub.runCalls)
 	}
-	if want := []string{"session.status", "sql.query"}; !reflect.DeepEqual(tools, want) {
+	if want := []string{"session_status", "sql_query"}; !reflect.DeepEqual(tools, want) {
 		t.Fatalf("Companion tools = %v, want %v", tools, want)
 	}
 }

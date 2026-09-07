@@ -6,6 +6,7 @@
 !dist/admission.js
 !dist/broker.js
 !dist/codeforiAdapter.js
+!dist/diagnostics.js
 !dist/extension.js
 !dist/httpServer.js
 !dist/protocol.js

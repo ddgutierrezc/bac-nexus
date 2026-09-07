@@ -1,6 +1,6 @@
 {
   "name": "nexus-codefori-companion",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "ddgutierrezc",
   "displayName": "Nexus Code for IBM i Companion (Preview)",
   "description": "Unofficial personal preview for bounded local Code for IBM i session checks.",
@@ -16,6 +16,14 @@
   "extensionDependencies": ["halcyontechltd.code-for-ibmi"],
   "type": "module",
   "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "nexus-codefori-companion.showDiagnostics",
+        "title": "Nexus Companion: Show Diagnostics"
+      }
+    ]
+  },
   "scripts": {
     "lint": "eslint src --max-warnings=0",
     "typecheck": "tsc --noEmit",

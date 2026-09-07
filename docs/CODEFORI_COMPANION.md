@@ -7,14 +7,14 @@ Code for IBM i session. Code for IBM i retains all IBM i credentials.
 
 1. Start Code for IBM i with an active session.
 2. Start `nexus serve` without `-profile` to select Companion mode.
-3. Use `session.status` or the canonical proof query only.
+3. Use `session_status` or the canonical proof query only.
 
 ## Fixed local endpoint
 
 | Topic | Decision |
 |---|---|
 | Address | The Companion binds only to `127.0.0.1:64139`. |
-| Operations | Only `session.status` and `sql.query` for `SELECT CURRENT_USER FROM SYSIBM.SYSDUMMY1` are available. |
+| Operations | Only `session_status` and `sql_query` for `SELECT CURRENT_USER FROM SYSIBM.SYSDUMMY1` are available. |
 | Port collision | The Companion is unavailable; it does not scan, retry another port, or fall back to Native mode. |
 | Browser requests | Any request with an `Origin` header is rejected with `browser_origin_rejected`. |
 
