@@ -1,5 +1,6 @@
 import type { QueryState, SessionState } from "./protocol.js";
 import { canonicalizeProofQuery } from "./query.js";
+import { createProgramInspection, type FindProgramSourceRequest, type FindProgramSourceResult, type ProgramInspection, type ResolveProgramRequest, type ResolveProgramResult } from "./programInspection.js";
 
 const MAX_VALUE_BYTES = 256;
 const encoder = new TextEncoder();
@@ -7,6 +8,8 @@ const decoder = new TextDecoder("utf-8", { fatal: true });
 
 export interface CodeForIConnection {
   runSQL(sql: string, options: { rows?: number }): Promise<unknown[]>;
+  getConfig?(): unknown;
+  getContent?(): { getObjectList(filters: { library: string; object: string; types: string[] }): Promise<Array<{ library: string; name: string; type: string; text: string }>> };
 }
 
 export interface CodeForIInstance {
@@ -32,6 +35,8 @@ export interface AdapterDiagnosticSnapshot {
 export interface CodeForIAdapter {
   sessionStatus(): SessionStatusResult;
   query(sql: string): Promise<QueryResult>;
+  resolveProgram(request: ResolveProgramRequest): Promise<ResolveProgramResult>;
+  findProgramSource(request: FindProgramSourceRequest): Promise<FindProgramSourceResult>;
   diagnostics(): AdapterDiagnosticSnapshot;
   onSessionChange(callback: () => void): () => void;
   deactivate(): void;
@@ -129,6 +134,22 @@ export function createCodeForIAdapter(
         return { state: "failed" };
       }
     },
+    async resolveProgram(request: ResolveProgramRequest): Promise<ResolveProgramResult> {
+      const bound = getProgramInspection();
+      if (!bound) return unavailableProgramResult(request.library);
+      try {
+        const result = await bound.inspection.resolveProgram(request);
+        return validGeneration(bound.generation) ? result : unavailableProgramResult(request.library, "stale_session");
+      } catch { return unavailableProgramResult(request.library); }
+    },
+    async findProgramSource(request: FindProgramSourceRequest): Promise<FindProgramSourceResult> {
+      const bound = getProgramInspection();
+      if (!bound) return unavailableSourceResult();
+      try {
+        const result = await bound.inspection.findProgramSource(request);
+        return validGeneration(bound.generation) ? result : unavailableSourceResult("stale_session");
+      } catch { return unavailableSourceResult(); }
+    },
     diagnostics(): AdapterDiagnosticSnapshot {
       if (active && instance) {
         connectionAvailable = refreshConnection();
@@ -150,6 +171,26 @@ export function createCodeForIAdapter(
       listeners.clear();
     },
   };
+
+  function getProgramInspection(): { inspection: ProgramInspection; generation: number } | undefined {
+    if (!active || !refreshConnection()) return undefined;
+    try {
+      const connection = instance?.getConnection();
+      if (!connection) return undefined;
+      if (!connection.getConfig || !connection.getContent) return undefined;
+      return { generation: connectionGeneration, inspection: createProgramInspection({ getConfig: () => connection.getConfig!(), getObjectList: (filters) => connection.getContent!().getObjectList(filters) }) };
+    } catch { return undefined; }
+  }
+
+  function validGeneration(generation: number): boolean { return active && connectionAvailable && connectionGeneration === generation; }
+}
+
+function unavailableProgramResult(library?: string, reason = "codefori_extension_unavailable"): ResolveProgramResult {
+  return { state: "unavailable", searchStrategy: library ? "explicit_library" : "code_for_i_configured_context", librariesSearched: [], matches: [], completeness: "complete", truncated: false, runtimeLiblVerified: false, reason };
+}
+
+function unavailableSourceResult(reason: FindProgramSourceResult["reason"] = "compiled_object_source_metadata_unsupported"): FindProgramSourceResult {
+  return { state: "unavailable", reason, nextStep: "configure_documented_compile_provenance_api", certainty: "unavailable", completeness: "complete", runtimeLiblVerified: false };
 }
 
 function normalizeRows(rows: unknown): QueryResult {

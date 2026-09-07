@@ -43,6 +43,14 @@ describe("Companion protocol", () => {
     });
   });
 
+  it("keeps worst-case metadata bounded and replaces oversized metadata deterministically", () => {
+    const request = decodeRequest(encoder.encode('{"version":1,"request_id":"request","method":"program_inspection.v1.resolve","params":{"name":"PISA061"}}'))!;
+    const base = { state: "ambiguous", searchStrategy: "code_for_i_configured_context", librariesSearched: Array(16).fill("ABCDEFGHIJ"), matches: Array(8).fill({ library: "ABCDEFGHIJ", name: "ABCDEFGHIJ", objectType: "*PGM", provenance: "code_for_i_configured_library_list", matchPosition: 16 }), completeness: "complete", truncated: false, runtimeLiblVerified: false } as const;
+    expect(encodeResponse(request, base).byteLength).toBeLessThanOrEqual(4096);
+    const oversized = encodeResponse(request, { ...base, reason: "x".repeat(5000) });
+    expect(decoder.decode(oversized)).toBe('{"result":{"state":"unavailable"}}');
+  });
+
   it.each([
     '{"version":1,"version":1,"request_id":"request","method":"session.status","params":{}}',
     '{"version":1,"request_id":"request","method":"session.status","params":{},"unknown":true}',

@@ -34,7 +34,7 @@ func TestCodeForIServerRegistersExactlyCompanionTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCodeForI() error = %v", err)
 	}
-	want := []string{"session_status", "sql_query"}
+	want := []string{"session_status", "sql_query", "resolve_program", "find_program_source"}
 	if got := server.ToolNames(); !slices.Equal(got, want) {
 		t.Fatalf("ToolNames() = %v, want %v", got, want)
 	}

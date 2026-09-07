@@ -7,14 +7,14 @@ Code for IBM i session. Code for IBM i retains all IBM i credentials.
 
 1. Start Code for IBM i with an active session.
 2. Start `nexus serve` without `-profile` to select Companion mode.
-3. Use `session_status` or the canonical proof query only.
+3. Use `session_status`, the canonical proof query, `resolve_program`, or `find_program_source`.
 
 ## Fixed local endpoint
 
 | Topic | Decision |
 |---|---|
 | Address | The Companion binds only to `127.0.0.1:64139`. |
-| Operations | Only `session_status` and `sql_query` for `SELECT CURRENT_USER FROM SYSIBM.SYSDUMMY1` are available. |
+| Operations | Public MCP tools are `session_status`, `sql_query`, `resolve_program`, and metadata-only `find_program_source`. Internal dotted RPC methods include `session.status`, `sql.query`, `program_inspection.v1.resolve`, and `program_inspection.v1.find_source`. |
 | Port collision | The Companion is unavailable; it does not scan, retry another port, or fall back to Native mode. |
 | Browser requests | Any request with an `Origin` header is rejected with `browser_origin_rejected`. |
 
@@ -29,10 +29,24 @@ shell, CL, mutation, endpoint discovery, forwarding, or remote access.
 
 ## Fixed limits
 
-The endpoint accepts a 512-byte request and produces at most a 1024-byte
+The endpoint accepts a 512-byte request and produces at most a 4096-byte metadata
 response. It permits one normalized row and column, a 256-byte value, 16
 immediately admitted operations and active queries, and no queue. A proof query
 waits at most five seconds; excess work returns `limit_exceeded`.
+
+## Program inspection
+
+`resolve_program` supports only `*PGM`. With no explicit library it searches
+Code for IBM i's configured `currentLibrary` followed by `libraryList`, in stable
+de-duplicated order; this is not runtime `*LIBL`. The configured scope is capped
+at 16 libraries and matches at 8. Truncated scope never mints a selection.
+
+An opaque Nexus-local selection is replayable for five minutes so read-only MCP
+calls may retry; the server retains at most 256 live selections and fails closed
+when full. `find_program_source` accepts only that selection and returns metadata
+only. Documented Code for IBM i APIs do not yet provide independently evidenced
+compiled-object source coordinates, so it returns `unavailable`. `read_source_member`
+is explicitly absent pending a separate approved bounded source-acquisition design.
 
 ## Credential ownership and future hardening
 

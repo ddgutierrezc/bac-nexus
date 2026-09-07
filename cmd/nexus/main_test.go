@@ -449,7 +449,7 @@ func TestRunCompanionWithDepsBuildsOnlyCompanionMCP(t *testing.T) {
 	if stub.runCalls != 1 {
 		t.Fatalf("Companion runner calls = %d, want 1", stub.runCalls)
 	}
-	if want := []string{"session_status", "sql_query"}; !reflect.DeepEqual(tools, want) {
+	if want := []string{"session_status", "sql_query", "resolve_program", "find_program_source"}; !reflect.DeepEqual(tools, want) {
 		t.Fatalf("Companion tools = %v, want %v", tools, want)
 	}
 }

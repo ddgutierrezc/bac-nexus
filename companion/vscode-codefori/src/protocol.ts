@@ -2,9 +2,10 @@ import { CANONICAL_PROOF_QUERY } from "./query.js";
 
 export const PROTOCOL_VERSION = 1;
 export const MAX_REQUEST_BYTES = 512;
-export const MAX_RESPONSE_BYTES = 1024;
+// Metadata responses are bounded independently from any future source-content API.
+export const MAX_RESPONSE_BYTES = 4096;
 
-export type BrokerMethod = "session.status" | "sql.query";
+export type BrokerMethod = "session.status" | "sql.query" | "program_inspection.v1.resolve" | "program_inspection.v1.find_source";
 export type QueryState =
   | "ok"
   | "unavailable"
@@ -21,7 +22,9 @@ export type SessionState =
 
 export type BrokerResult =
   | { state: QueryState; rows?: Array<{ value: string }> }
-  | { state: SessionState };
+  | { state: SessionState }
+  | ResolveProgramResult
+  | FindProgramSourceResult;
 
 type ValidQueryResult =
   | { state: "ok"; rows: [{ value: string }] }
@@ -31,7 +34,7 @@ export interface RpcRequest {
   version: typeof PROTOCOL_VERSION;
   requestID: string;
   method: BrokerMethod;
-  params: Record<string, never> | { sql: string };
+  params: Record<string, never> | { sql: string } | { name: string; library?: string } | { library: string; name: string; objectType: "*PGM" };
 }
 
 const encoder = new TextEncoder();
@@ -70,7 +73,7 @@ export function decodeRequest(body: Uint8Array): RpcRequest | null {
   if (
     value.version !== PROTOCOL_VERSION ||
     !isBoundedASCIIString(value.request_id) ||
-    (value.method !== "session.status" && value.method !== "sql.query")
+    (value.method !== "session.status" && value.method !== "sql.query" && value.method !== "program_inspection.v1.resolve" && value.method !== "program_inspection.v1.find_source")
   ) {
     return null;
   }
@@ -85,6 +88,15 @@ export function decodeRequest(body: Uint8Array): RpcRequest | null {
       method: value.method,
       params: {},
     };
+  }
+
+  if (value.method === "program_inspection.v1.resolve") {
+    if (!isRecord(value.params) || !hasExactKeys(value.params, ["name"]) && !hasExactKeys(value.params, ["name", "library"]) || typeof value.params.name !== "string" || ("library" in value.params && typeof value.params.library !== "string")) return null;
+    return value as unknown as RpcRequest;
+  }
+  if (value.method === "program_inspection.v1.find_source") {
+    if (!isRecord(value.params) || !hasExactKeys(value.params, ["library", "name", "objectType"]) || typeof value.params.library !== "string" || typeof value.params.name !== "string" || value.params.objectType !== "*PGM") return null;
+    return value as unknown as RpcRequest;
   }
 
   if (!hasExactKeys(value.params, ["sql"]) || typeof value.params.sql !== "string") {
@@ -118,6 +130,7 @@ function sanitizeResult(method: BrokerMethod, result: BrokerResult): BrokerResul
   if (method === "session.status") {
     return isSessionResult(result) ? { state: result.state } : { state: "companion_unavailable" };
   }
+  if (method !== "sql.query") return result;
   if (!isQueryResult(result)) {
     return { state: "failed" };
   }
@@ -307,3 +320,4 @@ class JSONCursor {
 }
 
 export { CANONICAL_PROOF_QUERY };
+import type { FindProgramSourceResult, ResolveProgramResult } from "./programInspection.js";

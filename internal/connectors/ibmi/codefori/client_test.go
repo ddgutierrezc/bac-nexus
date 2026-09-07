@@ -56,7 +56,7 @@ func TestClientPostsUnauthenticatedFixedLoopbackRequest(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if decoded.Method != methodSQLQuery || decoded.Params.SQL != provider.CanonicalProofQuery {
+		if decoded.Method != methodSQLQuery || decoded.Params["sql"] != provider.CanonicalProofQuery {
 			t.Fatalf("request = %#v, want canonical sql.query", decoded)
 		}
 		if strings.Contains(string(body), "bearer") || strings.Contains(string(body), "token") || strings.Contains(string(body), "generation") {
@@ -187,7 +187,7 @@ func TestClientStatusUsesFixedMethodAndOneSecondDeadline(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if decoded.Method != methodStatus || decoded.Params.SQL != "" {
+		if decoded.Method != methodStatus || decoded.Params["sql"] != "" {
 			t.Fatalf("status request = %#v, want session.status with empty params", decoded)
 		}
 		body := `{"version":1,"request_id":"` + decoded.RequestID + `","result":{"state":"connected"}}`

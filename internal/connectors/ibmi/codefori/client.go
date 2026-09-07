@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"bac-nexus/internal/inspection"
 	"bac-nexus/internal/provider"
 )
 
@@ -23,6 +24,7 @@ type Client struct {
 }
 
 var _ provider.Provider = (*Client)(nil)
+var _ inspection.Provider = (*Client)(nil)
 
 // NewClient constructs the fixed unauthenticated loopback provider.
 func NewClient() *Client {
@@ -36,7 +38,7 @@ func NewClient() *Client {
 func (client *Client) SessionStatus(ctx context.Context) provider.SessionStatusResult {
 	ctx, cancel := context.WithTimeout(ctx, statusTimeout)
 	defer cancel()
-	envelope, state := client.post(ctx, methodStatus, "")
+	envelope, state := client.post(ctx, methodStatus, nil)
 	if state != provider.QueryOK {
 		return provider.SessionStatusResult{State: provider.SessionCompanionUnavailable}
 	}
@@ -57,7 +59,7 @@ func (client *Client) Query(ctx context.Context, request provider.QueryRequest) 
 	}
 	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
-	envelope, state := client.post(ctx, methodSQLQuery, canonical)
+	envelope, state := client.post(ctx, methodSQLQuery, map[string]string{"sql": canonical})
 	if state != provider.QueryOK {
 		return provider.QueryResult{State: state}
 	}
@@ -68,13 +70,50 @@ func (client *Client) Query(ctx context.Context, request provider.QueryRequest) 
 	return result
 }
 
-func (client *Client) post(ctx context.Context, method, sql string) (rpcEnvelope, provider.QueryState) {
+func (client *Client) ResolveProgram(ctx context.Context, request inspection.ResolveRequest) inspection.ResolveResult {
+	if ctx.Err() != nil {
+		return inspection.ResolveResult{State: inspection.StateUnavailable, Completeness: "complete"}
+	}
+	params := map[string]string{"name": request.Name}
+	if request.Library != "" {
+		params["library"] = request.Library
+	}
+	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
+	defer cancel()
+	envelope, state := client.post(ctx, methodResolveProgram, params)
+	if state != provider.QueryOK {
+		return inspection.ResolveResult{State: inspection.StateUnavailable, Completeness: "complete", Reason: "companion_unavailable"}
+	}
+	result, err := decodeResolveProgramResult(envelope.Result)
+	if err != nil {
+		return inspection.ResolveResult{State: inspection.StateUnavailable, Completeness: "complete", Reason: "invalid_companion_response"}
+	}
+	return result
+}
+
+func (client *Client) FindProgramSource(ctx context.Context, program inspection.ResolvedProgram) inspection.SourceResult {
+	if ctx.Err() != nil {
+		return inspection.SourceResult{State: inspection.StateUnavailable, Certainty: "unavailable", Completeness: "complete"}
+	}
+	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
+	defer cancel()
+	envelope, state := client.post(ctx, methodFindProgramSource, map[string]string{"library": program.Library, "name": program.Name, "objectType": program.ObjectType})
+	if state != provider.QueryOK {
+		return inspection.SourceResult{State: inspection.StateUnavailable, Reason: "companion_unavailable", Certainty: "unavailable", Completeness: "complete"}
+	}
+	result, err := decodeSourceResult(envelope.Result)
+	if err != nil {
+		return inspection.SourceResult{State: inspection.StateUnavailable, Reason: "invalid_companion_response", Certainty: "unavailable", Completeness: "complete"}
+	}
+	return result
+}
+
+func (client *Client) post(ctx context.Context, method string, params map[string]string) (rpcEnvelope, provider.QueryState) {
 	requestID, err := newRequestID()
 	if err != nil {
 		return rpcEnvelope{}, provider.QueryFailed
 	}
-	request := rpcRequest{Version: protocolVersion, RequestID: requestID, Method: method}
-	request.Params.SQL = sql
+	request := rpcRequest{Version: protocolVersion, RequestID: requestID, Method: method, Params: params}
 	body, err := encodeRequest(request)
 	if err != nil {
 		return rpcEnvelope{}, provider.QueryFailed
