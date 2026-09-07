@@ -111,6 +111,13 @@ jobs:
           fi
           printf 'path=%s\n' "${vsix_files[0]}" >> "$GITHUB_OUTPUT"
 
+      - name: Verify packaged Companion runtime import closure
+        if: startsWith(github.ref, 'refs/tags/companion-v')
+        working-directory: companion/vscode-codefori
+        env:
+          VSIX_PATH: ${{ steps.packaged-vsix.outputs.path }}
+        run: npm run verify:vsix-runtime -- "$VSIX_PATH"
+
       - name: Publish Companion pre-release VSIX
         if: startsWith(github.ref, 'refs/tags/companion-v')
         working-directory: companion/vscode-codefori

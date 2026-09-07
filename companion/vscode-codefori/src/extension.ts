@@ -6,7 +6,7 @@ import { createDiagnosticsUI, DIAGNOSTICS_COMMAND, type OutputChannel, type Stat
 import { createHTTPServer } from "./httpServer.js";
 
 const CODE_FOR_I_EXTENSION_ID = "halcyontechltd.code-for-ibmi";
-const COMPANION_VERSION = "0.2.0";
+const COMPANION_VERSION = "0.2.1";
 type ServerFactory = (handler: (request: BrokerRequest) => Promise<BrokerResponse>) => FixedLoopbackServer;
 
 interface Extension<T> {

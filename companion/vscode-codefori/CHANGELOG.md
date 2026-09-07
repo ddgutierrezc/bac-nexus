@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 - Pre-release
+
+- Include the complete emitted runtime import closure in packaged VSIX files.
+
 ## 0.2.0 - Pre-release
 
 - Add `resolve_program` and metadata-only `find_program_source` for bounded IBM i program inspection.

@@ -9,5 +9,6 @@
 !dist/diagnostics.js
 !dist/extension.js
 !dist/httpServer.js
+!dist/programInspection.js
 !dist/protocol.js
 !dist/query.js
