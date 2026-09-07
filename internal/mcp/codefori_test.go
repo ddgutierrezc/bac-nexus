@@ -34,7 +34,7 @@ func TestCodeForIServerRegistersExactlyCompanionTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCodeForI() error = %v", err)
 	}
-	want := []string{"session.status", "sql.query"}
+	want := []string{"session_status", "sql_query"}
 	if got := server.ToolNames(); !slices.Equal(got, want) {
 		t.Fatalf("ToolNames() = %v, want %v", got, want)
 	}
@@ -48,24 +48,24 @@ func TestCodeForIServerReturnsUnavailableWithoutNativeFallback(t *testing.T) {
 	session, closeSession := connectInMemoryCodeForI(t, CodeForIConfig{Provider: source})
 	defer closeSession()
 
-	statusResult := callCodeForITool(t, session, "session.status", map[string]any{})
+	statusResult := callCodeForITool(t, session, "session_status", map[string]any{})
 	if statusResult.IsError {
-		t.Fatalf("session.status returned MCP error: %#v", statusResult)
+		t.Fatalf("session_status returned MCP error: %#v", statusResult)
 	}
 	var status CodeForISessionStatusOutput
 	decodeCodeForIStructured(t, statusResult, &status)
 	if status.State != provider.SessionCompanionUnavailable {
-		t.Fatalf("session.status state = %q, want %q", status.State, provider.SessionCompanionUnavailable)
+		t.Fatalf("session_status state = %q, want %q", status.State, provider.SessionCompanionUnavailable)
 	}
 
-	queryResult := callCodeForITool(t, session, "sql.query", map[string]any{"sql": provider.CanonicalProofQuery})
+	queryResult := callCodeForITool(t, session, "sql_query", map[string]any{"sql": provider.CanonicalProofQuery})
 	if queryResult.IsError {
-		t.Fatalf("sql.query returned MCP error: %#v", queryResult)
+		t.Fatalf("sql_query returned MCP error: %#v", queryResult)
 	}
 	var query CodeForIQueryOutput
 	decodeCodeForIStructured(t, queryResult, &query)
 	if query.State != provider.QueryUnavailable || len(query.Rows) != 0 {
-		t.Fatalf("sql.query = %#v, want unavailable without rows", query)
+		t.Fatalf("sql_query = %#v, want unavailable without rows", query)
 	}
 	if source.statusCalls != 1 || source.queryCalls != 1 {
 		t.Fatalf("Companion provider calls = status %d, query %d; want one each", source.statusCalls, source.queryCalls)
@@ -80,14 +80,14 @@ func TestCodeForIServerPreservesCanonicalQueryBoundary(t *testing.T) {
 	session, closeSession := connectInMemoryCodeForI(t, CodeForIConfig{Provider: source})
 	defer closeSession()
 
-	result := callCodeForITool(t, session, "sql.query", map[string]any{"sql": "\tselect CURRENT_USER\r\nfrom sysibm.sysdummy1 "})
+	result := callCodeForITool(t, session, "sql_query", map[string]any{"sql": "\tselect CURRENT_USER\r\nfrom sysibm.sysdummy1 "})
 	if result.IsError {
-		t.Fatalf("sql.query returned MCP error: %#v", result)
+		t.Fatalf("sql_query returned MCP error: %#v", result)
 	}
 	var output CodeForIQueryOutput
 	decodeCodeForIStructured(t, result, &output)
 	if output.State != provider.QueryOK || len(output.Rows) != 1 || output.Rows[0].Value != "NEXUSUSR" {
-		t.Fatalf("sql.query output = %#v, want normalized success", output)
+		t.Fatalf("sql_query output = %#v, want normalized success", output)
 	}
 	if source.queryCalls != 1 {
 		t.Fatalf("Companion provider query calls = %d, want 1", source.queryCalls)
@@ -98,9 +98,9 @@ func TestCodeForIServerRejectsNonEmptyStatusInput(t *testing.T) {
 	session, closeSession := connectInMemoryCodeForI(t, CodeForIConfig{Provider: &companionProviderStub{}})
 	defer closeSession()
 
-	_, err := session.CallTool(context.Background(), &sdk.CallToolParams{Name: "session.status", Arguments: map[string]any{"unexpected": true}})
+	_, err := session.CallTool(context.Background(), &sdk.CallToolParams{Name: "session_status", Arguments: map[string]any{"unexpected": true}})
 	if err == nil {
-		t.Fatal("session.status accepted non-empty input")
+		t.Fatal("session_status accepted non-empty input")
 	}
 }
 

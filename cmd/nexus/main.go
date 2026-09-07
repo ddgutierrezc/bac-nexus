@@ -761,7 +761,7 @@ func printServeHelp(out io.Writer) error {
 	fmt.Fprintln(out, "flags:")
 	fmt.Fprintln(out, "  -profile string   Approved Nexus profile name. Selects Native mode.")
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "without -profile, Companion tools: session.status and sql.query")
+	fmt.Fprintln(out, "without -profile, Companion tools: session_status and sql_query")
 	fmt.Fprintln(out, "with -profile, Native tools: resolve_catalog_candidates and read_selected_source")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "Only the selected mode's two tools are exposed. No generic surface or fallback is offered.")

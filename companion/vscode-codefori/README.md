@@ -26,7 +26,7 @@ The bridge listens only on `127.0.0.1:64139` without authentication. Any process
 
 The bridge supports only:
 
-- `session.status` to report whether Code for IBM i is available and connected.
+- `session_status` to report whether Code for IBM i is available and connected.
 - One canonical proof query with a single bounded result.
 
 It does not provide arbitrary SQL, commands, source access, credential access, remote listening, or fallback transport.
@@ -37,6 +37,7 @@ This preview was verified with offline checks. Live Extension Development Host v
 
 ## Troubleshooting
 
+- Select the Nexus Companion status bar item or run `Nexus Companion: Show Diagnostics` to open a sanitized diagnostic snapshot.
 - Confirm Code for IBM i is installed, enabled, and connected.
 - Confirm no other process is using `127.0.0.1:64139`.
 - Restart VS Code after installing or updating either extension.

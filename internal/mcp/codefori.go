@@ -66,10 +66,10 @@ func NewCodeForI(cfg CodeForIConfig) (*CodeForIServer, error) {
 		provider:  cfg.Provider,
 		transport: cfg.Transport,
 		impl:      sdk.NewServer(&sdk.Implementation{Name: cfg.Info.Name, Version: cfg.Info.Version}, nil),
-		toolNames: []string{"session.status", "sql.query"},
+		toolNames: []string{"session_status", "sql_query"},
 	}
-	sdk.AddTool(server.impl, &sdk.Tool{Name: "session.status", Description: "Return the bounded Companion session state."}, server.sessionStatus)
-	sdk.AddTool(server.impl, &sdk.Tool{Name: "sql.query", Description: "Run the one bounded Companion proof query."}, server.query)
+	sdk.AddTool(server.impl, &sdk.Tool{Name: "session_status", Description: "Return the bounded Companion session state."}, server.sessionStatus)
+	sdk.AddTool(server.impl, &sdk.Tool{Name: "sql_query", Description: "Run the one bounded Companion proof query."}, server.query)
 	return server, nil
 }
 

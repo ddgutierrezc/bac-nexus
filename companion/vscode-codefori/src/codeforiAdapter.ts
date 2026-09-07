@@ -23,9 +23,17 @@ export type QueryResult =
   | { state: Exclude<QueryState, "ok"> };
 export type SessionStatusResult = { state: SessionState };
 
+export interface AdapterDiagnosticSnapshot {
+  readonly instance: "available" | "unavailable";
+  readonly subscriptions: "registered" | "unavailable";
+  readonly getConnection: "available" | "unavailable" | "threw";
+}
+
 export interface CodeForIAdapter {
   sessionStatus(): SessionStatusResult;
   query(sql: string): Promise<QueryResult>;
+  diagnostics(): AdapterDiagnosticSnapshot;
+  onSessionChange(callback: () => void): () => void;
   deactivate(): void;
 }
 
@@ -37,20 +45,45 @@ export function createCodeForIAdapter(
   let active = true;
   let connectionAvailable = instance !== undefined;
   let connectionGeneration = 0;
+  let subscriptionsRegistered = false;
+  let getConnection: AdapterDiagnosticSnapshot["getConnection"] = "unavailable";
+  const listeners = new Set<() => void>();
+
+  const refreshConnection = (): boolean => {
+    if (!instance) {
+      getConnection = "unavailable";
+      return false;
+    }
+    try {
+      const connection = instance.getConnection();
+      getConnection = connection === undefined ? "unavailable" : "available";
+      return connection !== undefined;
+    } catch {
+      getConnection = "threw";
+      return false;
+    }
+  };
+  const notify = (): void => { for (const listener of listeners) listener(); };
 
   if (instance) {
     try {
       instance.subscribe(context, "connected", "BAC Nexus Companion connected", () => {
-        connectionAvailable = true;
+        connectionAvailable = refreshConnection();
         connectionGeneration += 1;
+        notify();
       });
       instance.subscribe(context, "disconnected", "BAC Nexus Companion disconnected", () => {
         connectionAvailable = false;
+        getConnection = "unavailable";
         connectionGeneration += 1;
+        notify();
       });
-      connectionAvailable = isConnectionAvailable(instance);
+      subscriptionsRegistered = true;
+      connectionAvailable = refreshConnection();
     } catch {
       connectionAvailable = false;
+      subscriptionsRegistered = false;
+      getConnection = "threw";
     }
   }
 
@@ -59,7 +92,8 @@ export function createCodeForIAdapter(
       if (!active || !instance) {
         return { state: "codefori_extension_unavailable" };
       }
-      return connectionAvailable && isConnectionAvailable(instance)
+      connectionAvailable = refreshConnection();
+      return connectionAvailable
         ? { state: "connected" }
         : { state: "connection_unavailable" };
     },
@@ -68,7 +102,11 @@ export function createCodeForIAdapter(
       if (!canonicalSQL) {
         return { state: "invalid_query" };
       }
-      if (!active || !instance || !connectionAvailable) {
+      if (!active || !instance) {
+        return { state: "unavailable" };
+      }
+      connectionAvailable = refreshConnection();
+      if (!connectionAvailable) {
         return { state: "unavailable" };
       }
 
@@ -91,20 +129,27 @@ export function createCodeForIAdapter(
         return { state: "failed" };
       }
     },
+    diagnostics(): AdapterDiagnosticSnapshot {
+      if (active && instance) {
+        connectionAvailable = refreshConnection();
+      }
+      return Object.freeze({
+        instance: active && instance ? "available" : "unavailable",
+        subscriptions: active && subscriptionsRegistered ? "registered" : "unavailable",
+        getConnection: active ? getConnection : "unavailable",
+      });
+    },
+    onSessionChange(callback: () => void): () => void {
+      listeners.add(callback);
+      return () => listeners.delete(callback);
+    },
     deactivate(): void {
       active = false;
       connectionAvailable = false;
       instance = undefined;
+      listeners.clear();
     },
   };
-}
-
-function isConnectionAvailable(instance: CodeForIInstance): boolean {
-  try {
-    return instance.getConnection() !== undefined;
-  } catch {
-    return false;
-  }
 }
 
 function normalizeRows(rows: unknown): QueryResult {
