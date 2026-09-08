@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2 - Pre-release
+
+- Add privacy-safe SQL capability and program-resolution failure-stage diagnostics. (#183)
+
 ## 0.2.1 - Pre-release
 
 - Include the complete emitted runtime import closure in packaged VSIX files.
