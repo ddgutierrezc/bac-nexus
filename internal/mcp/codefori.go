@@ -114,7 +114,22 @@ func (s *CodeForIServer) resolveProgram(ctx context.Context, _ *sdk.CallToolRequ
 			output = ResolveProgramOutput{ResolveResult: inspection.ResolveResult{State: inspection.StateUnavailable, Completeness: "complete", Reason: reason}}
 		}
 	}
-	return nil, output, nil
+	return nil, normalizeResolveProgramOutput(output), nil
+}
+
+// normalizeResolveProgramOutput satisfies the public MCP schema at the
+// serialization boundary without changing inspection-provider semantics.
+func normalizeResolveProgramOutput(output ResolveProgramOutput) ResolveProgramOutput {
+	if output.LibrariesSearched == nil {
+		output.LibrariesSearched = []string{}
+	}
+	if output.Matches == nil {
+		output.Matches = []inspection.ResolvedProgram{}
+	}
+	if output.RequiredDecision != nil && output.RequiredDecision.Options == nil {
+		output.RequiredDecision.Options = []inspection.ResolvedProgram{}
+	}
+	return output
 }
 
 func (s *CodeForIServer) findProgramSource(ctx context.Context, _ *sdk.CallToolRequest, input FindProgramSourceInput) (*sdk.CallToolResult, FindProgramSourceOutput, error) {

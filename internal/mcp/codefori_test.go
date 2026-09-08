@@ -9,6 +9,7 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"bac-nexus/internal/inspection"
 	"bac-nexus/internal/provider"
 )
 
@@ -27,6 +28,16 @@ func (s *companionProviderStub) SessionStatus(context.Context) provider.SessionS
 func (s *companionProviderStub) Query(context.Context, provider.QueryRequest) provider.QueryResult {
 	s.queryCalls++
 	return s.query
+}
+
+type companionInspectorStub struct{ resolve inspection.ResolveResult }
+
+func (s companionInspectorStub) ResolveProgram(context.Context, inspection.ResolveRequest) inspection.ResolveResult {
+	return s.resolve
+}
+
+func (companionInspectorStub) FindProgramSource(context.Context, inspection.ResolvedProgram) inspection.SourceResult {
+	return inspection.SourceResult{}
 }
 
 func TestCodeForIServerRegistersExactlyCompanionTools(t *testing.T) {
@@ -104,6 +115,102 @@ func TestCodeForIServerRejectsNonEmptyStatusInput(t *testing.T) {
 	}
 }
 
+func TestCodeForIServerResolveProgramSerializesRequiredCollections(t *testing.T) {
+	match := inspection.ResolvedProgram{Library: "PRODLIB", Name: "PISA061", ObjectType: "*PGM", MatchPosition: 1}
+	tests := []struct {
+		name               string
+		inspector          inspection.Provider
+		wantState          inspection.State
+		wantMatches        int
+		wantSelection      bool
+		wantDecision       bool
+		wantEmptyLibraries bool
+		wantEmptyMatches   bool
+	}{
+		{
+			name:               "unavailable fallback uses empty arrays",
+			wantState:          inspection.StateUnavailable,
+			wantEmptyLibraries: true,
+			wantEmptyMatches:   true,
+		},
+		{
+			name: "not found uses empty arrays",
+			inspector: companionInspectorStub{resolve: inspection.ResolveResult{
+				State: inspection.StateNotFound,
+			}},
+			wantState:          inspection.StateNotFound,
+			wantEmptyLibraries: true,
+			wantEmptyMatches:   true,
+		},
+		{
+			name: "resolved preserves one match and issues an opaque selection",
+			inspector: companionInspectorStub{resolve: inspection.ResolveResult{
+				State:             inspection.StateResolved,
+				LibrariesSearched: []string{"PRODLIB"},
+				Matches:           []inspection.ResolvedProgram{match},
+			}},
+			wantState:     inspection.StateResolved,
+			wantMatches:   1,
+			wantSelection: true,
+		},
+		{
+			name: "ambiguous preserves decision options as arrays",
+			inspector: companionInspectorStub{resolve: inspection.ResolveResult{
+				State:             inspection.StateAmbiguous,
+				LibrariesSearched: []string{"PRODLIB", "TESTLIB"},
+				Matches: []inspection.ResolvedProgram{
+					match,
+					{Library: "TESTLIB", Name: "PISA061", ObjectType: "*PGM", MatchPosition: 2},
+				},
+			}},
+			wantState:    inspection.StateAmbiguous,
+			wantMatches:  2,
+			wantDecision: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			session, closeSession := connectInMemoryCodeForI(t, CodeForIConfig{Inspector: tt.inspector})
+			defer closeSession()
+
+			result := callCodeForITool(t, session, "resolve_program", ResolveProgramInput{Name: "PISA061"})
+			if result.IsError {
+				t.Fatalf("resolve_program failed MCP output schema validation: %#v", result)
+			}
+			output := structuredCodeForIJSON(t, result)
+			if got := string(output["state"]); got != `"`+string(tt.wantState)+`"` {
+				t.Fatalf("state JSON = %s, want %q", got, tt.wantState)
+			}
+			assertCodeForIJSONArray(t, output, "librariesSearched", tt.wantEmptyLibraries)
+			assertCodeForIJSONArray(t, output, "matches", tt.wantEmptyMatches)
+			if got := jsonArrayLength(t, output["matches"]); got != tt.wantMatches {
+				t.Fatalf("matches JSON length = %d, want %d", got, tt.wantMatches)
+			}
+			selection, hasSelection := output["selection"]
+			if hasSelection != tt.wantSelection {
+				t.Fatalf("selection present = %t, want %t", hasSelection, tt.wantSelection)
+			}
+			if tt.wantSelection && string(selection) == `""` {
+				t.Fatal("selection JSON is empty, want an opaque selection")
+			}
+			decision, hasDecision := output["decision"]
+			if hasDecision != tt.wantDecision {
+				t.Fatalf("decision present = %t, want %t", hasDecision, tt.wantDecision)
+			}
+			if tt.wantDecision {
+				var decoded map[string]json.RawMessage
+				if err := json.Unmarshal(decision, &decoded); err != nil {
+					t.Fatalf("unmarshal decision JSON: %v", err)
+				}
+				assertCodeForIJSONArray(t, decoded, "options", false)
+				if got := jsonArrayLength(t, decoded["options"]); got != tt.wantMatches {
+					t.Fatalf("decision options JSON length = %d, want %d", got, tt.wantMatches)
+				}
+			}
+		})
+	}
+}
+
 func connectInMemoryCodeForI(t *testing.T, cfg CodeForIConfig) (*sdk.ClientSession, func()) {
 	t.Helper()
 	serverTransport, clientTransport := sdk.NewInMemoryTransports()
@@ -151,4 +258,40 @@ func decodeCodeForIStructured(t *testing.T, result *sdk.CallToolResult, target a
 	if err := json.Unmarshal(encoded, target); err != nil {
 		t.Fatalf("unmarshal structured output error = %v", err)
 	}
+}
+
+func structuredCodeForIJSON(t *testing.T, result *sdk.CallToolResult) map[string]json.RawMessage {
+	t.Helper()
+	encoded, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatalf("marshal structured output error = %v", err)
+	}
+	var output map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &output); err != nil {
+		t.Fatalf("unmarshal structured output JSON error = %v", err)
+	}
+	return output
+}
+
+func assertCodeForIJSONArray(t *testing.T, output map[string]json.RawMessage, name string, wantEmpty bool) {
+	t.Helper()
+	raw, ok := output[name]
+	if !ok {
+		t.Fatalf("structured JSON does not contain %q", name)
+	}
+	if wantEmpty && string(raw) != "[]" {
+		t.Fatalf("%s JSON = %s, want []", name, raw)
+	}
+	if len(raw) == 0 || raw[0] != '[' {
+		t.Fatalf("%s JSON = %s, want an array", name, raw)
+	}
+}
+
+func jsonArrayLength(t *testing.T, raw json.RawMessage) int {
+	t.Helper()
+	var values []json.RawMessage
+	if err := json.Unmarshal(raw, &values); err != nil {
+		t.Fatalf("unmarshal array JSON %s: %v", raw, err)
+	}
+	return len(values)
 }
