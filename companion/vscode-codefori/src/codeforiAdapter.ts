@@ -37,7 +37,14 @@ export interface AdapterDiagnosticSnapshot {
 
 export interface OperationFailureDiagnostic {
   readonly operation: "program.resolve";
-  readonly stage: "get_object_list" | "resolve" | "handler";
+  readonly stage:
+    | "preflight_connection_unavailable"
+    | "preflight_connection_threw"
+    | "preflight_inspection_api_unavailable"
+    | "preflight_accessor_failed"
+    | "get_object_list"
+    | "resolve"
+    | "handler";
 }
 
 export interface CodeForIAdapter {
@@ -204,13 +211,58 @@ export function createCodeForIAdapter(
   };
 
   function getProgramInspection(): { inspection: ProgramInspection; generation: number } | undefined {
-    if (!active || !refreshConnection()) return undefined;
+    if (!active || !instance) {
+      recordPreflightFailure("preflight_connection_unavailable");
+      return undefined;
+    }
+
+    let connection: CodeForIConnection | undefined;
     try {
-      const connection = instance?.getConnection();
-      if (!connection) return undefined;
-      if (!connection.getConfig || !connection.getContent) return undefined;
-      return { generation: connectionGeneration, inspection: createProgramInspection({ getConfig: () => connection.getConfig!(), getObjectList: (filters) => connection.getContent!().getObjectList(filters) }) };
-    } catch { return undefined; }
+      connection = instance.getConnection();
+    } catch {
+      connectionAvailable = false;
+      getConnection = "threw";
+      sqlCapability = "unknown";
+      recordPreflightFailure("preflight_connection_threw");
+      return undefined;
+    }
+    if (!connection) {
+      connectionAvailable = false;
+      getConnection = "unavailable";
+      sqlCapability = "unknown";
+      recordPreflightFailure("preflight_connection_unavailable");
+      return undefined;
+    }
+
+    connectionAvailable = true;
+    getConnection = "available";
+    sqlCapability = classifySQLCapability(connection);
+
+    let getConfig: CodeForIConnection["getConfig"];
+    let getContent: CodeForIConnection["getContent"];
+    try {
+      getConfig = connection.getConfig;
+      getContent = connection.getContent;
+    } catch {
+      recordPreflightFailure("preflight_accessor_failed");
+      return undefined;
+    }
+    if (!getConfig || !getContent) {
+      recordPreflightFailure("preflight_inspection_api_unavailable");
+      return undefined;
+    }
+
+    return {
+      generation: connectionGeneration,
+      inspection: createProgramInspection({
+        getConfig: () => getConfig.call(connection),
+        getObjectList: (filters) => getContent.call(connection).getObjectList(filters),
+      }),
+    };
+  }
+
+  function recordPreflightFailure(stage: Extract<OperationFailureDiagnostic["stage"], `preflight_${string}`>): void {
+    operationFailure = { operation: "program.resolve", stage };
   }
 
   function validGeneration(generation: number): boolean { return active && connectionAvailable && connectionGeneration === generation; }
