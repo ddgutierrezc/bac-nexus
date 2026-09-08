@@ -1,6 +1,6 @@
 {
   "name": "nexus-codefori-companion",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "publisher": "ddgutierrezc",
   "displayName": "Nexus Code for IBM i Companion (Preview)",
   "description": "Unofficial personal preview for bounded local Code for IBM i session and program metadata inspection.",

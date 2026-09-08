@@ -91,12 +91,33 @@ export function decodeRequest(body: Uint8Array): RpcRequest | null {
   }
 
   if (value.method === "program_inspection.v1.resolve") {
-    if (!isRecord(value.params) || !hasExactKeys(value.params, ["name"]) && !hasExactKeys(value.params, ["name", "library"]) || typeof value.params.name !== "string" || ("library" in value.params && typeof value.params.library !== "string")) return null;
-    return value as unknown as RpcRequest;
+    if (!isRecord(value.params) || !hasExactKeys(value.params, ["name"]) && !hasExactKeys(value.params, ["name", "library"]) || typeof value.params.name !== "string") return null;
+    if ("library" in value.params) {
+      if (typeof value.params.library !== "string") return null;
+      return {
+        version: PROTOCOL_VERSION,
+        requestID: value.request_id,
+        method: value.method,
+        params: { name: value.params.name, library: value.params.library },
+      };
+    }
+    return {
+      version: PROTOCOL_VERSION,
+      requestID: value.request_id,
+      method: value.method,
+      params: { name: value.params.name },
+    };
   }
   if (value.method === "program_inspection.v1.find_source") {
-    if (!isRecord(value.params) || !hasExactKeys(value.params, ["library", "name", "objectType"]) || typeof value.params.library !== "string" || typeof value.params.name !== "string" || value.params.objectType !== "*PGM") return null;
-    return value as unknown as RpcRequest;
+    if (!isRecord(value.params) || !hasExactKeys(value.params, ["library", "name", "objectType"])) return null;
+    const { library, name, objectType } = value.params;
+    if (typeof library !== "string" || typeof name !== "string" || objectType !== "*PGM") return null;
+    return {
+      version: PROTOCOL_VERSION,
+      requestID: value.request_id,
+      method: value.method,
+      params: { library, name, objectType },
+    };
   }
 
   if (!hasExactKeys(value.params, ["sql"]) || typeof value.params.sql !== "string") {

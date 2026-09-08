@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"bac-nexus/internal/inspection"
 	"bac-nexus/internal/provider"
 )
 
@@ -128,6 +129,53 @@ func TestClientRejectsMismatchedAndOversizedResponsesWithoutRetry(t *testing.T) 
 			}
 			if calls != 1 {
 				t.Fatalf("HTTP calls = %d, want exactly one", calls)
+			}
+		})
+	}
+}
+
+func TestClientAcceptsCorrelatedCompanionProgramResponseAndRejectsUncorrelatedResponse(t *testing.T) {
+	tests := []struct {
+		name          string
+		omitRequestID bool
+		want          inspection.State
+	}{
+		{
+			name: "correlated Companion response",
+			want: inspection.StateNotFound,
+		},
+		{
+			name:          "Companion response missing request ID",
+			omitRequestID: true,
+			want:          inspection.StateUnavailable,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := NewClient()
+			client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				decoded, err := decodeRequest(mustReadAll(t, request.Body))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if decoded.Method != methodResolveProgram {
+					t.Fatalf("method = %q, want %q", decoded.Method, methodResolveProgram)
+				}
+				result := `{"state":"not_found","searchStrategy":"code_for_i_configured_context","librariesSearched":[],"matches":[],"completeness":"complete","truncated":false,"runtimeLiblVerified":false}`
+				body := `{"version":1,"request_id":"` + decoded.RequestID + `","result":` + result + `}`
+				if tt.omitRequestID {
+					body = `{"version":1,"result":` + result + `}`
+				}
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
+			})}
+
+			result := client.ResolveProgram(context.Background(), inspection.ResolveRequest{Name: "PISA061"})
+			if result.State != tt.want {
+				t.Fatalf("ResolveProgram() = %#v, want state %q", result, tt.want)
+			}
+			if tt.want == inspection.StateUnavailable && result.Reason != "companion_unavailable" {
+				t.Fatalf("ResolveProgram() = %#v, want companion_unavailable", result)
 			}
 		})
 	}

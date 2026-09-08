@@ -25,6 +25,23 @@ describe("Companion protocol", () => {
     });
   });
 
+  it.each([
+    [
+      '{"version":1,"request_id":"resolve-without-library","method":"program_inspection.v1.resolve","params":{"name":"PISA061"}}',
+      { version: PROTOCOL_VERSION, requestID: "resolve-without-library", method: "program_inspection.v1.resolve", params: { name: "PISA061" } },
+    ],
+    [
+      '{"version":1,"request_id":"resolve-with-library","method":"program_inspection.v1.resolve","params":{"name":"PISA061","library":"LIBA"}}',
+      { version: PROTOCOL_VERSION, requestID: "resolve-with-library", method: "program_inspection.v1.resolve", params: { name: "PISA061", library: "LIBA" } },
+    ],
+    [
+      '{"version":1,"request_id":"find-source","method":"program_inspection.v1.find_source","params":{"library":"LIBA","name":"PISA061","objectType":"*PGM"}}',
+      { version: PROTOCOL_VERSION, requestID: "find-source", method: "program_inspection.v1.find_source", params: { library: "LIBA", name: "PISA061", objectType: "*PGM" } },
+    ],
+  ])("normalizes program request correlation", (body, expected) => {
+    expect(decodeRequest(encoder.encode(body))).toEqual(expected);
+  });
+
   it("encodes a correlated normalized success result", () => {
     const body = encodeResponse(
       {
