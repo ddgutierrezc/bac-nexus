@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3 - Pre-release
+
+- Bind one Code for IBM i connection snapshot for each program-inspection attempt and report bounded preflight diagnostics. (#185)
+
 ## 0.2.2 - Pre-release
 
 - Add privacy-safe SQL capability and program-resolution failure-stage diagnostics. (#183)

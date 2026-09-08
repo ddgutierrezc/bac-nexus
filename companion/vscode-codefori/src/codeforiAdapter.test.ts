@@ -134,6 +134,71 @@ describe("Code for IBM i public adapter", () => {
     }
   });
 
+  it("binds one connection snapshot for each program resolution", async () => {
+    let connections = 0;
+    const connection: CodeForIConnection = {
+      runSQL: async () => [],
+      enableSQL: true,
+      getConfig: () => ({ currentLibrary: "LIBA", libraryList: [] }),
+      getContent: () => ({ getObjectList: async () => [{ library: "LIBA", name: "PISA061", type: "*PGM", text: "" }] }),
+    };
+    const adapter = createCodeForIAdapter({ instance: {
+      getConnection: () => { connections += 1; return connection; },
+      subscribe: () => undefined,
+    } }, {});
+    connections = 0;
+
+    await expect(adapter.resolveProgram({ name: "PISA061" })).resolves.toMatchObject({ state: "resolved" });
+
+    expect(connections).toBe(1);
+    expect(adapter.diagnostics().sqlCapability).toBe("available");
+  });
+
+  const preflightCases: ReadonlyArray<readonly [string, () => CodeForIConnection | undefined, string]> = [
+    ["an absent connection", () => undefined, "preflight_connection_unavailable"],
+    ["a throwing connection", () => { throw new Error("host.example QUSER secret PISA061"); }, "preflight_connection_threw"],
+    ["a missing inspection API", () => ({ runSQL: async () => [] }), "preflight_inspection_api_unavailable"],
+    ["a throwing inspection API accessor", () => {
+      const connection: CodeForIConnection = { runSQL: async () => [] };
+      Object.defineProperty(connection, "getConfig", { get: () => { throw new Error("host.example QUSER secret PISA061"); } });
+      return connection;
+    }, "preflight_accessor_failed"],
+  ];
+
+  it.each(preflightCases)("records a bounded preflight diagnostic for %s", async (_name, getConnection, stage) => {
+    const adapter = createCodeForIAdapter({ instance: {
+      getConnection: getConnection as CodeForIInstance["getConnection"],
+      subscribe: () => undefined,
+    } }, {});
+
+    await expect(adapter.resolveProgram({ name: "PISA061", library: "LIBA" })).resolves.toMatchObject({ state: "unavailable", matches: [] });
+    expect(adapter.diagnostics().operationFailure).toEqual({ operation: "program.resolve", stage });
+    expect(JSON.stringify(adapter.diagnostics())).not.toMatch(/host\.example|QUSER|secret|PISA061/);
+  });
+
+  it("records a throwing inspection API invocation and recovers after a successful lookup", async () => {
+    let fail = true;
+    const adapter = createCodeForIAdapter({ instance: {
+      getConnection: () => ({
+        runSQL: async () => [],
+        getConfig: () => {
+          if (fail) throw new Error("host.example QUSER secret PISA061");
+          return { currentLibrary: "LIBA", libraryList: [] };
+        },
+        getContent: () => ({ getObjectList: async () => [{ library: "LIBA", name: "PISA061", type: "*PGM", text: "" }] }),
+      }),
+      subscribe: () => undefined,
+    } }, {});
+
+    await expect(adapter.resolveProgram({ name: "PISA061" })).resolves.toMatchObject({ state: "unavailable" });
+    expect(adapter.diagnostics().operationFailure).toEqual({ operation: "program.resolve", stage: "resolve" });
+    expect(JSON.stringify(adapter.diagnostics())).not.toMatch(/host\.example|QUSER|secret|PISA061/);
+
+    fail = false;
+    await expect(adapter.resolveProgram({ name: "PISA061", library: "LIBA" })).resolves.toMatchObject({ state: "resolved" });
+    expect(adapter.diagnostics().operationFailure).toBeUndefined();
+  });
+
   it("reports immutable sanitized diagnostics and refreshes them after connection events", () => {
     const fake = createFakeExports(async () => [{ VALUE: "QUSER" }]);
     const adapter = createCodeForIAdapter(fake.exports, {});
