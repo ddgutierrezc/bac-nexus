@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4 - Pre-release
+
+- Preserve request correlation for program inspection responses. (#187)
+
 ## 0.2.3 - Pre-release
 
 - Bind one Code for IBM i connection snapshot for each program-inspection attempt and report bounded preflight diagnostics. (#185)

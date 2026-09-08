@@ -17,6 +17,7 @@ import {
   type CodeForIExports,
   type CodeForIInstance,
 } from "./codeforiAdapter.js";
+import type { BrokerResult } from "./protocol.js";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -134,6 +135,47 @@ describe("fixed-loopback broker", () => {
     });
   });
 
+  it.each([
+    [
+      "resolve success",
+      '{"version":1,"request_id":"resolve-success","method":"program_inspection.v1.resolve","params":{"name":"PISA061"}}',
+      { state: "resolved", searchStrategy: "code_for_i_configured_context", librariesSearched: ["LIBA"], matches: [{ library: "LIBA", name: "PISA061", objectType: "*PGM", provenance: "code_for_i_configured_library_list", matchPosition: 1 }], completeness: "complete", truncated: false, runtimeLiblVerified: false },
+    ],
+    [
+      "resolve not found",
+      '{"version":1,"request_id":"resolve-not-found","method":"program_inspection.v1.resolve","params":{"name":"PISA061"}}',
+      { state: "not_found", searchStrategy: "code_for_i_configured_context", librariesSearched: ["LIBA"], matches: [], completeness: "complete", truncated: false, runtimeLiblVerified: false },
+    ],
+    [
+      "resolve unavailable",
+      '{"version":1,"request_id":"resolve-unavailable","method":"program_inspection.v1.resolve","params":{"name":"PISA061"}}',
+      { state: "unavailable", searchStrategy: "code_for_i_configured_context", librariesSearched: [], matches: [], completeness: "complete", truncated: false, runtimeLiblVerified: false, reason: "codefori_extension_unavailable" },
+    ],
+    [
+      "find source",
+      '{"version":1,"request_id":"find-source","method":"program_inspection.v1.find_source","params":{"library":"LIBA","name":"PISA061","objectType":"*PGM"}}',
+      { state: "unavailable", reason: "compiled_object_source_metadata_unsupported", nextStep: "configure_documented_compile_provenance_api", certainty: "unavailable", completeness: "complete", runtimeLiblVerified: false },
+    ],
+  ] as Array<[string, string, BrokerResult]>)("echoes the correlation ID for %s", async (_name, body, result) => {
+    const server = new FakeServer();
+    const broker = createBroker({
+      serverFactory: (handler) => {
+        server.requestHandler = handler;
+        return server;
+      },
+      handler: async () => result,
+    });
+    await broker.start();
+
+    const response = await server.dispatch(request(body));
+
+    expect(JSON.parse(decoder.decode(response.body))).toMatchObject({
+      version: 1,
+      request_id: JSON.parse(body).request_id,
+      result,
+    });
+  });
+
   it("rejects malformed, stale, and unsupported input before the fake handler", async () => {
     const server = new FakeServer();
     let calls = 0;
@@ -234,6 +276,7 @@ describe("fixed-loopback broker", () => {
 
     expect(JSON.parse(decoder.decode(response.body))).toEqual({
       version: 1,
+      request_id: "request",
       result: { state: "unavailable" },
     });
     expect(recordOperationFailure).toHaveBeenCalledWith("program.resolve", "handler");
