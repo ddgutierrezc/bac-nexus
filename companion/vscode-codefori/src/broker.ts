@@ -48,10 +48,17 @@ export function createCodeForIBrokerHandler(
   admission = new ImmediateAdmission(),
 ): BrokerHandler {
   return async (request): Promise<BrokerResult> => {
-    if (request.method === "session.status") return adapter.sessionStatus();
-    if (request.method === "program_inspection.v1.resolve") return adapter.resolveProgram(request.params as { name: string; library?: string });
-    if (request.method === "program_inspection.v1.find_source") return adapter.findProgramSource(request.params as { library: string; name: string; objectType: "*PGM" });
-    return admission.execute(undefined, () => adapter.query((request.params as { sql: string }).sql));
+    try {
+      if (request.method === "session.status") return adapter.sessionStatus();
+      if (request.method === "program_inspection.v1.resolve") return await adapter.resolveProgram(request.params as { name: string; library?: string });
+      if (request.method === "program_inspection.v1.find_source") return adapter.findProgramSource(request.params as { library: string; name: string; objectType: "*PGM" });
+      return admission.execute(undefined, () => adapter.query((request.params as { sql: string }).sql));
+    } catch (error) {
+      if (request.method === "program_inspection.v1.resolve") {
+        adapter.recordOperationFailure("program.resolve", "handler");
+      }
+      throw error;
+    }
   };
 }
 

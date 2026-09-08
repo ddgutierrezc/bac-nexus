@@ -71,6 +71,9 @@ export function diagnosticLines(snapshot: CompanionDiagnosticSnapshot): readonly
     `API instance: ${snapshot.adapter.instance}`,
     `Subscriptions: ${snapshot.adapter.subscriptions}`,
     `getConnection: ${snapshot.adapter.getConnection}`,
+    `SQL capability: ${snapshot.adapter.sqlCapability}`,
+    `Last operation failure: ${snapshot.adapter.operationFailure?.operation ?? "none"}`,
+    `Last operation failure stage: ${snapshot.adapter.operationFailure?.stage ?? "none"}`,
   ];
 }
 

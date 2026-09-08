@@ -144,6 +144,8 @@ describe("Code for IBM i public adapter", () => {
       instance: "available",
       subscriptions: "registered",
       getConnection: "available",
+      sqlCapability: "unknown",
+      operationFailure: undefined,
     });
     expect(Object.isFrozen(adapter.diagnostics())).toBe(true);
 
@@ -154,6 +156,8 @@ describe("Code for IBM i public adapter", () => {
       instance: "available",
       subscriptions: "registered",
       getConnection: "unavailable",
+      sqlCapability: "unknown",
+      operationFailure: undefined,
     });
     unsubscribe();
   });
@@ -170,6 +174,8 @@ describe("Code for IBM i public adapter", () => {
       instance: "available",
       subscriptions: "registered",
       getConnection: "threw",
+      sqlCapability: "unknown",
+      operationFailure: undefined,
     });
   });
 
@@ -206,5 +212,59 @@ describe("Code for IBM i public adapter", () => {
       rows: [{ value: "QUSER" }],
     });
     expect(queryCalls).toBe(1);
+  });
+
+  it.each([
+    ["available", () => ({ runSQL: async () => [], enableSQL: true }), "available"],
+    ["unavailable", () => ({ runSQL: async () => [], enableSQL: false }), "unavailable"],
+    ["unknown when missing", () => ({ runSQL: async () => [] }), "unknown"],
+    ["unknown when the getter throws", () => {
+      const connection: CodeForIConnection = { runSQL: async () => [] };
+      Object.defineProperty(connection, "enableSQL", { get: () => { throw new Error("host.example QUSER secret"); } });
+      return connection;
+    }, "unknown"],
+  ] as const)("classifies SQL capability as %s without exposing connection errors", (_name, createConnection, expected) => {
+    const adapter = createCodeForIAdapter({ instance: {
+      getConnection: createConnection,
+      subscribe: () => undefined,
+    } }, {});
+
+    const diagnostics = adapter.diagnostics();
+
+    expect(diagnostics.sqlCapability).toBe(expected);
+    expect(JSON.stringify(diagnostics)).not.toContain("host.example");
+    expect(JSON.stringify(diagnostics)).not.toContain("QUSER");
+    expect(JSON.stringify(diagnostics)).not.toContain("secret");
+  });
+
+  it("captures a sanitized program inspection failure and clears it after a successful resolution", async () => {
+    let fail = true;
+    const adapter = createCodeForIAdapter({
+      instance: {
+        getConnection: () => ({
+          runSQL: async () => [],
+          enableSQL: false,
+          getConfig: () => ({ currentLibrary: "LIBA", libraryList: [] }),
+          getContent: () => ({
+            getObjectList: async () => {
+              if (fail) throw new Error("host.example QUSER secret PISA061");
+              return [{ library: "LIBA", name: "PISA061", type: "*PGM", text: "" }];
+            },
+          }),
+        }),
+        subscribe: () => undefined,
+      },
+    }, {});
+
+    await expect(adapter.resolveProgram({ name: "PISA061", library: "LIBA" })).resolves.toMatchObject({ state: "unavailable" });
+    expect(adapter.diagnostics().operationFailure).toEqual({ operation: "program.resolve", stage: "get_object_list" });
+    expect(adapter.diagnostics().sqlCapability).toBe("unavailable");
+    expect(JSON.stringify(adapter.diagnostics())).not.toContain("host.example");
+    expect(JSON.stringify(adapter.diagnostics())).not.toContain("QUSER");
+    expect(JSON.stringify(adapter.diagnostics())).not.toContain("secret");
+
+    fail = false;
+    await expect(adapter.resolveProgram({ name: "PISA061", library: "LIBA" })).resolves.toMatchObject({ state: "resolved" });
+    expect(adapter.diagnostics().operationFailure).toBeUndefined();
   });
 });

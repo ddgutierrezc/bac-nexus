@@ -63,6 +63,14 @@ export interface ProgramInspection {
   findProgramSource(request: FindProgramSourceRequest): Promise<FindProgramSourceResult>;
 }
 
+export type ProgramResolveFailureStage = "get_object_list" | "resolve";
+
+export class ProgramResolveFailure extends Error {
+  constructor(readonly stage: ProgramResolveFailureStage) {
+    super();
+  }
+}
+
 export function createProgramInspection(connection: ProgramInspectionConnection): ProgramInspection {
   return {
     async resolveProgram(request) {
@@ -75,7 +83,12 @@ export function createProgramInspection(connection: ProgramInspectionConnection)
 
       for (let index = 0; index < libraries.length; index += 1) {
         const library = libraries[index]!;
-        const objects = await connection.getObjectList({ library, object: name, types: ["*PGM"] });
+        let objects: ProgramObject[];
+        try {
+          objects = await connection.getObjectList({ library, object: name, types: ["*PGM"] });
+        } catch {
+          throw new ProgramResolveFailure("get_object_list");
+        }
         for (const object of objects) {
           if (object.type !== "*PGM" || normalizeIdentifier(object.name) !== name) continue;
           if (matches.length === MAX_PROGRAM_MATCHES) {

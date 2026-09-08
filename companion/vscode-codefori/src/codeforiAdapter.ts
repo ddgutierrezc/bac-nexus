@@ -1,12 +1,13 @@
 import type { QueryState, SessionState } from "./protocol.js";
 import { canonicalizeProofQuery } from "./query.js";
-import { createProgramInspection, type FindProgramSourceRequest, type FindProgramSourceResult, type ProgramInspection, type ResolveProgramRequest, type ResolveProgramResult } from "./programInspection.js";
+import { createProgramInspection, ProgramResolveFailure, type FindProgramSourceRequest, type FindProgramSourceResult, type ProgramInspection, type ResolveProgramRequest, type ResolveProgramResult } from "./programInspection.js";
 
 const MAX_VALUE_BYTES = 256;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
 export interface CodeForIConnection {
+  readonly enableSQL?: boolean;
   runSQL(sql: string, options: { rows?: number }): Promise<unknown[]>;
   getConfig?(): unknown;
   getContent?(): { getObjectList(filters: { library: string; object: string; types: string[] }): Promise<Array<{ library: string; name: string; type: string; text: string }>> };
@@ -30,6 +31,13 @@ export interface AdapterDiagnosticSnapshot {
   readonly instance: "available" | "unavailable";
   readonly subscriptions: "registered" | "unavailable";
   readonly getConnection: "available" | "unavailable" | "threw";
+  readonly sqlCapability: "available" | "unavailable" | "unknown";
+  readonly operationFailure: OperationFailureDiagnostic | undefined;
+}
+
+export interface OperationFailureDiagnostic {
+  readonly operation: "program.resolve";
+  readonly stage: "get_object_list" | "resolve" | "handler";
 }
 
 export interface CodeForIAdapter {
@@ -38,6 +46,7 @@ export interface CodeForIAdapter {
   resolveProgram(request: ResolveProgramRequest): Promise<ResolveProgramResult>;
   findProgramSource(request: FindProgramSourceRequest): Promise<FindProgramSourceResult>;
   diagnostics(): AdapterDiagnosticSnapshot;
+  recordOperationFailure(operation: "program.resolve", stage: OperationFailureDiagnostic["stage"]): void;
   onSessionChange(callback: () => void): () => void;
   deactivate(): void;
 }
@@ -52,19 +61,24 @@ export function createCodeForIAdapter(
   let connectionGeneration = 0;
   let subscriptionsRegistered = false;
   let getConnection: AdapterDiagnosticSnapshot["getConnection"] = "unavailable";
+  let sqlCapability: AdapterDiagnosticSnapshot["sqlCapability"] = "unknown";
+  let operationFailure: OperationFailureDiagnostic | undefined;
   const listeners = new Set<() => void>();
 
   const refreshConnection = (): boolean => {
     if (!instance) {
       getConnection = "unavailable";
+      sqlCapability = "unknown";
       return false;
     }
     try {
       const connection = instance.getConnection();
       getConnection = connection === undefined ? "unavailable" : "available";
+      sqlCapability = connection === undefined ? "unknown" : classifySQLCapability(connection);
       return connection !== undefined;
     } catch {
       getConnection = "threw";
+      sqlCapability = "unknown";
       return false;
     }
   };
@@ -75,12 +89,15 @@ export function createCodeForIAdapter(
       instance.subscribe(context, "connected", "BAC Nexus Companion connected", () => {
         connectionAvailable = refreshConnection();
         connectionGeneration += 1;
+        operationFailure = undefined;
         notify();
       });
       instance.subscribe(context, "disconnected", "BAC Nexus Companion disconnected", () => {
         connectionAvailable = false;
         getConnection = "unavailable";
+        sqlCapability = "unknown";
         connectionGeneration += 1;
+        operationFailure = undefined;
         notify();
       });
       subscriptionsRegistered = true;
@@ -89,6 +106,7 @@ export function createCodeForIAdapter(
       connectionAvailable = false;
       subscriptionsRegistered = false;
       getConnection = "threw";
+      sqlCapability = "unknown";
     }
   }
 
@@ -139,8 +157,15 @@ export function createCodeForIAdapter(
       if (!bound) return unavailableProgramResult(request.library);
       try {
         const result = await bound.inspection.resolveProgram(request);
+        operationFailure = undefined;
         return validGeneration(bound.generation) ? result : unavailableProgramResult(request.library, "stale_session");
-      } catch { return unavailableProgramResult(request.library); }
+      } catch (error) {
+        operationFailure = {
+          operation: "program.resolve",
+          stage: error instanceof ProgramResolveFailure ? error.stage : "resolve",
+        };
+        return unavailableProgramResult(request.library);
+      }
     },
     async findProgramSource(request: FindProgramSourceRequest): Promise<FindProgramSourceResult> {
       const bound = getProgramInspection();
@@ -158,7 +183,12 @@ export function createCodeForIAdapter(
         instance: active && instance ? "available" : "unavailable",
         subscriptions: active && subscriptionsRegistered ? "registered" : "unavailable",
         getConnection: active ? getConnection : "unavailable",
+        sqlCapability: active ? sqlCapability : "unknown",
+        operationFailure: active ? operationFailure : undefined,
       });
+    },
+    recordOperationFailure(operation, stage): void {
+      operationFailure = { operation, stage };
     },
     onSessionChange(callback: () => void): () => void {
       listeners.add(callback);
@@ -168,6 +198,7 @@ export function createCodeForIAdapter(
       active = false;
       connectionAvailable = false;
       instance = undefined;
+      operationFailure = undefined;
       listeners.clear();
     },
   };
@@ -217,6 +248,16 @@ function normalizeRows(rows: unknown): QueryResult {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function classifySQLCapability(connection: CodeForIConnection): AdapterDiagnosticSnapshot["sqlCapability"] {
+  try {
+    if (connection.enableSQL === true) return "available";
+    if (connection.enableSQL === false) return "unavailable";
+  } catch {
+    // Code for IBM i versions may not expose this getter safely.
+  }
+  return "unknown";
 }
 
 function isBoundedUTF8String(value: unknown): value is string {

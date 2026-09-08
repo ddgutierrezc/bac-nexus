@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { ImmediateAdmission } from "./admission.js";
 import {
@@ -12,6 +12,7 @@ import {
 } from "./broker.js";
 import {
   createCodeForIAdapter,
+  type CodeForIAdapter,
   type CodeForIConnection,
   type CodeForIExports,
   type CodeForIInstance,
@@ -203,6 +204,42 @@ describe("fixed-loopback broker", () => {
       request_id: "request",
       result: { state: "failed" },
     });
+  });
+
+  it("records a program resolve handler failure without changing its unavailable response", async () => {
+    const server = new FakeServer();
+    const recordOperationFailure = vi.fn();
+    const adapter: CodeForIAdapter = {
+      sessionStatus: () => ({ state: "connected" }),
+      query: async () => ({ state: "failed" }),
+      resolveProgram: async () => { throw new Error("host.example QUSER secret PISA061"); },
+      findProgramSource: async () => ({ state: "unavailable", reason: "compiled_object_source_metadata_unsupported", nextStep: "configure_documented_compile_provenance_api", certainty: "unavailable", completeness: "complete", runtimeLiblVerified: false }),
+      diagnostics: () => ({ instance: "available", subscriptions: "registered", getConnection: "available", sqlCapability: "unknown", operationFailure: undefined }),
+      recordOperationFailure,
+      onSessionChange: () => () => undefined,
+      deactivate: () => undefined,
+    };
+    const broker = createBroker({
+      serverFactory: (handler) => {
+        server.requestHandler = handler;
+        return server;
+      },
+      handler: createCodeForIBrokerHandler(adapter),
+    });
+    await broker.start();
+
+    const response = await server.dispatch(
+      request('{"version":1,"request_id":"request","method":"program_inspection.v1.resolve","params":{"name":"PISA061"}}'),
+    );
+
+    expect(JSON.parse(decoder.decode(response.body))).toEqual({
+      version: 1,
+      result: { state: "unavailable" },
+    });
+    expect(recordOperationFailure).toHaveBeenCalledWith("program.resolve", "handler");
+    expect(decoder.decode(response.body)).not.toContain("host.example");
+    expect(decoder.decode(response.body)).not.toContain("QUSER");
+    expect(decoder.decode(response.body)).not.toContain("secret");
   });
 
   it("correlates ten immediately admitted public-adapter results completed in reverse order", async () => {
