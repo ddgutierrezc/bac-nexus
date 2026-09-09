@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -19,6 +20,10 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return f(request)
 }
+
+type tokenSourceFunc func(context.Context) (string, bool)
+
+func (f tokenSourceFunc) Token(ctx context.Context) (string, bool) { return f(ctx) }
 
 func TestClientRejectsInvalidQueryBeforeHTTP(t *testing.T) {
 	requests := 0
@@ -37,7 +42,7 @@ func TestClientRejectsInvalidQueryBeforeHTTP(t *testing.T) {
 	}
 }
 
-func TestClientPostsUnauthenticatedFixedLoopbackRequest(t *testing.T) {
+func TestClientPreservesUnauthenticatedCompatibilityWhenTokenStateIsAbsent(t *testing.T) {
 	client := NewClient()
 	client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		if request.Method != http.MethodPost {
@@ -74,6 +79,87 @@ func TestClientPostsUnauthenticatedFixedLoopbackRequest(t *testing.T) {
 	want := provider.QueryResult{State: provider.QueryOK, Rows: []provider.NormalizedRow{{Value: "BACUSER"}}}
 	if !sameQueryResult(result, want) {
 		t.Fatalf("Query() = %#v, want %#v", result, want)
+	}
+}
+
+func TestClientInjectsOnlyValidPrivateTokenStateIntoDedicatedHeader(t *testing.T) {
+	token := testToken(t)
+	client := NewClient()
+	client.tokens = tokenSourceFunc(func(context.Context) (string, bool) { return token, true })
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Header.Get(companionTokenHeader) != token {
+			t.Fatal("request omitted valid Companion token header")
+		}
+		body := mustReadAll(t, request.Body)
+		if strings.Contains(request.URL.String(), token) || strings.Contains(string(body), token) {
+			t.Fatal("request placed Companion token outside its dedicated header")
+		}
+		request.Body = io.NopCloser(bytes.NewReader(body))
+		return successfulQueryResponse(t, request), nil
+	})}
+	result := client.Query(context.Background(), provider.QueryRequest{SQL: provider.CanonicalProofQuery})
+	if result.State != provider.QueryOK || strings.Contains(fmt.Sprintf("%#v", result), token) {
+		t.Fatal("client result did not preserve token redaction")
+	}
+}
+
+func TestClientRefreshesTokenOnlyForExplicitAuthenticationRejection(t *testing.T) {
+	first, second := testToken(t), testToken(t)
+	for _, tt := range []struct {
+		name       string
+		tokens     []string
+		statusCode int
+		wantCalls  int
+	}{
+		{"rotated token retries once", []string{first, second}, http.StatusUnauthorized, 2},
+		{"unchanged token does not retry", []string{first, first}, http.StatusForbidden, 1},
+		{"non authentication failure does not retry", []string{first, second}, http.StatusInternalServerError, 1},
+		{"missing token does not retry", nil, http.StatusUnauthorized, 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			reads, calls := 0, 0
+			client := NewClient()
+			client.tokens = tokenSourceFunc(func(context.Context) (string, bool) {
+				if reads >= len(tt.tokens) {
+					return "", false
+				}
+				value := tt.tokens[reads]
+				reads++
+				return value, true
+			})
+			client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				calls++
+				if calls == 1 {
+					return &http.Response{StatusCode: tt.statusCode, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(""))}, nil
+				}
+				if request.Header.Get(companionTokenHeader) != second {
+					t.Fatal("retry did not use the refreshed token")
+				}
+				return successfulQueryResponse(t, request), nil
+			})}
+			result := client.Query(context.Background(), provider.QueryRequest{SQL: provider.CanonicalProofQuery})
+			if result.State != provider.QueryUnavailable && result.State != provider.QueryOK {
+				t.Fatalf("Query() state = %q, want bounded result", result.State)
+			}
+			if calls != tt.wantCalls {
+				t.Fatalf("HTTP calls = %d, want %d", calls, tt.wantCalls)
+			}
+		})
+	}
+}
+
+func TestClientCancellationPreventsTokenReadAndHTTP(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	reads, calls := 0, 0
+	client := NewClient()
+	client.tokens = tokenSourceFunc(func(context.Context) (string, bool) { reads++; return testToken(t), true })
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { calls++; return nil, nil })}
+	if got := client.SessionStatus(ctx); got.State != provider.SessionCompanionUnavailable {
+		t.Fatalf("SessionStatus() = %#v, want companion_unavailable", got)
+	}
+	if reads != 0 || calls != 0 {
+		t.Fatalf("token reads=%d HTTP calls=%d, want zero", reads, calls)
 	}
 }
 
@@ -269,6 +355,15 @@ func jsonResponse(t *testing.T, response rpcResponse) *http.Response {
 		Header:     make(http.Header),
 		Body:       io.NopCloser(bytes.NewReader(body)),
 	}
+}
+
+func successfulQueryResponse(t *testing.T, request *http.Request) *http.Response {
+	t.Helper()
+	decoded, err := decodeRequest(mustReadAll(t, request.Body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return jsonResponse(t, rpcResponse{Version: protocolVersion, RequestID: decoded.RequestID, Result: provider.QueryResult{State: provider.QueryOK, Rows: []provider.NormalizedRow{{Value: "BACUSER"}}}})
 }
 
 func sameQueryResult(got, want provider.QueryResult) bool {
