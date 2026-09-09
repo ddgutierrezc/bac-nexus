@@ -12,3 +12,4 @@
 !dist/programInspection.js
 !dist/protocol.js
 !dist/query.js
+!dist/tokenState.js

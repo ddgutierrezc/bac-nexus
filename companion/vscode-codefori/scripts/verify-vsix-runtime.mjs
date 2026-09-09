@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
 import console from "node:console";
-import { existsSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
@@ -16,6 +16,7 @@ try {
     : packageVSIX(temporaryDirectory);
   const extensionEntrypoint = extractEntrypoint(vsixPath, temporaryDirectory);
 
+  verifyLocalImportClosure(extensionEntrypoint);
   await import(pathToFileURL(extensionEntrypoint).href);
   console.log(`Verified packaged runtime import closure for ${basename(vsixPath)}.`);
 } finally {
@@ -47,4 +48,26 @@ function extractEntrypoint(vsixPath, directory) {
     throw new Error("Packaged VSIX does not contain extension/dist/extension.js.");
   }
   return entrypoint;
+}
+
+function verifyLocalImportClosure(entrypoint) {
+  const runtimeDirectory = dirname(entrypoint);
+  const pending = [entrypoint];
+  const visited = new Set();
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current || visited.has(current)) continue;
+    visited.add(current);
+    for (const specifier of localImports(readFileSync(current, "utf8"))) {
+      const imported = resolve(dirname(current), specifier);
+      if (relative(runtimeDirectory, imported).startsWith("..") || !existsSync(imported)) {
+        throw new Error(`Packaged runtime import is missing: ${specifier}`);
+      }
+      pending.push(imported);
+    }
+  }
+}
+
+function localImports(source) {
+  return [...source.matchAll(/(?:from\s*|import\()(["'])(\.\/[^"']+\.js)\1/g)].map((match) => match[2]);
 }

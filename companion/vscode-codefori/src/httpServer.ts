@@ -1,13 +1,15 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import type { BrokerRequest, BrokerResponse, FixedLoopbackServer } from "./broker.js";
+import type { RequestAuthenticator } from "./tokenState.js";
 import { MAX_REQUEST_BYTES, unavailableResponse } from "./protocol.js";
 
 const browserOriginRejected = new TextEncoder().encode('{"state":"browser_origin_rejected"}');
+const unauthorized = new TextEncoder().encode('{"state":"unauthorized"}');
 
-export function createHTTPServer(handler: (request: BrokerRequest) => Promise<BrokerResponse>): FixedLoopbackServer {
+export function createHTTPServer(handler: (request: BrokerRequest) => Promise<BrokerResponse>, authenticate: RequestAuthenticator): FixedLoopbackServer {
   const server = createServer((request, response) => {
-    void handleRequest(request, response, handler);
+    void handleRequest(request, response, handler, authenticate);
   });
   let listening = false;
 
@@ -48,10 +50,16 @@ async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
   handler: (request: BrokerRequest) => Promise<BrokerResponse>,
+  authenticate: RequestAuthenticator,
 ): Promise<void> {
   if (hasOriginHeader(request.headers)) {
     request.resume();
     write(response, 403, browserOriginRejected);
+    return;
+  }
+
+  if (!authenticate(request.headers)) {
+    writeAndClose(response, 401, unauthorized);
     return;
   }
 
@@ -64,7 +72,7 @@ async function handleRequest(
   const result = await handler({
     method: request.method ?? "",
     path: request.url ?? "",
-    headers: {},
+    headers: request.headers,
     body,
   });
   write(response, result.status, result.body, result.headers);
@@ -103,5 +111,10 @@ function write(
   headers: Readonly<Record<string, string>> = { "content-type": "application/json" },
 ): void {
   response.writeHead(status, headers);
+  response.end(body);
+}
+
+function writeAndClose(response: ServerResponse, status: number, body: Uint8Array): void {
+  response.writeHead(status, { "content-type": "application/json", connection: "close" });
   response.end(body);
 }

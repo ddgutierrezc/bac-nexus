@@ -8,6 +8,7 @@ import {
   type RpcRequest,
   unavailableResponse,
 } from "./protocol.js";
+import type { RequestAuthenticator, TokenPublisher } from "./tokenState.js";
 
 export const FIXED_LOOPBACK_HOST = "127.0.0.1";
 export const FIXED_LOOPBACK_PORT = 64139;
@@ -15,7 +16,7 @@ export const FIXED_LOOPBACK_PORT = 64139;
 export interface BrokerRequest {
   method: string;
   path: string;
-  headers: Readonly<Record<string, string | undefined>>;
+  headers: Readonly<Record<string, string | string[] | undefined>>;
   body: Uint8Array;
 }
 
@@ -34,8 +35,9 @@ type RequestHandler = (request: BrokerRequest) => Promise<BrokerResponse>;
 export type BrokerHandler = (request: RpcRequest) => Promise<BrokerResult>;
 
 export interface BrokerOptions {
-  serverFactory: (handler: RequestHandler) => FixedLoopbackServer;
+  serverFactory: (handler: RequestHandler, authenticate: RequestAuthenticator) => FixedLoopbackServer;
   handler: BrokerHandler;
+  tokenPublisher: TokenPublisher;
 }
 
 export interface CompanionBroker {
@@ -65,8 +67,12 @@ export function createCodeForIBrokerHandler(
 export function createBroker(options: BrokerOptions): CompanionBroker {
   let server: FixedLoopbackServer | undefined;
   let startAttempted = false;
+  let authenticate: RequestAuthenticator = () => false;
 
   const handle = async (request: BrokerRequest): Promise<BrokerResponse> => {
+    if (!authenticate(request.headers)) {
+      return unauthorized();
+    }
     if (request.method !== "POST" || request.path !== "/v1/rpc") {
       return sanitized(404);
     }
@@ -99,10 +105,11 @@ export function createBroker(options: BrokerOptions): CompanionBroker {
         return false;
       }
       startAttempted = true;
-      const created = options.serverFactory(handle);
+      const created = options.serverFactory(handle, (headers) => authenticate(headers));
       server = created;
       try {
         await created.listen(FIXED_LOOPBACK_HOST, FIXED_LOOPBACK_PORT);
+        authenticate = await options.tokenPublisher.publish();
         return true;
       } catch {
         if (server === created) {
@@ -143,5 +150,13 @@ function sanitized(status: number): BrokerResponse {
     status,
     headers: { "content-type": "application/json" },
     body: unavailableResponse(),
+  };
+}
+
+function unauthorized(): BrokerResponse {
+  return {
+    status: 401,
+    headers: { "content-type": "application/json" },
+    body: new TextEncoder().encode('{"state":"unauthorized"}'),
   };
 }

@@ -4,10 +4,11 @@ import { createBroker, createCodeForIBrokerHandler, type BrokerRequest, type Bro
 import { createCodeForIAdapter, type CodeForIExports } from "./codeforiAdapter.js";
 import { createDiagnosticsUI, DIAGNOSTICS_COMMAND, type OutputChannel, type StatusBarItem } from "./diagnostics.js";
 import { createHTTPServer } from "./httpServer.js";
+import { createTokenPublisher, type RequestAuthenticator, type TokenPublisher } from "./tokenState.js";
 
 const CODE_FOR_I_EXTENSION_ID = "halcyontechltd.code-for-ibmi";
-const COMPANION_VERSION = "0.2.4";
-type ServerFactory = (handler: (request: BrokerRequest) => Promise<BrokerResponse>) => FixedLoopbackServer;
+const COMPANION_VERSION = "0.2.5";
+type ServerFactory = (handler: (request: BrokerRequest) => Promise<BrokerResponse>, authenticate: RequestAuthenticator) => FixedLoopbackServer;
 
 interface Extension<T> {
   activate(): Promise<T | undefined>;
@@ -35,6 +36,7 @@ export interface ActivationOptions {
   extensionHost?: ExtensionHost;
   serverFactory?: ServerFactory;
   vscodeHost?: VSCodeHost;
+  tokenPublisher?: TokenPublisher;
 }
 
 let owned: { broker: ReturnType<typeof createBroker>; deactivate(): void; dispose(): void } | undefined;
@@ -58,6 +60,7 @@ export async function activate(context: unknown, options: ActivationOptions = {}
   const broker = createBroker({
     serverFactory: options.serverFactory ?? createHTTPServer,
     handler: createCodeForIBrokerHandler(adapter),
+    tokenPublisher: options.tokenPublisher ?? createTokenPublisher(),
   });
   const listening = await broker.start();
   if (!vscode) {
