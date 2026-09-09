@@ -20,6 +20,7 @@ const (
 
 type companionDeps struct {
 	Provider      provider.Provider
+	Catalog       internalmcp.CatalogProvider
 	ServerFactory func(*internalmcp.CodeForIServer) (runner, error)
 }
 
@@ -44,8 +45,10 @@ func runCompanionServeComposition(ctx context.Context) error {
 }
 
 func defaultCompanionDeps() companionDeps {
+	client := codefori.NewClient()
 	return companionDeps{
-		Provider: codefori.NewClient(),
+		Provider: client,
+		Catalog:  client,
 		ServerFactory: func(server *internalmcp.CodeForIServer) (runner, error) {
 			return server, nil
 		},
@@ -64,6 +67,7 @@ func runCompanionWithDeps(ctx context.Context, deps companionDeps) error {
 		Info:      internalmcp.Info{Name: "bac-nexus", Version: "v0.0.0"},
 		Provider:  deps.Provider,
 		Inspector: inspector,
+		Catalog:   deps.Catalog,
 	})
 	if err != nil {
 		return fmt.Errorf("build companion mcp server: %w", err)

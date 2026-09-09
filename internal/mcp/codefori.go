@@ -7,6 +7,8 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"bac-nexus/internal/catalog"
+	"bac-nexus/internal/connectors/ibmi/codefori"
 	"bac-nexus/internal/inspection"
 	"bac-nexus/internal/provider"
 )
@@ -16,7 +18,13 @@ type CodeForIConfig struct {
 	Info      Info
 	Provider  provider.Provider
 	Inspector inspection.Provider
+	Catalog   CatalogProvider
 	Transport sdk.Transport
+}
+
+// CatalogProvider is the Companion server's metadata-only catalog boundary.
+type CatalogProvider interface {
+	ResolveCatalog(context.Context, catalog.Search) ([]catalog.Candidate, error)
 }
 
 // CodeForIServer is the stdio MCP facade for the isolated Companion proof surface.
@@ -24,6 +32,7 @@ type CodeForIServer struct {
 	impl       *sdk.Server
 	provider   provider.Provider
 	inspection *inspection.Service
+	catalog    CatalogProvider
 	transport  sdk.Transport
 	toolNames  []string
 
@@ -81,16 +90,52 @@ func NewCodeForI(cfg CodeForIConfig) (*CodeForIServer, error) {
 	server := &CodeForIServer{
 		provider:   cfg.Provider,
 		inspection: inspection.NewService(cfg.Inspector, inspection.NewSelectionStore()),
+		catalog:    cfg.Catalog,
 		transport:  cfg.Transport,
 		impl:       sdk.NewServer(&sdk.Implementation{Name: cfg.Info.Name, Version: cfg.Info.Version}, nil),
-		toolNames:  []string{"session_status", "sql_query", "resolve_program", "find_program_source"},
+		toolNames:  []string{"session_status", "sql_query", "resolve_program", "find_program_source", "resolve_catalog_candidates"},
 	}
 	sdk.AddTool(server.impl, &sdk.Tool{Name: "session_status", Description: "Return the bounded Companion session state."}, server.sessionStatus)
 	sdk.AddTool(server.impl, &sdk.Tool{Name: "sql_query", Description: "Run the one bounded Companion proof query."}, server.query)
 	openWorld := true
 	sdk.AddTool(server.impl, &sdk.Tool{Name: "resolve_program", Description: "Resolve a supported IBM i program using configured Code for IBM i context, not runtime *LIBL.", Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: &openWorld}}, server.resolveProgram)
 	sdk.AddTool(server.impl, &sdk.Tool{Name: "find_program_source", Description: "Return metadata-only evidenced source coordinates for an opaque resolved program selection.", Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &openWorld}}, server.findProgramSource)
+	sdk.AddTool(server.impl, &sdk.Tool{Name: "resolve_catalog_candidates", Description: "Resolve up to 50 ordered catalog candidates for a bounded query.", Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &openWorld}}, server.resolveCatalog)
 	return server, nil
+}
+
+func (s *CodeForIServer) resolveCatalog(ctx context.Context, _ *sdk.CallToolRequest, input ResolveCatalogInput) (*sdk.CallToolResult, ResolveCatalogOutput, error) {
+	if !s.acceptHandler() {
+		return nil, ResolveCatalogOutput{}, errors.New("mcp server unavailable")
+	}
+	defer s.finishHandler()
+	if err := ctx.Err(); err != nil {
+		return nil, ResolveCatalogOutput{}, err
+	}
+	search, err := catalog.NewSearch(input.Item, input.ProductionLibrary)
+	if err != nil {
+		return nil, ResolveCatalogOutput{}, err
+	}
+	if s.catalog == nil {
+		return nil, ResolveCatalogOutput{}, codefori.ErrCatalogUnavailable
+	}
+	candidates, err := s.catalog.ResolveCatalog(ctx, search)
+	if err != nil {
+		return nil, ResolveCatalogOutput{}, sanitizeCatalogError(err)
+	}
+	if len(candidates) == 0 {
+		return nil, ResolveCatalogOutput{}, catalog.ErrCandidateNotFound
+	}
+	return nil, ResolveCatalogOutput{Candidates: candidates}, nil
+}
+
+func sanitizeCatalogError(err error) error {
+	switch {
+	case errors.Is(err, catalog.ErrCandidateNotFound), errors.Is(err, catalog.ErrCandidateLimit), errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded), errors.Is(err, codefori.ErrCatalogUnavailable), errors.Is(err, codefori.ErrCatalogFailed):
+		return err
+	default:
+		return codefori.ErrCatalogFailed
+	}
 }
 
 func (s *CodeForIServer) resolveProgram(ctx context.Context, _ *sdk.CallToolRequest, input ResolveProgramInput) (*sdk.CallToolResult, ResolveProgramOutput, error) {
