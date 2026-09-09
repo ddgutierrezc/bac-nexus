@@ -14,7 +14,7 @@ Code for IBM i session. Code for IBM i retains all IBM i credentials.
 | Topic | Decision |
 |---|---|
 | Address | The Companion binds only to `127.0.0.1:64139`. |
-| Operations | Public MCP tools are `session_status`, `sql_query`, `resolve_program`, and metadata-only `find_program_source`. Internal dotted RPC methods include `session.status`, `sql.query`, `program_inspection.v1.resolve`, and `program_inspection.v1.find_source`. |
+| Operations | Public MCP tools are `session_status`, `sql_query`, `resolve_program`, metadata-only `find_program_source`, and `resolve_catalog_candidates`. Internal dotted RPC methods include `session.status`, `sql.query`, `program_inspection.v1.resolve`, and `program_inspection.v1.find_source`. |
 | Port collision | The Companion is unavailable; it does not scan, retry another port, or fall back to Native mode. |
 | Browser requests | Any request with an `Origin` header is rejected with `browser_origin_rejected`. |
 
@@ -26,6 +26,8 @@ user, session, process, extension-host, or other caller identity.
 
 The endpoint rejects browser-origin requests and accepts no arbitrary SQL,
 shell, CL, mutation, endpoint discovery, forwarding, or remote access.
+
+`resolve_catalog_candidates` returns bounded metadata through fixed, parameterized Catalogados queries. Users configure no tokens, SQL, or allowlists.
 
 ## Fixed limits
 
