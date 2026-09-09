@@ -5,11 +5,18 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"time"
 
+	"bac-nexus/internal/catalog"
 	"bac-nexus/internal/inspection"
 	"bac-nexus/internal/provider"
+)
+
+var (
+	ErrCatalogUnavailable = errors.New("catalog operation unavailable")
+	ErrCatalogFailed      = errors.New("catalog operation failed")
 )
 
 const (
@@ -41,7 +48,7 @@ func NewClient() *Client {
 func (client *Client) SessionStatus(ctx context.Context) provider.SessionStatusResult {
 	ctx, cancel := context.WithTimeout(ctx, statusTimeout)
 	defer cancel()
-	envelope, state := client.post(ctx, methodStatus, nil)
+	envelope, state := client.post(ctx, methodStatus, nil, maxResponseBytes)
 	if state != provider.QueryOK {
 		return provider.SessionStatusResult{State: provider.SessionCompanionUnavailable}
 	}
@@ -62,7 +69,7 @@ func (client *Client) Query(ctx context.Context, request provider.QueryRequest) 
 	}
 	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
-	envelope, state := client.post(ctx, methodSQLQuery, map[string]string{"sql": canonical})
+	envelope, state := client.post(ctx, methodSQLQuery, map[string]string{"sql": canonical}, maxResponseBytes)
 	if state != provider.QueryOK {
 		return provider.QueryResult{State: state}
 	}
@@ -83,7 +90,7 @@ func (client *Client) ResolveProgram(ctx context.Context, request inspection.Res
 	}
 	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
-	envelope, state := client.post(ctx, methodResolveProgram, params)
+	envelope, state := client.post(ctx, methodResolveProgram, params, maxResponseBytes)
 	if state != provider.QueryOK {
 		return inspection.ResolveResult{State: inspection.StateUnavailable, Completeness: "complete", Reason: "companion_unavailable"}
 	}
@@ -100,7 +107,7 @@ func (client *Client) FindProgramSource(ctx context.Context, program inspection.
 	}
 	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
-	envelope, state := client.post(ctx, methodFindProgramSource, map[string]string{"library": program.Library, "name": program.Name, "objectType": program.ObjectType})
+	envelope, state := client.post(ctx, methodFindProgramSource, map[string]string{"library": program.Library, "name": program.Name, "objectType": program.ObjectType}, maxResponseBytes)
 	if state != provider.QueryOK {
 		return inspection.SourceResult{State: inspection.StateUnavailable, Reason: "companion_unavailable", Certainty: "unavailable", Completeness: "complete"}
 	}
@@ -111,7 +118,47 @@ func (client *Client) FindProgramSource(ctx context.Context, program inspection.
 	return result
 }
 
-func (client *Client) post(ctx context.Context, method string, params map[string]string) (rpcEnvelope, provider.QueryState) {
+// ResolveCatalog invokes only the fixed metadata RPC and preserves response order.
+func (client *Client) ResolveCatalog(ctx context.Context, search catalog.Search) ([]catalog.Candidate, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	canonical, err := catalog.NewSearch(search.Item, search.ProductionLibrary)
+	if err != nil {
+		return nil, ErrCatalogFailed
+	}
+	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
+	defer cancel()
+	envelope, state := client.post(ctx, methodResolveCatalog, map[string]string{"item": canonical.Item, "productionLibrary": canonical.ProductionLibrary}, maxCatalogResponseBytes)
+	if state != provider.QueryOK {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if state == provider.QueryFailed {
+			return nil, ErrCatalogFailed
+		}
+		return nil, ErrCatalogUnavailable
+	}
+	result, err := decodeCatalogResult(envelope.Result)
+	if err != nil {
+		return nil, ErrCatalogFailed
+	}
+	switch result.State {
+	case "ok":
+		if len(result.Candidates) == 0 {
+			return nil, catalog.ErrCandidateNotFound
+		}
+		return result.Candidates, nil
+	case "candidate_limit_exceeded":
+		return nil, catalog.ErrCandidateLimit
+	case "unavailable":
+		return nil, ErrCatalogUnavailable
+	default:
+		return nil, ErrCatalogFailed
+	}
+}
+
+func (client *Client) post(ctx context.Context, method string, params map[string]string, maximum int) (rpcEnvelope, provider.QueryState) {
 	if ctx.Err() != nil {
 		return rpcEnvelope{}, contextOrUnavailable(ctx)
 	}
@@ -128,7 +175,7 @@ func (client *Client) post(ctx context.Context, method string, params map[string
 		return rpcEnvelope{}, provider.QueryUnavailable
 	}
 	token, present := client.token(ctx)
-	envelope, authRejected, state := client.send(ctx, body, requestID, token)
+	envelope, authRejected, state := client.send(ctx, body, requestID, token, maximum)
 	if !authRejected || !present || ctx.Err() != nil {
 		return envelope, state
 	}
@@ -136,7 +183,7 @@ func (client *Client) post(ctx context.Context, method string, params map[string
 	if !valid || rotated == token {
 		return envelope, state
 	}
-	envelope, _, state = client.send(ctx, body, requestID, rotated)
+	envelope, _, state = client.send(ctx, body, requestID, rotated, maximum)
 	return envelope, state
 }
 
@@ -147,7 +194,7 @@ func (client *Client) token(ctx context.Context) (string, bool) {
 	return client.tokens.Token(ctx)
 }
 
-func (client *Client) send(ctx context.Context, body []byte, requestID, token string) (rpcEnvelope, bool, provider.QueryState) {
+func (client *Client) send(ctx context.Context, body []byte, requestID, token string, maximum int) (rpcEnvelope, bool, provider.QueryState) {
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, fixedRPCURL, bytes.NewReader(body))
 	if err != nil {
 		return rpcEnvelope{}, false, provider.QueryFailed
@@ -167,11 +214,11 @@ func (client *Client) send(ctx context.Context, body []byte, requestID, token st
 	if response.StatusCode != http.StatusOK {
 		return rpcEnvelope{}, false, provider.QueryUnavailable
 	}
-	responseBody, err := readBoundedBody(response.Body, maxResponseBytes)
+	responseBody, err := readBoundedBody(response.Body, maximum)
 	if err != nil {
 		return rpcEnvelope{}, false, provider.QueryFailed
 	}
-	envelope, err := decodeEnvelope(responseBody)
+	envelope, err := decodeEnvelopeWithLimit(responseBody, maximum)
 	if err != nil || envelope.Version != protocolVersion || envelope.RequestID != requestID {
 		return rpcEnvelope{}, false, provider.QueryUnavailable
 	}

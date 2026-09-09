@@ -11,9 +11,174 @@ import (
 	"testing"
 	"time"
 
+	"bac-nexus/internal/catalog"
 	"bac-nexus/internal/inspection"
 	"bac-nexus/internal/provider"
 )
+
+func TestClientResolveCatalogAuthenticationRetries(t *testing.T) {
+	first, second := testToken(t), testToken(t)
+	search, _ := catalog.NewSearch("PISA061", "PRODLIB")
+	for _, tt := range []struct {
+		name      string
+		status    int
+		tokens    []string
+		wantCalls int
+		want      error
+	}{
+		{"rotated unauthorized", http.StatusUnauthorized, []string{first, second}, 2, nil},
+		{"rotated forbidden", http.StatusForbidden, []string{first, second}, 2, nil},
+		{"unchanged token", http.StatusUnauthorized, []string{first, first}, 1, ErrCatalogUnavailable},
+		{"unchanged forbidden", http.StatusForbidden, []string{first, first}, 1, ErrCatalogUnavailable},
+		{"missing token unauthorized", http.StatusUnauthorized, nil, 1, ErrCatalogUnavailable},
+		{"missing token forbidden", http.StatusForbidden, nil, 1, ErrCatalogUnavailable},
+		{"non-auth status", http.StatusInternalServerError, []string{first, second}, 1, ErrCatalogUnavailable},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			calls, reads := 0, 0
+			var bodies, ids, tokens []string
+			client := NewClient()
+			client.tokens = tokenSourceFunc(func(context.Context) (string, bool) {
+				if reads == len(tt.tokens) {
+					return "", false
+				}
+				value := tt.tokens[reads]
+				reads++
+				return value, true
+			})
+			client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				calls++
+				body := mustReadAll(t, request.Body)
+				decoded, err := decodeRequest(body)
+				if err != nil || decoded.Method != methodResolveCatalog || decoded.Params["item"] != "PISA061" {
+					t.Fatalf("catalog request = %#v, %v", decoded, err)
+				}
+				bodies, ids, tokens = append(bodies, string(body)), append(ids, decoded.RequestID), append(tokens, request.Header.Get(companionTokenHeader))
+				if strings.Contains(request.URL.String(), first) || strings.Contains(string(body), first) || strings.Contains(request.URL.String(), second) || strings.Contains(string(body), second) {
+					t.Fatal("token escaped dedicated header")
+				}
+				if calls == 1 {
+					return &http.Response{StatusCode: tt.status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(""))}, nil
+				}
+				return catalogOKResponse(decoded.RequestID), nil
+			})}
+			result, err := client.ResolveCatalog(context.Background(), search)
+			if !errors.Is(err, tt.want) || calls != tt.wantCalls || (tt.wantCalls == 2 && len(result) != 1) {
+				t.Fatalf("ResolveCatalog() = %#v, %v; calls=%d", result, err, calls)
+			}
+			if tt.wantCalls == 2 && (tokens[0] != first || tokens[1] != second || bodies[0] != bodies[1] || ids[0] != ids[1]) {
+				t.Fatalf("retry did not preserve request identity: tokens=%q ids=%q", tokens, ids)
+			}
+		})
+	}
+}
+
+func TestClientResolveCatalogFailsClosed(t *testing.T) {
+	search, _ := catalog.NewSearch("PISA061", "")
+	for _, tt := range []struct {
+		name, result string
+		want         error
+	}{
+		{"not found", `{"state":"ok","candidates":[]}`, catalog.ErrCandidateNotFound}, {"limit", `{"state":"candidate_limit_exceeded"}`, catalog.ErrCandidateLimit}, {"unavailable", `{"state":"unavailable"}`, ErrCatalogUnavailable}, {"malformed", `{"state":"ok","candidates":null}`, ErrCatalogFailed},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			client := NewClient()
+			client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				decoded, _ := decodeRequest(mustReadAll(t, request.Body))
+				body := `{"version":1,"request_id":"` + decoded.RequestID + `","result":` + tt.result + `}`
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
+			})}
+			if _, err := client.ResolveCatalog(context.Background(), search); !errors.Is(err, tt.want) {
+				t.Fatalf("error = %v, want %v", err, tt.want)
+			}
+		})
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	calls := 0
+	client := NewClient()
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { calls++; return nil, errors.New("unexpected HTTP call") })}
+	if _, err := client.ResolveCatalog(ctx, search); !errors.Is(err, context.Canceled) || calls != 0 {
+		t.Fatalf("cancelled ResolveCatalog error = %v", err)
+	}
+}
+
+func TestClientResolveCatalogRejectsForgedSearchBeforeHTTP(t *testing.T) {
+	client := NewClient()
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { t.Fatal("forged search reached HTTP"); return nil, nil })}
+	for _, search := range []catalog.Search{{Item: "bad name"}, {Item: "PISA061", ProductionLibrary: "bad name"}} {
+		if _, err := client.ResolveCatalog(context.Background(), search); !errors.Is(err, ErrCatalogFailed) {
+			t.Fatalf("ResolveCatalog(%#v) error = %v", search, err)
+		}
+	}
+}
+
+func TestClientResolveCatalogHTTPFailuresFailClosed(t *testing.T) {
+	search, _ := catalog.NewSearch("PISA061", "")
+	for _, tt := range []struct {
+		name string
+		body func(string) string
+		want error
+	}{
+		{"mismatched ID", func(string) string { return `{"version":1,"request_id":"other","result":{"state":"unavailable"}}` }, ErrCatalogUnavailable},
+		{"mismatched version", func(id string) string {
+			return `{"version":2,"request_id":"` + id + `","result":{"state":"unavailable"}}`
+		}, ErrCatalogUnavailable},
+		{"malformed envelope", func(string) string { return `{"version":1,"result":{"state":"unavailable"}}` }, ErrCatalogUnavailable},
+		{"catalog overflow", func(string) string { return strings.Repeat("x", maxCatalogResponseBytes+1) }, ErrCatalogFailed},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			client := NewClient()
+			client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				calls++
+				decoded, err := decodeRequest(mustReadAll(t, request.Body))
+				if err != nil {
+					t.Fatal(err)
+				}
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(tt.body(decoded.RequestID)))}, nil
+			})}
+			if _, err := client.ResolveCatalog(context.Background(), search); !errors.Is(err, tt.want) {
+				t.Fatalf("error = %v, want %v", err, tt.want)
+			}
+			if calls != 1 {
+				t.Fatalf("HTTP calls = %d, want 1", calls)
+			}
+		})
+	}
+}
+
+func TestClientResolveCatalogCancellationBoundaries(t *testing.T) {
+	search, _ := catalog.NewSearch("PISA061", "")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started := make(chan struct{})
+	calls := 0
+	client := NewClient()
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		calls++
+		close(started)
+		<-request.Context().Done()
+		return nil, request.Context().Err()
+	})}
+	completed := make(chan error, 1)
+	go func() { _, err := client.ResolveCatalog(ctx, search); completed <- err }()
+	<-started
+	cancel()
+	if err := <-completed; !errors.Is(err, context.Canceled) || calls != 1 {
+		t.Fatalf("in-flight cancellation error = %v; calls=%d", err, calls)
+	}
+	deadline, stop := context.WithTimeout(context.Background(), time.Millisecond)
+	defer stop()
+	client = NewClient()
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		<-request.Context().Done()
+		return nil, request.Context().Err()
+	})}
+	if _, err := client.ResolveCatalog(deadline, search); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("deadline error = %v", err)
+	}
+}
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
@@ -364,6 +529,11 @@ func successfulQueryResponse(t *testing.T, request *http.Request) *http.Response
 		t.Fatal(err)
 	}
 	return jsonResponse(t, rpcResponse{Version: protocolVersion, RequestID: decoded.RequestID, Result: provider.QueryResult{State: provider.QueryOK, Rows: []provider.NormalizedRow{{Value: "BACUSER"}}}})
+}
+
+func catalogOKResponse(requestID string) *http.Response {
+	body := `{"version":1,"request_id":"` + requestID + `","result":{"state":"ok","candidates":[{"item":"PISA061","sourceLibrary":"SRCLIB","sourceFileBase":"QRPG","objectType":"M","sourceType":"RPGLE","application":"APP","version":"V1","productionLibrary":"PRODLIB","description":"description"}]}}`
+	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}
 }
 
 func sameQueryResult(got, want provider.QueryResult) bool {
