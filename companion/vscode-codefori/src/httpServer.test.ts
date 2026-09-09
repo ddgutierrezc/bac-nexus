@@ -1,9 +1,14 @@
 import { request as nodeRequest } from "node:http";
+import { createConnection } from "node:net";
 
 import { describe, expect, it } from "vitest";
 
 import { createBroker } from "./broker.js";
 import { createHTTPServer, hasOriginHeader } from "./httpServer.js";
+import { tokenAuthenticator, type TokenPublisher } from "./tokenState.js";
+
+const testToken = "test-token-not-a-production-secret";
+const tokenPublisher: TokenPublisher = { publish: async () => tokenAuthenticator(testToken) };
 
 function post(body: string, headers: Record<string, string> = {}): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
@@ -20,6 +25,17 @@ function post(body: string, headers: Record<string, string> = {}): Promise<{ sta
   });
 }
 
+function postIncomplete(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = createConnection({ host: "127.0.0.1", port: 64139 });
+    let response = "";
+    socket.once("connect", () => socket.write("POST /v1/rpc HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 100\r\n\r\npartial"));
+    socket.on("data", (chunk: Buffer) => { response += chunk.toString(); });
+    socket.once("end", () => resolve(response));
+    socket.once("error", reject);
+  });
+}
+
 describe("fixed-loopback HTTP server", () => {
   it("rejects every Origin header before decoding or handling valid, malformed, and oversized bodies", async () => {
     let calls = 0;
@@ -29,6 +45,7 @@ describe("fixed-loopback HTTP server", () => {
         calls += 1;
         return { state: "connected" };
       },
+      tokenPublisher,
     });
     await expect(broker.start()).resolves.toBe(true);
 
@@ -46,14 +63,18 @@ describe("fixed-loopback HTTP server", () => {
       expect(hasOriginHeader({ oRiGiN: "https://example.test" })).toBe(true);
       expect(hasOriginHeader({ ORIGIN: "" })).toBe(true);
       expect(calls).toBe(0);
+      await expect(post('{"version":1,"request_id":"request","method":"session.status","params":{}}', { "x-nexus-companion-token": testToken })).resolves.toEqual({
+        status: 200,
+        body: '{"version":1,"request_id":"request","result":{"state":"connected"}}',
+      });
     } finally {
       await broker.stop();
     }
   });
 
   it("uses only the fixed loopback port, fails collisions, and safely repeats lifecycle calls", async () => {
-    const first = createBroker({ serverFactory: createHTTPServer, handler: async () => ({ state: "connected" }) });
-    const second = createBroker({ serverFactory: createHTTPServer, handler: async () => ({ state: "connected" }) });
+    const first = createBroker({ serverFactory: createHTTPServer, handler: async () => ({ state: "connected" }), tokenPublisher });
+    const second = createBroker({ serverFactory: createHTTPServer, handler: async () => ({ state: "connected" }), tokenPublisher });
 
     await expect(first.start()).resolves.toBe(true);
     await expect(first.start()).resolves.toBe(false);
@@ -65,8 +86,28 @@ describe("fixed-loopback HTTP server", () => {
     const replacement = createBroker({
       serverFactory: createHTTPServer,
       handler: async () => ({ state: "connected" }),
+      tokenPublisher,
     });
     await expect(replacement.start()).resolves.toBe(true);
     await replacement.stop();
   });
+
+  it("completes an unauthorized response without waiting for an incomplete body", async () => {
+    let calls = 0;
+    const broker = createBroker({
+      serverFactory: createHTTPServer,
+      handler: async () => { calls += 1; return { state: "connected" }; },
+      tokenPublisher,
+    });
+    await expect(broker.start()).resolves.toBe(true);
+    try {
+      const response = postIncomplete();
+      await expect(response).resolves.toContain("HTTP/1.1 401");
+      await expect(response).resolves.toContain('{"state":"unauthorized"}');
+      expect(calls).toBe(0);
+    } finally {
+      await broker.stop();
+    }
+  });
+
 });

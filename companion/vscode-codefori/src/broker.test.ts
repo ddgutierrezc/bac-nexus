@@ -18,13 +18,20 @@ import {
   type CodeForIInstance,
 } from "./codeforiAdapter.js";
 import type { BrokerResult } from "./protocol.js";
+import { tokenAuthenticator, type TokenPublisher } from "./tokenState.js";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+const testToken = "test-token-not-a-production-secret";
+
+function testTokenPublisher(): TokenPublisher {
+  return { publish: async () => tokenAuthenticator(testToken) };
+}
 
 class FakeServer implements FixedLoopbackServer {
   bindCalls: Array<{ host: string; port: number }> = [];
   requestHandler: ((request: BrokerRequest) => Promise<BrokerResponse>) | undefined;
+  closeCalls = 0;
 
   constructor(private readonly bindError?: Error) {}
 
@@ -35,7 +42,7 @@ class FakeServer implements FixedLoopbackServer {
     }
   }
 
-  async close(): Promise<void> {}
+  async close(): Promise<void> { this.closeCalls += 1; }
 
   async dispatch(request: BrokerRequest): Promise<BrokerResponse> {
     if (!this.requestHandler) {
@@ -64,13 +71,13 @@ function request(body: string): BrokerRequest {
   return {
     method: "POST",
     path: "/v1/rpc",
-    headers: {},
+    headers: { "x-nexus-companion-token": testToken },
     body: encoder.encode(body),
   };
 }
 
 describe("fixed-loopback broker", () => {
-  it("binds the one fixed address and serves a proof query without authentication", async () => {
+  it("binds the one fixed address and serves an authenticated proof query", async () => {
     const server = new FakeServer();
     const broker = createBroker({
       serverFactory: (handler) => {
@@ -78,6 +85,7 @@ describe("fixed-loopback broker", () => {
         return server;
       },
       handler: async () => ({ state: "ok", rows: [{ value: "QUSER" }] }),
+      tokenPublisher: testTokenPublisher(),
     });
 
     await expect(broker.start()).resolves.toBe(true);
@@ -101,18 +109,32 @@ describe("fixed-loopback broker", () => {
 
   it("fails unavailable on a fixed-port collision without another bind attempt", async () => {
     const server = new FakeServer(new Error("address in use"));
+    const publish = vi.fn(async () => tokenAuthenticator(testToken));
     const broker = createBroker({
       serverFactory: () => server,
       handler: async () => ({ state: "connected" }),
+      tokenPublisher: { publish },
     });
 
     await expect(broker.start()).resolves.toBe(false);
     expect(server.bindCalls).toEqual([
       { host: FIXED_LOOPBACK_HOST, port: FIXED_LOOPBACK_PORT },
     ]);
+    expect(publish).not.toHaveBeenCalled();
   });
 
-  it("accepts a status request with no authorization header", async () => {
+  it("closes a bound server when token publication fails", async () => {
+    const server = new FakeServer();
+    const broker = createBroker({
+      serverFactory: (handler) => { server.requestHandler = handler; return server; },
+      handler: async () => ({ state: "connected" }),
+      tokenPublisher: { publish: async () => { throw new Error("state unavailable"); } },
+    });
+    await expect(broker.start()).resolves.toBe(false);
+    expect(server.closeCalls).toBe(1);
+  });
+
+  it("rejects unauthenticated requests before broker dispatch", async () => {
     const server = new FakeServer();
     const broker = createBroker({
       serverFactory: (handler) => {
@@ -120,19 +142,14 @@ describe("fixed-loopback broker", () => {
         return server;
       },
       handler: async () => ({ state: "connected" }),
+      tokenPublisher: testTokenPublisher(),
     });
     await broker.start();
 
-    const response = await server.dispatch(
-      request('{"version":1,"request_id":"request","method":"session.status","params":{}}'),
-    );
-
-    expect(response.status).toBe(200);
-    expect(JSON.parse(decoder.decode(response.body))).toEqual({
-      version: 1,
-      request_id: "request",
-      result: { state: "connected" },
-    });
+    for (const headers of [{}, { "x-nexus-companion-token": "invalid" }, { "x-nexus-companion-token": "stale" }]) {
+      const response = await server.dispatch({ ...request('{"version":1,"request_id":"request","method":"session.status","params":{}}'), headers });
+      expect(response).toEqual({ status: 401, headers: { "content-type": "application/json" }, body: encoder.encode('{"state":"unauthorized"}') });
+    }
   });
 
   it.each([
@@ -164,6 +181,7 @@ describe("fixed-loopback broker", () => {
         return server;
       },
       handler: async () => result,
+      tokenPublisher: testTokenPublisher(),
     });
     await broker.start();
 
@@ -188,6 +206,7 @@ describe("fixed-loopback broker", () => {
         calls += 1;
         return { state: "connected" };
       },
+      tokenPublisher: testTokenPublisher(),
     });
     await broker.start();
 
@@ -232,6 +251,7 @@ describe("fixed-loopback broker", () => {
       handler: async () => {
         throw new Error("raw backend failure for QUSER");
       },
+      tokenPublisher: testTokenPublisher(),
     });
     await broker.start();
 
@@ -267,6 +287,7 @@ describe("fixed-loopback broker", () => {
         return server;
       },
       handler: createCodeForIBrokerHandler(adapter),
+      tokenPublisher: testTokenPublisher(),
     });
     await broker.start();
 
@@ -306,6 +327,7 @@ describe("fixed-loopback broker", () => {
         return server;
       },
       handler: createCodeForIBrokerHandler(adapter, new ImmediateAdmission()),
+      tokenPublisher: testTokenPublisher(),
     });
     await broker.start();
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.5 - Pre-release
+
+- Deliver zero-touch local Companion authentication with automatic 256-bit token rotation/private state, mandatory pre-dispatch checks, and immediate bounded 401 responses for incomplete unauthorized bodies. Requires the Nexus token-aware release; IBM i live validation and catalog/source tools are not included.
+- Verify the packaged VSIX transitive local runtime-import closure before release use.
+
 ## 0.2.4 - Pre-release
 
 - Preserve request correlation for program inspection responses. (#187)

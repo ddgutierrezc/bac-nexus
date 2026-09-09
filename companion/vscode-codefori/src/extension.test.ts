@@ -3,6 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { BrokerRequest, BrokerResponse, FixedLoopbackServer } from "./broker.js";
 import type { CodeForIExports, CodeForIInstance } from "./codeforiAdapter.js";
 import { activate, deactivate } from "./extension.js";
+import { tokenAuthenticator, type TokenPublisher } from "./tokenState.js";
+
+const testToken = "test-token-not-a-production-secret";
+const tokenPublisher: TokenPublisher = { publish: async () => tokenAuthenticator(testToken) };
 
 class FakeServer implements FixedLoopbackServer {
   bindCalls: Array<{ host: string; port: number }> = [];
@@ -30,10 +34,11 @@ describe("Companion extension activation", () => {
     const getExtension = vi.fn().mockReturnValue({ activate: activateCodeForI, exports: undefined });
     const server = new FakeServer();
 
-    await activate({}, { extensionHost: { getExtension }, serverFactory: (handler) => {
+    await activate({}, { extensionHost: { getExtension }, serverFactory: (handler, authenticate) => {
       server.handler = handler;
+      expect(authenticate({ "x-nexus-companion-token": testToken })).toBe(false);
       return server;
-    } });
+    }, tokenPublisher });
 
     expect(getExtension).toHaveBeenCalledWith("halcyontechltd.code-for-ibmi");
     expect(activateCodeForI).toHaveBeenCalledTimes(1);
@@ -42,7 +47,7 @@ describe("Companion extension activation", () => {
     const response = await server.handler!({
       method: "POST",
       path: "/v1/rpc",
-      headers: {},
+      headers: { "x-nexus-companion-token": testToken },
       body: new TextEncoder().encode(
         '{"version":1,"request_id":"request","method":"sql.query","params":{"sql":"SELECT CURRENT_USER FROM SYSIBM.SYSDUMMY1"}}',
       ),
