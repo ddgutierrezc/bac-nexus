@@ -21,17 +21,20 @@ const (
 
 type Client struct {
 	httpClient *http.Client
+	tokens     tokenSource
 }
 
 var _ provider.Provider = (*Client)(nil)
 var _ inspection.Provider = (*Client)(nil)
 
-// NewClient constructs the fixed unauthenticated loopback provider.
+// NewClient constructs the fixed loopback provider. It remains compatible with
+// Companion versions that have not yet published a private token state.
 func NewClient() *Client {
 	return &Client{
 		httpClient: &http.Client{Transport: &http.Transport{
 			ResponseHeaderTimeout: responseHeaderTimeout,
 		}},
+		tokens: newFileTokenSource(defaultTokenStatePath),
 	}
 }
 
@@ -109,6 +112,9 @@ func (client *Client) FindProgramSource(ctx context.Context, program inspection.
 }
 
 func (client *Client) post(ctx context.Context, method string, params map[string]string) (rpcEnvelope, provider.QueryState) {
+	if ctx.Err() != nil {
+		return rpcEnvelope{}, contextOrUnavailable(ctx)
+	}
 	requestID, err := newRequestID()
 	if err != nil {
 		return rpcEnvelope{}, provider.QueryFailed
@@ -118,31 +124,58 @@ func (client *Client) post(ctx context.Context, method string, params map[string
 	if err != nil {
 		return rpcEnvelope{}, provider.QueryFailed
 	}
-	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, fixedRPCURL, bytes.NewReader(body))
-	if err != nil {
-		return rpcEnvelope{}, provider.QueryFailed
-	}
-	httpRequest.Header.Set("Content-Type", "application/json")
 	if client.httpClient == nil {
 		return rpcEnvelope{}, provider.QueryUnavailable
 	}
+	token, present := client.token(ctx)
+	envelope, authRejected, state := client.send(ctx, body, requestID, token)
+	if !authRejected || !present || ctx.Err() != nil {
+		return envelope, state
+	}
+	rotated, valid := client.token(ctx)
+	if !valid || rotated == token {
+		return envelope, state
+	}
+	envelope, _, state = client.send(ctx, body, requestID, rotated)
+	return envelope, state
+}
+
+func (client *Client) token(ctx context.Context) (string, bool) {
+	if client.tokens == nil {
+		return "", false
+	}
+	return client.tokens.Token(ctx)
+}
+
+func (client *Client) send(ctx context.Context, body []byte, requestID, token string) (rpcEnvelope, bool, provider.QueryState) {
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, fixedRPCURL, bytes.NewReader(body))
+	if err != nil {
+		return rpcEnvelope{}, false, provider.QueryFailed
+	}
+	httpRequest.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		httpRequest.Header.Set(companionTokenHeader, token)
+	}
 	response, err := client.httpClient.Do(httpRequest)
 	if err != nil {
-		return rpcEnvelope{}, contextOrUnavailable(ctx)
+		return rpcEnvelope{}, false, contextOrUnavailable(ctx)
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+		return rpcEnvelope{}, true, provider.QueryUnavailable
+	}
 	if response.StatusCode != http.StatusOK {
-		return rpcEnvelope{}, provider.QueryUnavailable
+		return rpcEnvelope{}, false, provider.QueryUnavailable
 	}
 	responseBody, err := readBoundedBody(response.Body, maxResponseBytes)
 	if err != nil {
-		return rpcEnvelope{}, provider.QueryFailed
+		return rpcEnvelope{}, false, provider.QueryFailed
 	}
 	envelope, err := decodeEnvelope(responseBody)
 	if err != nil || envelope.Version != protocolVersion || envelope.RequestID != requestID {
-		return rpcEnvelope{}, provider.QueryUnavailable
+		return rpcEnvelope{}, false, provider.QueryUnavailable
 	}
-	return envelope, provider.QueryOK
+	return envelope, false, provider.QueryOK
 }
 
 func newRequestID() (string, error) {
