@@ -7,7 +7,7 @@ import { createHTTPServer } from "./httpServer.js";
 import { createTokenPublisher, type RequestAuthenticator, type TokenPublisher } from "./tokenState.js";
 
 const CODE_FOR_I_EXTENSION_ID = "halcyontechltd.code-for-ibmi";
-const COMPANION_VERSION = "0.2.5";
+const COMPANION_VERSION = "0.2.6";
 type ServerFactory = (handler: (request: BrokerRequest) => Promise<BrokerResponse>, authenticate: RequestAuthenticator) => FixedLoopbackServer;
 
 interface Extension<T> {
