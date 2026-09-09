@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"unicode/utf8"
 
+	"bac-nexus/internal/catalog"
 	"bac-nexus/internal/inspection"
 	"bac-nexus/internal/provider"
 )
@@ -16,8 +18,10 @@ const (
 	methodSQLQuery          = "sql.query"
 	methodResolveProgram    = "program_inspection.v1.resolve"
 	methodFindProgramSource = "program_inspection.v1.find_source"
+	methodResolveCatalog    = "catalog.resolve_candidates.v1"
 	maxRequestBytes         = 512
 	maxResponseBytes        = 4096
+	maxCatalogResponseBytes = 128 * 1024
 )
 
 var (
@@ -45,7 +49,7 @@ type rpcEnvelope struct {
 }
 
 func encodeRequest(request rpcRequest) ([]byte, error) {
-	if request.Version != protocolVersion || request.RequestID == "" {
+	if request.Version != protocolVersion || !validRequestID(request.RequestID) {
 		return nil, errInvalidProtocol
 	}
 	params := map[string]string{}
@@ -78,6 +82,15 @@ func encodeRequest(request rpcRequest) ([]byte, error) {
 				return nil, errInvalidProtocol
 			}
 			params[key] = value
+		}
+	case methodResolveCatalog:
+		search, err := catalog.NewSearch(request.Params["item"], request.Params["productionLibrary"])
+		if err != nil || (len(request.Params) != 1 && len(request.Params) != 2) {
+			return nil, errInvalidProtocol
+		}
+		params["item"] = search.Item
+		if search.ProductionLibrary != "" {
+			params["productionLibrary"] = search.ProductionLibrary
 		}
 	default:
 		return nil, errInvalidProtocol
@@ -115,7 +128,7 @@ func decodeRequest(body []byte) (rpcRequest, error) {
 	if request.Method, err = decodeString(fields["method"]); err != nil {
 		return rpcRequest{}, err
 	}
-	params, err := decodeAllowedObject(fields["params"], "sql", "name", "library", "objectType")
+	params, err := decodeAllowedObject(fields["params"], "sql", "name", "library", "objectType", "item", "productionLibrary")
 	if err != nil {
 		return rpcRequest{}, err
 	}
@@ -162,10 +175,25 @@ func decodeRequest(body []byte) (rpcRequest, error) {
 		if request.Params["library"] == "" || request.Params["name"] == "" || request.Params["objectType"] != "*PGM" {
 			return rpcRequest{}, errInvalidProtocol
 		}
+	case methodResolveCatalog:
+		if len(params) != 1 && len(params) != 2 {
+			return rpcRequest{}, errInvalidProtocol
+		}
+		request.Params = map[string]string{}
+		for _, key := range []string{"item", "productionLibrary"} {
+			if raw, ok := params[key]; ok {
+				if request.Params[key], err = decodeString(raw); err != nil {
+					return rpcRequest{}, err
+				}
+			}
+		}
+		if _, err := catalog.NewSearch(request.Params["item"], request.Params["productionLibrary"]); err != nil {
+			return rpcRequest{}, errInvalidProtocol
+		}
 	default:
 		return rpcRequest{}, errInvalidProtocol
 	}
-	if request.Version != protocolVersion || request.RequestID == "" {
+	if request.Version != protocolVersion || !validRequestID(request.RequestID) {
 		return rpcRequest{}, errInvalidProtocol
 	}
 	return request, nil
@@ -230,7 +258,11 @@ func decodeResponse(body []byte) (rpcResponse, error) {
 }
 
 func decodeEnvelope(body []byte) (rpcEnvelope, error) {
-	if len(body) > maxResponseBytes {
+	return decodeEnvelopeWithLimit(body, maxResponseBytes)
+}
+
+func decodeEnvelopeWithLimit(body []byte, maximum int) (rpcEnvelope, error) {
+	if len(body) > maximum {
 		return rpcEnvelope{}, errBodyLimit
 	}
 	fields, err := decodeExactObject(body, "version", "request_id", "result")
@@ -244,10 +276,61 @@ func decodeEnvelope(body []byte) (rpcEnvelope, error) {
 	if envelope.RequestID, err = decodeString(fields["request_id"]); err != nil {
 		return rpcEnvelope{}, err
 	}
-	if envelope.Version != protocolVersion || envelope.RequestID == "" {
+	if envelope.Version != protocolVersion || !validRequestID(envelope.RequestID) {
 		return rpcEnvelope{}, errInvalidProtocol
 	}
 	return envelope, nil
+}
+
+type catalogResult struct {
+	State      string
+	Candidates []catalog.Candidate
+}
+
+func decodeCatalogResult(raw json.RawMessage) (catalogResult, error) {
+	fields, err := decodeAllowedObject(raw, "state", "candidates")
+	if err != nil {
+		return catalogResult{}, err
+	}
+	state, err := decodeString(fields["state"])
+	if err != nil {
+		return catalogResult{}, err
+	}
+	result := catalogResult{State: state}
+	if state != "ok" {
+		if len(fields) != 1 || (state != "invalid_request" && state != "candidate_limit_exceeded" && state != "unavailable" && state != "failed") {
+			return catalogResult{}, errInvalidProtocol
+		}
+		return result, nil
+	}
+	if len(fields) != 2 || len(bytes.TrimSpace(fields["candidates"])) == 0 || bytes.TrimSpace(fields["candidates"])[0] != '[' {
+		return catalogResult{}, errInvalidProtocol
+	}
+	var rows []json.RawMessage
+	if json.Unmarshal(fields["candidates"], &rows) != nil || len(rows) > catalog.MaxCandidates {
+		return catalogResult{}, errInvalidProtocol
+	}
+	result.Candidates = make([]catalog.Candidate, 0, len(rows))
+	for _, row := range rows {
+		fields, err := decodeExactObject(row, "item", "sourceLibrary", "sourceFileBase", "objectType", "sourceType", "application", "version", "productionLibrary", "description")
+		if err != nil {
+			return catalogResult{}, err
+		}
+		candidate := catalog.Candidate{}
+		for _, field := range []struct {
+			name string
+			out  *string
+		}{{"item", &candidate.Item}, {"sourceLibrary", &candidate.SourceLibrary}, {"sourceFileBase", &candidate.SourceFileBase}, {"objectType", &candidate.ObjectType}, {"sourceType", &candidate.SourceType}, {"application", &candidate.Application}, {"version", &candidate.Version}, {"productionLibrary", &candidate.ProductionLibrary}, {"description", &candidate.Description}} {
+			if *field.out, err = decodeString(fields[field.name]); err != nil || len(*field.out) > 256 || !utf8.ValidString(*field.out) {
+				return catalogResult{}, errInvalidProtocol
+			}
+		}
+		if !catalog.IsSystemName(candidate.Item) || !catalog.IsSystemName(candidate.SourceLibrary) || !catalog.IsSystemName(candidate.SourceFileBase) || !catalog.IsSystemName(candidate.ObjectType) || !catalog.IsSystemName(candidate.SourceType) {
+			return catalogResult{}, errInvalidProtocol
+		}
+		result.Candidates = append(result.Candidates, candidate)
+	}
+	return result, nil
 }
 
 func decodeQueryResult(raw json.RawMessage) (provider.QueryResult, error) {
@@ -363,6 +446,18 @@ func decodeString(raw json.RawMessage) (string, error) {
 		return "", errInvalidProtocol
 	}
 	return value, nil
+}
+
+func validRequestID(value string) bool {
+	if len(value) == 0 || len(value) > 128 {
+		return false
+	}
+	for i := range len(value) {
+		if value[i] > 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 func readBoundedBody(reader io.Reader, maximum int) ([]byte, error) {
