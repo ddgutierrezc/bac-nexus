@@ -109,6 +109,58 @@ describe("Code for IBM i public adapter", () => {
     expect(adapter.sessionStatus()).toEqual({ state: "connection_unavailable" });
   });
 
+  it("runs only fixed Catalogados SQL with normalized bound criteria and preserves row order", async () => {
+    const calls: Array<[string | string[], { bindings?: unknown[]; rows?: number } | undefined]> = [];
+    const fake = createFakeExports(async (sql, options) => {
+      calls.push([sql, options]);
+      return [{ ITEM: "PISA061", TIPO_DE_FUENTE: "RPGLE", TIPO_OBJETO: "RPGLE", APLICACION: null, VERSION: null, BIBLIOTECA_PRODUCCION: "PRODLIB", BIBLIOTECA_FUENTES: "SRCLIB", ARCHIVO_FUENTES: "Q", DESCRIPCION: null }];
+    });
+    const adapter = createCodeForIAdapter(fake.exports, {});
+
+    await expect(adapter.resolveCatalogCandidates({ item: " pisa061 ", productionLibrary: " prodlib " })).resolves.toEqual({
+      state: "ok", candidates: [{ item: "PISA061", sourceType: "RPGLE", objectType: "RPGLE", application: "", version: "", productionLibrary: "PRODLIB", sourceLibrary: "SRCLIB", sourceFileBase: "Q", description: "" }],
+    });
+    expect(calls).toEqual([[expect.stringContaining("UPPER(PDNAME) = UPPER(?)"), { bindings: ["%PISA061%", "PRODLIB"], rows: 51 }]]);
+    expect(calls[0]![0]).toContain("ORDER BY SHSNAM, PDSLIB, PDSFIL, SHOTYP, SHSTYP, PDNAME, PDAPPL, PDVERS");
+  });
+
+  it("uses the unfiltered fixed Catalogados variant and fails closed on invalid, malformed, or over-limit rows", async () => {
+    const calls: Array<{ bindings?: unknown[]; rows?: number } | undefined> = [];
+    const valid = { ITEM: "PISA061", TIPO_DE_FUENTE: "RPGLE", TIPO_OBJETO: "RPGLE", APLICACION: null, VERSION: null, BIBLIOTECA_PRODUCCION: null, BIBLIOTECA_FUENTES: "SRCLIB", ARCHIVO_FUENTES: "Q", DESCRIPCION: null };
+    let returnedRows: unknown[] = Array.from({ length: 50 }, () => valid);
+    const fake = createFakeExports(async (_sql, options) => { calls.push(options); return returnedRows; });
+    const adapter = createCodeForIAdapter(fake.exports, {});
+
+    await expect(adapter.resolveCatalogCandidates({ item: "bad name" })).resolves.toEqual({ state: "invalid_request" });
+    const accepted = await adapter.resolveCatalogCandidates({ item: "PISA061" });
+    expect(accepted.state).toBe("ok");
+    if (accepted.state === "ok") expect(accepted.candidates).toHaveLength(50);
+    returnedRows = Array.from({ length: 51 }, () => valid);
+    await expect(adapter.resolveCatalogCandidates({ item: "PISA061" })).resolves.toEqual({ state: "candidate_limit_exceeded" });
+    returnedRows = [{ ...valid, ITEM: null }];
+    await expect(adapter.resolveCatalogCandidates({ item: "PISA061" })).resolves.toEqual({ state: "failed" });
+    expect(calls).toEqual(Array(3).fill({ bindings: ["%PISA061%"], rows: 51 }));
+  });
+
+  it("suppresses Catalogados results after disconnect, reconnect, or deactivation", async () => {
+    for (const change of ["disconnected", "connected", "deactivate"] as const) {
+      const deferred = new Deferred<unknown[]>();
+      const fake = createFakeExports(async () => deferred.promise);
+      const adapter = createCodeForIAdapter(fake.exports, {});
+      const result = adapter.resolveCatalogCandidates({ item: "PISA061" });
+      if (change === "deactivate") adapter.deactivate(); else fake.emit(change);
+      deferred.complete([]);
+      await expect(result).resolves.toEqual({ state: "unavailable" });
+    }
+  });
+
+  it("does not expose raw Catalogados failures", async () => {
+    const fake = createFakeExports(async () => { throw new Error("host.example QUSER secret binding"); });
+    const result = await createCodeForIAdapter(fake.exports, {}).resolveCatalogCandidates({ item: "PISA061" });
+    expect(result).toEqual({ state: "failed" });
+    expect(JSON.stringify(result)).not.toMatch(/host\.example|QUSER|secret|binding/);
+  });
+
   it("suppresses in-flight program matches after disconnect or reconnect", async () => {
     for (const reconnect of [false, true]) {
       const deferred = new Deferred<Array<{ library: string; name: string; type: string; text: string }>>();

@@ -4,8 +4,10 @@ export const PROTOCOL_VERSION = 1;
 export const MAX_REQUEST_BYTES = 512;
 // Metadata responses are bounded independently from any future source-content API.
 export const MAX_RESPONSE_BYTES = 4096;
+// 50 candidates × 9 fields × 256 bytes fits below this cap under normal JSON encoding.
+export const MAX_CATALOG_RESPONSE_BYTES = 128 * 1024;
 
-export type BrokerMethod = "session.status" | "sql.query" | "program_inspection.v1.resolve" | "program_inspection.v1.find_source";
+export type BrokerMethod = "session.status" | "sql.query" | "program_inspection.v1.resolve" | "program_inspection.v1.find_source" | "catalog.resolve_candidates.v1";
 export type QueryState =
   | "ok"
   | "unavailable"
@@ -24,7 +26,24 @@ export type BrokerResult =
   | { state: QueryState; rows?: Array<{ value: string }> }
   | { state: SessionState }
   | ResolveProgramResult
-  | FindProgramSourceResult;
+  | FindProgramSourceResult
+  | CatalogResolveResult;
+
+export interface CatalogCandidate {
+  item: string;
+  sourceLibrary: string;
+  sourceFileBase: string;
+  objectType: string;
+  sourceType: string;
+  application: string;
+  version: string;
+  productionLibrary: string;
+  description: string;
+}
+
+export type CatalogResolveResult =
+  | { state: "ok"; candidates: CatalogCandidate[] }
+  | { state: "invalid_request" | "candidate_limit_exceeded" | "unavailable" | "failed" };
 
 type ValidQueryResult =
   | { state: "ok"; rows: [{ value: string }] }
@@ -34,7 +53,7 @@ export interface RpcRequest {
   version: typeof PROTOCOL_VERSION;
   requestID: string;
   method: BrokerMethod;
-  params: Record<string, never> | { sql: string } | { name: string; library?: string } | { library: string; name: string; objectType: "*PGM" };
+  params: Record<string, never> | { sql: string } | { name: string; library?: string } | { library: string; name: string; objectType: "*PGM" } | { item: string; productionLibrary?: string };
 }
 
 const encoder = new TextEncoder();
@@ -73,7 +92,7 @@ export function decodeRequest(body: Uint8Array): RpcRequest | null {
   if (
     value.version !== PROTOCOL_VERSION ||
     !isBoundedASCIIString(value.request_id) ||
-    (value.method !== "session.status" && value.method !== "sql.query" && value.method !== "program_inspection.v1.resolve" && value.method !== "program_inspection.v1.find_source")
+    (value.method !== "session.status" && value.method !== "sql.query" && value.method !== "program_inspection.v1.resolve" && value.method !== "program_inspection.v1.find_source" && value.method !== "catalog.resolve_candidates.v1")
   ) {
     return null;
   }
@@ -119,6 +138,11 @@ export function decodeRequest(body: Uint8Array): RpcRequest | null {
       params: { library, name, objectType },
     };
   }
+  if (value.method === "catalog.resolve_candidates.v1") {
+    if (!isRecord(value.params) || (!hasExactKeys(value.params, ["item"]) && !hasExactKeys(value.params, ["item", "productionLibrary"])) || typeof value.params.item !== "string") return null;
+    if ("productionLibrary" in value.params && typeof value.params.productionLibrary !== "string") return null;
+    return { version: PROTOCOL_VERSION, requestID: value.request_id, method: value.method, params: "productionLibrary" in value.params ? { item: value.params.item, productionLibrary: value.params.productionLibrary as string } : { item: value.params.item } };
+  }
 
   if (!hasExactKeys(value.params, ["sql"]) || typeof value.params.sql !== "string") {
     return null;
@@ -140,16 +164,24 @@ export function encodeResponse(request: RpcRequest, result: BrokerResult): Uint8
       result: safeResult,
     }),
   );
-  return body.byteLength <= MAX_RESPONSE_BYTES ? body : unavailableResponse();
+  const maximum = request.method === "catalog.resolve_candidates.v1" && safeResult.state === "ok" && "candidates" in safeResult
+    ? MAX_CATALOG_RESPONSE_BYTES
+    : MAX_RESPONSE_BYTES;
+  return body.byteLength <= maximum ? body : unavailableResponse(request);
 }
 
-export function unavailableResponse(): Uint8Array {
-  return encoder.encode(JSON.stringify({ result: { state: "unavailable" } }));
+export function unavailableResponse(request?: Pick<RpcRequest, "version" | "requestID">): Uint8Array {
+  return encoder.encode(JSON.stringify(request
+    ? { version: request.version, request_id: request.requestID, result: { state: "unavailable" } }
+    : { result: { state: "unavailable" } }));
 }
 
 function sanitizeResult(method: BrokerMethod, result: BrokerResult): BrokerResult {
   if (method === "session.status") {
     return isSessionResult(result) ? { state: result.state } : { state: "companion_unavailable" };
+  }
+  if (method === "catalog.resolve_candidates.v1") {
+    return isCatalogResult(result) ? result : { state: "failed" };
   }
   if (method !== "sql.query") return result;
   if (!isQueryResult(result)) {
@@ -161,20 +193,34 @@ function sanitizeResult(method: BrokerMethod, result: BrokerResult): BrokerResul
   return { state: "ok", rows: [{ value: result.rows[0]!.value }] };
 }
 
+function isCatalogResult(result: BrokerResult): result is CatalogResolveResult {
+  const catalogStates = new Set(["ok", "invalid_request", "candidate_limit_exceeded", "unavailable", "failed"]);
+  const value = result as unknown as Record<string, unknown>;
+  if (!catalogStates.has(result.state) || !isRecord(value)) return false;
+  if (result.state !== "ok") return Object.keys(value).length === 1;
+  return Object.keys(value).length === 2 && Array.isArray(value.candidates) && value.candidates.length <= 50 && value.candidates.every(isCatalogCandidate);
+}
+
+function isCatalogCandidate(value: unknown): value is CatalogCandidate {
+  return hasExactKeys(value, ["item", "sourceLibrary", "sourceFileBase", "objectType", "sourceType", "application", "version", "productionLibrary", "description"])
+    && Object.values(value).every(isBoundedUTF8String);
+}
+
 function isSessionResult(result: BrokerResult): result is { state: SessionState } {
   return Object.keys(result).length === 1 && sessionStates.has(result.state as SessionState);
 }
 
 function isQueryResult(result: BrokerResult): result is ValidQueryResult {
-  if (!queryStates.has(result.state as QueryState)) {
+  const query = result as ValidQueryResult;
+  if (!queryStates.has(query.state as QueryState)) {
     return false;
   }
-  if (result.state !== "ok") {
-    return Object.keys(result).length === 1;
+  if (query.state !== "ok") {
+    return Object.keys(query).length === 1;
   }
-  const rows = result.rows;
+  const rows = query.rows;
   return (
-    Object.keys(result).length === 2 &&
+    Object.keys(query).length === 2 &&
     Array.isArray(rows) &&
     rows.length === 1 &&
     hasExactKeys(rows[0], ["value"]) &&

@@ -54,6 +54,7 @@ export function createCodeForIBrokerHandler(
       if (request.method === "session.status") return adapter.sessionStatus();
       if (request.method === "program_inspection.v1.resolve") return await adapter.resolveProgram(request.params as { name: string; library?: string });
       if (request.method === "program_inspection.v1.find_source") return adapter.findProgramSource(request.params as { library: string; name: string; objectType: "*PGM" });
+      if (request.method === "catalog.resolve_candidates.v1") return adapter.resolveCatalogCandidates(request.params as { item: string; productionLibrary?: string });
       return admission.execute(undefined, () => adapter.query((request.params as { sql: string }).sql));
     } catch (error) {
       if (request.method === "program_inspection.v1.resolve") {
@@ -80,9 +81,9 @@ export function createBroker(options: BrokerOptions): CompanionBroker {
     if (!decoded) {
       return sanitized(400);
     }
-    const normalized = normalizeQuery(decoded);
+    const normalized = normalizeRequest(decoded);
     if (!normalized) {
-      return correlated(decoded, { state: "invalid_query" });
+      return correlated(decoded, decoded.method === "catalog.resolve_candidates.v1" ? { state: "invalid_request" } : { state: "invalid_query" });
     }
 
     try {
@@ -129,12 +130,22 @@ export function createBroker(options: BrokerOptions): CompanionBroker {
   };
 }
 
-function normalizeQuery(request: RpcRequest): RpcRequest | null {
-  if (request.method !== "sql.query") {
-    return request;
+function normalizeRequest(request: RpcRequest): RpcRequest | null {
+  if (request.method === "sql.query") {
+    const sql = canonicalizeProofQuery((request.params as { sql: string }).sql);
+    return sql ? { ...request, params: { sql } } : null;
   }
-  const sql = canonicalizeProofQuery((request.params as { sql: string }).sql);
-  return sql ? { ...request, params: { sql } } : null;
+  if (request.method !== "catalog.resolve_candidates.v1") return request;
+  const params = request.params as { item: string; productionLibrary?: string };
+  const item = normalizeSystemName(params.item);
+  const productionLibrary = params.productionLibrary === undefined ? undefined : normalizeSystemName(params.productionLibrary);
+  if (!item || (params.productionLibrary !== undefined && !productionLibrary)) return null;
+  return { ...request, params: productionLibrary === undefined ? { item } : { item, productionLibrary } };
+}
+
+function normalizeSystemName(value: string): string | undefined {
+  const normalized = value.trim().toUpperCase();
+  return /^[A-Z$#@][A-Z0-9_$#@]{0,9}$/.test(normalized) ? normalized : undefined;
 }
 
 function correlated(request: RpcRequest, result: BrokerResult): BrokerResponse {

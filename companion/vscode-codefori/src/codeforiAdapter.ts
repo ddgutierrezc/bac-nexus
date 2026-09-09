@@ -1,14 +1,18 @@
-import type { QueryState, SessionState } from "./protocol.js";
+import type { CatalogCandidate, CatalogResolveResult, QueryState, SessionState } from "./protocol.js";
 import { canonicalizeProofQuery } from "./query.js";
 import { createProgramInspection, ProgramResolveFailure, type FindProgramSourceRequest, type FindProgramSourceResult, type ProgramInspection, type ResolveProgramRequest, type ResolveProgramResult } from "./programInspection.js";
 
 const MAX_VALUE_BYTES = 256;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
+const CATALOG_ROW_LIMIT = 51;
+const SYSTEM_NAME = /^[A-Z$#@][A-Z0-9_$#@]{0,9}$/;
+const CATALOG_COLUMNS = ["ITEM", "TIPO_DE_FUENTE", "TIPO_OBJETO", "APLICACION", "VERSION", "BIBLIOTECA_PRODUCCION", "BIBLIOTECA_FUENTES", "ARCHIVO_FUENTES", "DESCRIPCION"] as const;
+const catalogSQL = (filtered: boolean): string => `SELECT SHSNAM AS Item, SHSTYP AS Tipo_de_Fuente, SHOTYP AS Tipo_Objeto, PDAPPL AS Aplicacion, PDVERS AS Version, PDNAME AS Biblioteca_Produccion, PDSLIB AS Biblioteca_Fuentes, PDSFIL AS Archivo_Fuentes, PDDESC AS Descripcion FROM pde400.SAHDR, pde400.SIHDR, pde400.prdmst WHERE SHIIDÑ = SIIIDÑ AND SHENDR = 99999 AND SIDCOD = '' AND SHAVPÑ = PDAVPÑ AND UPPER(SHSNAM) LIKE UPPER(?) AND ${filtered ? "UPPER(PDNAME) = UPPER(?)" : "UPPER(PDNAME) = UPPER(PDNAME)"} ORDER BY SHSNAM, PDSLIB, PDSFIL, SHOTYP, SHSTYP, PDNAME, PDAPPL, PDVERS FETCH FIRST 51 ROWS ONLY`;
 
 export interface CodeForIConnection {
   readonly enableSQL?: boolean;
-  runSQL(sql: string, options: { rows?: number }): Promise<unknown[]>;
+  runSQL(sql: string | string[], options: { bindings?: unknown[]; rows?: number }): Promise<unknown[]>;
   getConfig?(): unknown;
   getContent?(): { getObjectList(filters: { library: string; object: string; types: string[] }): Promise<Array<{ library: string; name: string; type: string; text: string }>> };
 }
@@ -50,6 +54,7 @@ export interface OperationFailureDiagnostic {
 export interface CodeForIAdapter {
   sessionStatus(): SessionStatusResult;
   query(sql: string): Promise<QueryResult>;
+  resolveCatalogCandidates(request: { item: string; productionLibrary?: string }): Promise<CatalogResolveResult>;
   resolveProgram(request: ResolveProgramRequest): Promise<ResolveProgramResult>;
   findProgramSource(request: FindProgramSourceRequest): Promise<FindProgramSourceResult>;
   diagnostics(): AdapterDiagnosticSnapshot;
@@ -158,6 +163,20 @@ export function createCodeForIAdapter(
       } catch {
         return { state: "failed" };
       }
+    },
+    async resolveCatalogCandidates(request): Promise<CatalogResolveResult> {
+      const item = normalizeSystemName(request.item);
+      const productionLibrary = request.productionLibrary === undefined ? undefined : normalizeSystemName(request.productionLibrary);
+      if (!item || (request.productionLibrary !== undefined && !productionLibrary)) return { state: "invalid_request" };
+      if (!active || !instance || !(connectionAvailable = refreshConnection())) return { state: "unavailable" };
+      const startedGeneration = connectionGeneration;
+      let connection: CodeForIConnection;
+      try { connection = instance.getConnection(); } catch { connectionAvailable = false; return { state: "unavailable" }; }
+      try {
+        const rows = await connection.runSQL(catalogSQL(productionLibrary !== undefined), { bindings: productionLibrary === undefined ? [`%${item}%`] : [`%${item}%`, productionLibrary], rows: CATALOG_ROW_LIMIT });
+        if (!validGeneration(startedGeneration)) return { state: "unavailable" };
+        return normalizeCatalogRows(rows);
+      } catch { return { state: "failed" }; }
     },
     async resolveProgram(request: ResolveProgramRequest): Promise<ResolveProgramResult> {
       const bound = getProgramInspection();
@@ -296,6 +315,32 @@ function normalizeRows(rows: unknown): QueryResult {
   return isBoundedUTF8String(value)
     ? { state: "ok", rows: [{ value }] }
     : { state: "failed" };
+}
+
+function normalizeCatalogRows(rows: unknown): CatalogResolveResult {
+  if (!Array.isArray(rows)) return { state: "failed" };
+  if (rows.length > 50) return { state: "candidate_limit_exceeded" };
+  const candidates: CatalogCandidate[] = [];
+  for (const row of rows) {
+    if (!isRecord(row)) return { state: "failed" };
+    const values: Record<string, string> = {};
+    for (const key of CATALOG_COLUMNS) {
+      const value = row[key];
+      if (value === null && !["ITEM", "TIPO_DE_FUENTE", "TIPO_OBJETO", "BIBLIOTECA_FUENTES", "ARCHIVO_FUENTES"].includes(key)) values[key] = "";
+      else if (typeof value === "string" && isBoundedUTF8String(value)) values[key] = value.trim();
+      else return { state: "failed" };
+    }
+    if (Reflect.ownKeys(row).filter((key) => Object.prototype.propertyIsEnumerable.call(row, key)).length !== CATALOG_COLUMNS.length || CATALOG_COLUMNS.some((key) => !(key in row))) return { state: "failed" };
+    const candidate = { item: values.ITEM!, sourceType: values.TIPO_DE_FUENTE!, objectType: values.TIPO_OBJETO!, application: values.APLICACION!, version: values.VERSION!, productionLibrary: values.BIBLIOTECA_PRODUCCION!, sourceLibrary: values.BIBLIOTECA_FUENTES!, sourceFileBase: values.ARCHIVO_FUENTES!, description: values.DESCRIPCION! };
+    if (!candidate.item || !candidate.sourceType || !candidate.objectType || !candidate.sourceLibrary || !candidate.sourceFileBase) return { state: "failed" };
+    candidates.push(candidate);
+  }
+  return { state: "ok", candidates };
+}
+
+function normalizeSystemName(value: string): string | undefined {
+  const normalized = value.trim().toUpperCase();
+  return SYSTEM_NAME.test(normalized) ? normalized : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

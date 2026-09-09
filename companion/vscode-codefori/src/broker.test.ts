@@ -152,6 +152,17 @@ describe("fixed-loopback broker", () => {
     }
   });
 
+  it("authenticates and correlates only the catalog allowlisted method", async () => {
+    const server = new FakeServer();
+    const handler = vi.fn(async () => ({ state: "ok", candidates: [] } as BrokerResult));
+    const broker = createBroker({ serverFactory: (requestHandler) => { server.requestHandler = requestHandler; return server; }, handler, tokenPublisher: testTokenPublisher() });
+    await broker.start();
+
+    const response = await server.dispatch(request('{"version":1,"request_id":"catalog","method":"catalog.resolve_candidates.v1","params":{"item":"PISA061"}}'));
+    expect(JSON.parse(decoder.decode(response.body))).toEqual({ version: 1, request_id: "catalog", result: { state: "ok", candidates: [] } });
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ params: { item: "PISA061" } }));
+  });
+
   it.each([
     [
       "resolve success",
@@ -274,6 +285,7 @@ describe("fixed-loopback broker", () => {
     const adapter: CodeForIAdapter = {
       sessionStatus: () => ({ state: "connected" }),
       query: async () => ({ state: "failed" }),
+      resolveCatalogCandidates: async () => ({ state: "unavailable" }),
       resolveProgram: async () => { throw new Error("host.example QUSER secret PISA061"); },
       findProgramSource: async () => ({ state: "unavailable", reason: "compiled_object_source_metadata_unsupported", nextStep: "configure_documented_compile_provenance_api", certainty: "unavailable", completeness: "complete", runtimeLiblVerified: false }),
       diagnostics: () => ({ instance: "available", subscriptions: "registered", getConnection: "available", sqlCapability: "unknown", operationFailure: undefined }),
