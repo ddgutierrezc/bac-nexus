@@ -20,9 +20,17 @@ Code for IBM i session. Code for IBM i retains all IBM i credentials.
 
 ## Local-machine trust boundary
 
-This v1 endpoint has no caller authentication. Any local process that can reach
-the loopback port may call its narrow operations. It does not establish an OS
-user, session, process, extension-host, or other caller identity.
+This v1 endpoint requires the private 256-bit loopback token in
+`X-Nexus-Companion-Token` before it parses a request body or performs work. On
+each successful Companion listener start, the extension generates and rotates
+the token, then stores it as private local state. Nexus reads that state locally;
+the token is not an MCP input or output, and users do not configure it.
+
+The token state is protected for the current OS principal where the platform
+permits. The endpoint does not distinguish individual processes running under
+that same principal: a process that can read the private token state can call
+the loopback endpoint. It is not an Internet-facing or remote-access boundary,
+and the port must not be exposed or forwarded.
 
 The endpoint rejects browser-origin requests and accepts no arbitrary SQL,
 shell, CL, mutation, endpoint discovery, forwarding, or remote access.
@@ -60,11 +68,13 @@ and next start line, and Nexus disposes the Companion artifact before returning.
 Ambiguous, expired, unavailable, malformed, oversized, and cleanup outcomes
 return no source content. Nexus never chooses among ambiguous candidates.
 
-## Credential ownership and future hardening
+## Credential ownership and hardening
 
 Code for IBM i exclusively owns IBM i credentials. The Companion and Nexus do
-not request, receive, persist, or log them. Peer authentication and stronger
-enterprise endpoint hardening are deliberately deferred from v1.
+not request, receive, persist, or log IBM i credentials. The Companion persists
+only the private local loopback authentication state; it is not an IBM i
+credential. Current authentication is a shared local token, not per-process or
+enterprise peer identity; stronger endpoint hardening remains a future concern.
 
 ## Verification limits
 

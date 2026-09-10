@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.8 - Pre-release
+
+- Correct Marketplace guidance for the authenticated local Companion boundary, Catalogados selection, and bounded source paging. Live IBM i validation remains separate.
+
 ## 0.2.7 - Pre-release
 
 - Add private temporary source acquisition through the public Code for IBM i API for exact Catalogados selections, with authenticated page/dispose RPC, opaque session-bound cursors, bounded complete responses and pages, lifecycle cleanup, and Nexus `read_selected_source` interoperability. Live IBM i validation remains separate.

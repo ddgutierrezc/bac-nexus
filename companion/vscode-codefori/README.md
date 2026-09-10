@@ -1,49 +1,46 @@
 # Nexus Code for IBM i Companion (Preview)
 
-Nexus Code for IBM i Companion is an unofficial personal preview that provides a bounded local bridge to an active Code for IBM i session. It is not an organizational product or endorsement.
-
-## Requirements
-
-- Visual Studio Code 1.74 or later.
-- Code for IBM i installed and connected.
-- A local Nexus process.
+Nexus Code for IBM i Companion is an unofficial personal preview that gives a local Nexus process bounded, read-only access to the active Code for IBM i session. It is not an organizational product or endorsement.
 
 ## Install and use
 
-1. Install this preview extension and Code for IBM i.
+1. Install this preview extension and Code for IBM i in Visual Studio Code 1.74 or later.
 2. Connect Code for IBM i to the intended IBM i environment.
-3. Run `nexus serve` without `-profile` to select the Companion.
+3. Run `nexus serve` without `-profile` to select the Companion automatically.
 
-The extension starts automatically after VS Code finishes starting.
+The extension starts after VS Code finishes starting. There is no token, SQL, endpoint, path, or credential setup: Code for IBM i retains IBM i credentials. Passing `-profile` selects Native instead; Companion and Native do not fall back to one another.
 
-Passing `-profile` selects Native instead. There is no fallback between the two modes.
+## Local security boundary
 
-## Security boundary
+The Companion listens only on `127.0.0.1:64139` and requires its private, automatically rotated 256-bit loopback token before request dispatch. Nexus reads that private state locally; the token is not an MCP input or output. Browser-origin requests are rejected, and the port must not be exposed or forwarded.
 
-The bridge listens only on `127.0.0.1:64139` without authentication. Any process on the same machine can call its narrow local interface. Browser-origin requests are rejected before their bodies are parsed. Do not expose or forward this port.
+The Companion exposes no generic SQL, CL, QSH, shell, path, credential, mutation, remote-listening, endpoint-discovery, or forwarding capability. `sql_query` remains only the fixed bounded proof query, not a general SQL interface.
 
-## Capabilities and limits
+## Canonical Companion tools
 
-The bridge supports only:
+| Tool | Bounded behavior |
+|---|---|
+| `session_status` | Reports Companion and Code for IBM i availability. |
+| `sql_query` | Runs the one fixed, bounded proof query only. |
+| `resolve_program` | Resolves supported `*PGM` metadata against configured Code for IBM i context, not runtime `*LIBL`. |
+| `find_program_source` | Returns metadata-only source evidence for an opaque resolved-program selection. |
+| `resolve_catalog_candidates` | Returns up to 50 ordered Catalogados candidates for a bounded query. |
+| `read_selected_source` | Reads one bounded source page for an exact Catalogados selection. |
 
-- `session_status` to report whether Code for IBM i is available and connected.
-- One canonical proof query with a single bounded result.
+`read_selected_source` first requires the complete candidate selected from `resolve_catalog_candidates`; Nexus never chooses an ambiguous candidate. Later page requests accept only the opaque cursor. Cursors are capability values bound to the issuing Nexus process, exact selection, and client policy, rather than paths or reusable source coordinates.
 
-It does not provide arbitrary SQL, commands, source access, credential access, remote listening, or fallback transport.
+## Source paging and lifecycle
 
-## Proof status
+Each source page requests one-based lines and is limited to 200 complete lines. The complete serialized page response, including protocol framing, is limited to 128 KiB; it never returns a partial line. Cursors are omitted at EOF, when Nexus disposes the source artifact.
 
-This preview was verified with offline checks. Live Extension Development Host validation requires Code for IBM i 3.0.12 and an active session, and has not been performed in this package environment.
+The Companion invalidates and cleans up active artifacts when the Code for IBM i session changes or the extension deactivates. It also discards artifacts after source failures or an oversized response. Nexus cursor leases expire after inactivity and are unavailable outside their issuing process/session. Invalid, expired, ambiguous, unavailable, malformed, oversized, and cleanup-failure outcomes are deterministic and do not include source content.
 
-## Troubleshooting
+## Diagnostics and validation status
 
-- Select the Nexus Companion status bar item or run `Nexus Companion: Show Diagnostics` to open a sanitized diagnostic snapshot.
-- Confirm Code for IBM i is installed, enabled, and connected.
-- Confirm no other process is using `127.0.0.1:64139`.
-- Restart VS Code after installing or updating either extension.
-- Run `nexus serve` without `-profile`; an explicit `-profile` selects Native and does not fall back to the Companion.
-- If Nexus reports the Companion unavailable, verify that this extension activated successfully.
+Select the Nexus Companion status bar item or run `Nexus Companion: Show Diagnostics` for a sanitized diagnostic snapshot. It reports listener state, Code for IBM i availability and version, connection state, SQL capability, and the last operation failure stage without exposing credentials or source content.
+
+This preview has offline protocol, bounds, package, and fake/loopback verification. It has not received live workplace IBM i or Extension Development Host validation; that requires separate authorization and an active approved environment.
 
 ## Removal
 
-Uninstall or disable this extension from VS Code. Restart VS Code to stop the local bridge.
+Uninstall or disable this extension from VS Code, then restart VS Code to stop the local bridge.
