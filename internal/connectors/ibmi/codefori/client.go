@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"time"
+	"unicode/utf8"
 
 	"bac-nexus/internal/catalog"
 	"bac-nexus/internal/inspection"
@@ -215,7 +216,7 @@ func (client *Client) send(ctx context.Context, body []byte, requestID, token st
 		return rpcEnvelope{}, false, provider.QueryUnavailable
 	}
 	responseBody, err := readBoundedBody(response.Body, maximum)
-	if err != nil {
+	if err != nil || !utf8.Valid(responseBody) {
 		return rpcEnvelope{}, false, provider.QueryFailed
 	}
 	envelope, err := decodeEnvelopeWithLimit(responseBody, maximum)
