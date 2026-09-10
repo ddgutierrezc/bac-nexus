@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { writeFile } from "node:fs/promises";
 
 import {
   createCodeForIAdapter,
@@ -159,6 +160,53 @@ describe("Code for IBM i public adapter", () => {
     const result = await createCodeForIAdapter(fake.exports, {}).resolveCatalogCandidates({ item: "PISA061" });
     expect(result).toEqual({ state: "failed" });
     expect(JSON.stringify(result)).not.toMatch(/host\.example|QUSER|secret|binding/);
+  });
+
+  it("suppresses a whole-member result after the Code for IBM i session disconnects", async () => {
+    const deferred = new Deferred<string>();
+    const callbacks = new Map<string, () => void>();
+    const adapter = createCodeForIAdapter({ instance: {
+      getConnection: () => ({
+        runSQL: async () => [],
+        getContent: () => ({
+          getObjectList: async () => [],
+          downloadMemberContent: async () => deferred.promise,
+        }),
+      }),
+      subscribe: (_context, event, _name, callback) => callbacks.set(event, callback as () => void),
+    } }, {});
+
+    const result = adapter.acquireCatalogSource({ item: "PISA061", sourceLibrary: "SRCLIB", sourceFileBase: "Q", objectType: "RPGLE", sourceType: "RPGLE", application: "", version: "", productionLibrary: "", description: "" });
+    callbacks.get("disconnected")?.();
+    deferred.complete("source must not escape");
+
+    await expect(result).resolves.toEqual({ state: "stale_session" });
+  });
+
+  it("forwards the Nexus-owned fourth local path to the public member download API", async () => {
+    const calls: Array<[string, string, string, string | undefined]> = [];
+    const adapter = createCodeForIAdapter({ instance: {
+      getConnection: () => ({
+        runSQL: async () => [],
+        getContent: () => ({
+          getObjectList: async () => [],
+          downloadMemberContent: async (library, file, member, localPath) => {
+            calls.push([library, file, member, localPath]);
+            await writeFile(localPath!, "line");
+            return "provider-owned whole member";
+          },
+        }),
+      }),
+      subscribe: () => undefined,
+    } }, {});
+
+    const result = await adapter.acquireCatalogSource({ item: "PISA061", sourceLibrary: "SRCLIB", sourceFileBase: "Q", objectType: "RPGLE", sourceType: "RPGLE", application: "", version: "", productionLibrary: "", description: "" });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.slice(0, 3)).toEqual(["SRCLIB", "QRPGLE", "PISA061"]);
+    expect(calls[0]?.[3]).toContain("bac-nexus-source-");
+    if (result.state === "ok") await result.artifact.dispose();
+    else throw new Error("expected artifact");
   });
 
   it("suppresses in-flight program matches after disconnect or reconnect", async () => {
