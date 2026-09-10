@@ -54,6 +54,15 @@ describe("Companion protocol", () => {
     expect(decodeRequest(encoder.encode('{"version":1,"request_id":"catalog","method":"catalog.resolve_candidates.v1","params":{"item":"PISA061","sql":"SELECT 1"}}'))).toBeNull();
   });
 
+  it("accepts only exact first and later source page shapes", () => {
+    const candidate = { item: "PISA061", sourceLibrary: "SRCLIB", sourceFileBase: "Q", objectType: "RPGLE", sourceType: "RPGLE", application: "", version: "", productionLibrary: "PROD", description: "" };
+    expect(decodeRequest(encoder.encode(JSON.stringify({ version: 1, request_id: "first", method: "source_artifact.page.v1", params: { candidate, start_line: 1, max_lines: 200 } })))?.params).toEqual({ candidate, start_line: 1, max_lines: 200 });
+    expect(decodeRequest(encoder.encode('{"version":1,"request_id":"later","method":"source_artifact.page.v1","params":{"cursor":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","start_line":2,"max_lines":1}}'))?.params).toEqual({ cursor: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", start_line: 2, max_lines: 1 });
+    for (const params of [{ candidate, cursor: "a".repeat(43), start_line: 1, max_lines: 1 }, { candidate, start_line: 0, max_lines: 1 }, { cursor: "a".repeat(42), start_line: 1, max_lines: 1 }]) {
+      expect(decodeRequest(encoder.encode(JSON.stringify({ version: 1, request_id: "bad", method: "source_artifact.page.v1", params })))).toBeNull();
+    }
+  });
+
   it("serializes catalog successes with an array and removes candidates from errors", () => {
     const request = decodeRequest(encoder.encode('{"version":1,"request_id":"catalog","method":"catalog.resolve_candidates.v1","params":{"item":"PISA061"}}'))!;
     expect(JSON.parse(decoder.decode(encodeResponse(request, { state: "ok", candidates: [] })))).toEqual({
@@ -122,7 +131,7 @@ describe("Companion protocol", () => {
   });
 
   it("rejects over-limit bodies and strips invalid non-success result data", () => {
-    expect(decodeRequest(encoder.encode("x".repeat(513)))).toBeNull();
+    expect(decodeRequest(encoder.encode("x".repeat(4097)))).toBeNull();
 
     const response = encodeResponse(
       {

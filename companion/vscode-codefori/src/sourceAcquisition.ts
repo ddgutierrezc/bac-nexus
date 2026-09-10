@@ -79,16 +79,17 @@ export class SourceArtifact {
     this.#directory = directory;
     this.#handle = handle;
     this.#cleanup = cleanup;
-    this.#expiry = setTimeout(() => { this.#expiryCleanup = this.dispose(); }, SOURCE_ARTIFACT_TTL_MS);
+    this.#expiry = setTimeout(() => { this.#expiryCleanup = this.dispose().catch(() => ({ state: "cleanup_failed" })); }, SOURCE_ARTIFACT_TTL_MS);
     this.#expiry.unref?.();
   }
 
-  async page(startLine: number, maximumLines = MAX_SOURCE_PAGE_LINES): Promise<SourcePageResult> {
+  async page(startLine: number, maximumLines = MAX_SOURCE_PAGE_LINES, maximumBytes = MAX_SOURCE_PAGE_BYTES): Promise<SourcePageResult> {
     if (this.#expiryCleanup) return (await this.#expiryCleanup).state === "disposed" ? { state: "expired" } : { state: "cleanup_failed" };
     if (this.#cleanupFailed) return { state: "cleanup_failed" };
     if (this.#disposed) return { state: "expired" };
     if (!Number.isSafeInteger(startLine) || startLine < 1 || !Number.isSafeInteger(maximumLines) || maximumLines < 1 || maximumLines > MAX_SOURCE_PAGE_LINES) return { state: "invalid_request" };
-    const result = await readPage(this.#handle, startLine, maximumLines);
+    if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1 || maximumBytes > MAX_SOURCE_PAGE_BYTES) return { state: "invalid_request" };
+    const result = await readPage(this.#handle, startLine, maximumLines, maximumBytes);
     if (result.state === "ok") return result;
     return (await this.dispose()).state === "disposed" ? result : { state: "cleanup_failed" };
   }
@@ -105,7 +106,7 @@ export class SourceArtifact {
   }
 }
 
-async function readPage(handle: FileHandle, startLine: number, maximumLines: number): Promise<SourcePageResult> {
+async function readPage(handle: FileHandle, startLine: number, maximumLines: number, maximumBytes: number): Promise<SourcePageResult> {
   const decoder = new TextDecoder("utf-8", { fatal: true });
   const lines: string[] = [];
   let currentLine = 1;
@@ -119,8 +120,8 @@ async function readPage(handle: FileHandle, startLine: number, maximumLines: num
       }
       const result = consumeLines();
       if (result) return result;
-      if (lines.length === maximumLines && pending !== "") return pageResult(lines, startLine, false);
-      if (encoder.encode(pending).byteLength > MAX_SOURCE_PAGE_BYTES) return { state: "response_too_large" };
+      if (lines.length === maximumLines && pending !== "") return pageResult(lines, startLine, false, maximumBytes);
+      if (encoder.encode(pending).byteLength > maximumBytes) return { state: "response_too_large" };
     }
     try {
       pending += decoder.decode();
@@ -128,7 +129,7 @@ async function readPage(handle: FileHandle, startLine: number, maximumLines: num
       return { state: "invalid_source_encoding" };
     }
     const result = consumeLines(true);
-    return result ?? pageResult(lines, startLine, true);
+    return result ?? pageResult(lines, startLine, true, maximumBytes);
   } catch {
     return { state: "unavailable" };
   }
@@ -137,28 +138,28 @@ async function readPage(handle: FileHandle, startLine: number, maximumLines: num
     for (;;) {
       const newline = pending.indexOf("\n");
       if (newline < 0) break;
-      if (lines.length === maximumLines) return pageResult(lines, startLine, false);
+      if (lines.length === maximumLines) return pageResult(lines, startLine, false, maximumBytes);
       const line = pending.slice(0, newline).replace(/\r$/, "");
       pending = pending.slice(newline + 1);
       const result = addLine(line);
       if (result) return result;
     }
-    if (final && pending !== "") return lines.length === maximumLines ? pageResult(lines, startLine, false) : addLine(pending.replace(/\r$/, ""));
+    if (final && pending !== "") return lines.length === maximumLines ? pageResult(lines, startLine, false, maximumBytes) : addLine(pending.replace(/\r$/, ""));
     return undefined;
   }
 
   function addLine(line: string): SourcePageResult | undefined {
     if (currentLine++ < startLine) return undefined;
     const content = [...lines, line].join("\n");
-    if (marshaledBytes({ state: "ok", content, startLine, lineCount: lines.length + 1, eof: false, nextLine: startLine + lines.length + 1 }) > MAX_SOURCE_PAGE_BYTES) return { state: "response_too_large" };
+    if (marshaledBytes({ state: "ok", content, startLine, lineCount: lines.length + 1, eof: false, nextLine: startLine + lines.length + 1 }) > maximumBytes) return { state: "response_too_large" };
     lines.push(line);
     return undefined;
   }
 }
 
-function pageResult(lines: string[], startLine: number, eof: boolean): SourcePageResult {
+function pageResult(lines: string[], startLine: number, eof: boolean, maximumBytes: number): SourcePageResult {
   const page = { state: "ok" as const, content: lines.join("\n"), startLine, lineCount: lines.length, eof, nextLine: eof ? null : startLine + lines.length };
-  return marshaledBytes(page) <= MAX_SOURCE_PAGE_BYTES ? page : { state: "response_too_large" };
+  return marshaledBytes(page) <= maximumBytes ? page : { state: "response_too_large" };
 }
 
 function marshaledBytes(value: unknown): number {

@@ -152,6 +152,15 @@ describe("fixed-loopback broker", () => {
     }
   });
 
+  it("does not acquire source artifacts for unauthenticated source-page requests", async () => {
+    const server = new FakeServer();
+    const handler = vi.fn(async () => ({ state: "unavailable" } as BrokerResult));
+    const broker = createBroker({ serverFactory: (requestHandler) => { server.requestHandler = requestHandler; return server; }, handler, tokenPublisher: testTokenPublisher() });
+    await broker.start();
+    await server.dispatch({ ...request('{"version":1,"request_id":"source","method":"source_artifact.page.v1","params":{}}'), headers: {} });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it("authenticates and correlates only the catalog allowlisted method", async () => {
     const server = new FakeServer();
     const handler = vi.fn(async () => ({ state: "ok", candidates: [] } as BrokerResult));
@@ -286,6 +295,8 @@ describe("fixed-loopback broker", () => {
       sessionStatus: () => ({ state: "connected" }),
       query: async () => ({ state: "failed" }),
       resolveCatalogCandidates: async () => ({ state: "unavailable" }),
+      sourceSessionGeneration: () => 0,
+      isSourceSessionCurrent: () => true,
       acquireCatalogSource: async () => ({ state: "unavailable" }),
       resolveProgram: async () => { throw new Error("host.example QUSER secret PISA061"); },
       findProgramSource: async () => ({ state: "unavailable", reason: "compiled_object_source_metadata_unsupported", nextStep: "configure_documented_compile_provenance_api", certainty: "unavailable", completeness: "complete", runtimeLiblVerified: false }),

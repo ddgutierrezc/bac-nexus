@@ -5,6 +5,7 @@ import { createCodeForIAdapter, type CodeForIExports } from "./codeforiAdapter.j
 import { createDiagnosticsUI, DIAGNOSTICS_COMMAND, type OutputChannel, type StatusBarItem } from "./diagnostics.js";
 import { createHTTPServer } from "./httpServer.js";
 import { createTokenPublisher, type RequestAuthenticator, type TokenPublisher } from "./tokenState.js";
+import { createSourceArtifactBroker } from "./sourceArtifactBroker.js";
 
 const CODE_FOR_I_EXTENSION_ID = "halcyontechltd.code-for-ibmi";
 const COMPANION_VERSION = "0.2.6";
@@ -39,7 +40,7 @@ export interface ActivationOptions {
   tokenPublisher?: TokenPublisher;
 }
 
-let owned: { broker: ReturnType<typeof createBroker>; deactivate(): void; dispose(): void } | undefined;
+let owned: { broker: ReturnType<typeof createBroker>; deactivate(): void; dispose(): Promise<void> } | undefined;
 
 export async function activate(context: unknown, options: ActivationOptions = {}): Promise<void> {
   await deactivate();
@@ -57,14 +58,15 @@ export async function activate(context: unknown, options: ActivationOptions = {}
   }
 
   const adapter = createCodeForIAdapter(exports, context);
+  const sourceArtifacts = createSourceArtifactBroker(adapter);
   const broker = createBroker({
     serverFactory: options.serverFactory ?? createHTTPServer,
-    handler: createCodeForIBrokerHandler(adapter),
+    handler: createCodeForIBrokerHandler(adapter, undefined, sourceArtifacts),
     tokenPublisher: options.tokenPublisher ?? createTokenPublisher(),
   });
   const listening = await broker.start();
   if (!vscode) {
-    owned = { broker, deactivate: adapter.deactivate, dispose: () => undefined };
+    owned = { broker, deactivate: adapter.deactivate, dispose: () => sourceArtifacts.deactivate() };
     return;
   }
 
@@ -85,7 +87,7 @@ export async function activate(context: unknown, options: ActivationOptions = {}
   owned = {
     broker,
     deactivate: adapter.deactivate,
-    dispose: () => { unsubscribe(); command.dispose(); diagnostics.dispose(); },
+    dispose: async () => { unsubscribe(); command.dispose(); diagnostics.dispose(); await sourceArtifacts.deactivate(); },
   };
 }
 
@@ -99,7 +101,7 @@ export async function deactivate(): Promise<void> {
     await active.broker.stop();
   } finally {
     active.deactivate();
-    active.dispose();
+    await active.dispose();
   }
 }
 

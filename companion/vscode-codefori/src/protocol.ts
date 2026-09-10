@@ -1,13 +1,14 @@
 import { CANONICAL_PROOF_QUERY } from "./query.js";
 
 export const PROTOCOL_VERSION = 1;
-export const MAX_REQUEST_BYTES = 512;
+export const MAX_REQUEST_BYTES = 4096;
 // Metadata responses are bounded independently from any future source-content API.
 export const MAX_RESPONSE_BYTES = 4096;
 // 50 candidates × 9 fields × 256 bytes fits below this cap under normal JSON encoding.
 export const MAX_CATALOG_RESPONSE_BYTES = 128 * 1024;
+export const MAX_SOURCE_RESPONSE_BYTES = 128 * 1024;
 
-export type BrokerMethod = "session.status" | "sql.query" | "program_inspection.v1.resolve" | "program_inspection.v1.find_source" | "catalog.resolve_candidates.v1";
+export type BrokerMethod = "session.status" | "sql.query" | "program_inspection.v1.resolve" | "program_inspection.v1.find_source" | "catalog.resolve_candidates.v1" | "source_artifact.page.v1" | "source_artifact.dispose.v1";
 export type QueryState =
   | "ok"
   | "unavailable"
@@ -27,7 +28,8 @@ export type BrokerResult =
   | { state: SessionState }
   | ResolveProgramResult
   | FindProgramSourceResult
-  | CatalogResolveResult;
+  | CatalogResolveResult
+  | SourceArtifactResult;
 
 export interface CatalogCandidate {
   item: string;
@@ -45,6 +47,14 @@ export type CatalogResolveResult =
   | { state: "ok"; candidates: CatalogCandidate[] }
   | { state: "invalid_request" | "candidate_limit_exceeded" | "unavailable" | "failed" };
 
+export type SourceArtifactResult =
+  | { state: "ok"; cursor: string; page: { content: string; start_line: number; line_count: number; eof: boolean } }
+  | { state: "disposed" | "invalid_request" | "not_found" | "ambiguous" | "unavailable" | "expired" | "invalid_source_encoding" | "response_too_large" | "cleanup_failed" };
+
+export type SourcePageParams =
+  | { candidate: CatalogCandidate; start_line: number; max_lines: number }
+  | { cursor: string; start_line: number; max_lines: number };
+
 type ValidQueryResult =
   | { state: "ok"; rows: [{ value: string }] }
   | { state: Exclude<QueryState, "ok"> };
@@ -53,7 +63,7 @@ export interface RpcRequest {
   version: typeof PROTOCOL_VERSION;
   requestID: string;
   method: BrokerMethod;
-  params: Record<string, never> | { sql: string } | { name: string; library?: string } | { library: string; name: string; objectType: "*PGM" } | { item: string; productionLibrary?: string };
+  params: Record<string, never> | { sql: string } | { name: string; library?: string } | { library: string; name: string; objectType: "*PGM" } | { item: string; productionLibrary?: string } | SourcePageParams | { cursor: string };
 }
 
 const encoder = new TextEncoder();
@@ -92,7 +102,7 @@ export function decodeRequest(body: Uint8Array): RpcRequest | null {
   if (
     value.version !== PROTOCOL_VERSION ||
     !isBoundedASCIIString(value.request_id) ||
-    (value.method !== "session.status" && value.method !== "sql.query" && value.method !== "program_inspection.v1.resolve" && value.method !== "program_inspection.v1.find_source" && value.method !== "catalog.resolve_candidates.v1")
+    (value.method !== "session.status" && value.method !== "sql.query" && value.method !== "program_inspection.v1.resolve" && value.method !== "program_inspection.v1.find_source" && value.method !== "catalog.resolve_candidates.v1" && value.method !== "source_artifact.page.v1" && value.method !== "source_artifact.dispose.v1")
   ) {
     return null;
   }
@@ -143,6 +153,23 @@ export function decodeRequest(body: Uint8Array): RpcRequest | null {
     if ("productionLibrary" in value.params && typeof value.params.productionLibrary !== "string") return null;
     return { version: PROTOCOL_VERSION, requestID: value.request_id, method: value.method, params: "productionLibrary" in value.params ? { item: value.params.item, productionLibrary: value.params.productionLibrary as string } : { item: value.params.item } };
   }
+  if (value.method === "source_artifact.dispose.v1") {
+    if (!hasExactKeys(value.params, ["cursor"]) || !isCursor(value.params.cursor)) return null;
+    return { version: PROTOCOL_VERSION, requestID: value.request_id, method: value.method, params: { cursor: value.params.cursor } };
+  }
+  if (value.method === "source_artifact.page.v1") {
+    if (!isRecord(value.params) || !isPageRange(value.params)) return null;
+    const { start_line, max_lines } = value.params;
+    const candidate = value.params.candidate;
+    const cursor = value.params.cursor;
+    if (hasExactKeys(value.params, ["candidate", "start_line", "max_lines"]) && isCatalogCandidate(candidate)) {
+      return { version: PROTOCOL_VERSION, requestID: value.request_id, method: value.method, params: { candidate, start_line, max_lines } };
+    }
+    if (hasExactKeys(value.params, ["cursor", "start_line", "max_lines"]) && isCursor(cursor)) {
+      return { version: PROTOCOL_VERSION, requestID: value.request_id, method: value.method, params: { cursor, start_line, max_lines } };
+    }
+    return null;
+  }
 
   if (!hasExactKeys(value.params, ["sql"]) || typeof value.params.sql !== "string") {
     return null;
@@ -166,6 +193,8 @@ export function encodeResponse(request: RpcRequest, result: BrokerResult): Uint8
   );
   const maximum = request.method === "catalog.resolve_candidates.v1" && safeResult.state === "ok" && "candidates" in safeResult
     ? MAX_CATALOG_RESPONSE_BYTES
+    : request.method === "source_artifact.page.v1" && safeResult.state === "ok" && "page" in safeResult
+      ? MAX_SOURCE_RESPONSE_BYTES
     : MAX_RESPONSE_BYTES;
   return body.byteLength <= maximum ? body : unavailableResponse(request);
 }
@@ -182,6 +211,9 @@ function sanitizeResult(method: BrokerMethod, result: BrokerResult): BrokerResul
   }
   if (method === "catalog.resolve_candidates.v1") {
     return isCatalogResult(result) ? result : { state: "failed" };
+  }
+  if (method === "source_artifact.page.v1" || method === "source_artifact.dispose.v1") {
+    return isSourceArtifactResult(result) ? result : { state: "unavailable" };
   }
   if (method !== "sql.query") return result;
   if (!isQueryResult(result)) {
@@ -204,6 +236,25 @@ function isCatalogResult(result: BrokerResult): result is CatalogResolveResult {
 function isCatalogCandidate(value: unknown): value is CatalogCandidate {
   return hasExactKeys(value, ["item", "sourceLibrary", "sourceFileBase", "objectType", "sourceType", "application", "version", "productionLibrary", "description"])
     && Object.values(value).every(isBoundedUTF8String);
+}
+
+function isSourceArtifactResult(result: BrokerResult): result is SourceArtifactResult {
+  const value = result as Record<string, unknown>;
+  const states = new Set(["ok", "disposed", "invalid_request", "not_found", "ambiguous", "unavailable", "expired", "invalid_source_encoding", "response_too_large", "cleanup_failed"]);
+  if (!isRecord(value) || !states.has(result.state)) return false;
+  if (result.state !== "ok") return Object.keys(value).length === 1;
+  return hasExactKeys(value, ["state", "cursor", "page"]) && isCursor(value.cursor) && hasExactKeys(value.page, ["content", "start_line", "line_count", "eof"]) && typeof value.page.content === "string" && Number.isSafeInteger(value.page.start_line) && Number.isSafeInteger(value.page.line_count) && typeof value.page.eof === "boolean";
+}
+
+function isPageRange(value: Record<string, unknown>): value is Record<string, unknown> & { start_line: number; max_lines: number } {
+  const { start_line, max_lines } = value;
+  return typeof start_line === "number" && Number.isSafeInteger(start_line) && start_line >= 1 && typeof max_lines === "number" && Number.isSafeInteger(max_lines) && maxLinesInBounds(max_lines);
+}
+
+function maxLinesInBounds(value: number): boolean { return value >= 1 && value <= 200; }
+
+function isCursor(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{43}$/.test(value);
 }
 
 function isSessionResult(result: BrokerResult): result is { state: SessionState } {
