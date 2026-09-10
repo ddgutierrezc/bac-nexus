@@ -21,6 +21,7 @@ const (
 type companionDeps struct {
 	Provider      provider.Provider
 	Catalog       internalmcp.CatalogProvider
+	Source        internalmcp.SourceProvider
 	ServerFactory func(*internalmcp.CodeForIServer) (runner, error)
 }
 
@@ -49,6 +50,7 @@ func defaultCompanionDeps() companionDeps {
 	return companionDeps{
 		Provider: client,
 		Catalog:  client,
+		Source:   client,
 		ServerFactory: func(server *internalmcp.CodeForIServer) (runner, error) {
 			return server, nil
 		},
@@ -68,6 +70,7 @@ func runCompanionWithDeps(ctx context.Context, deps companionDeps) error {
 		Provider:  deps.Provider,
 		Inspector: inspector,
 		Catalog:   deps.Catalog,
+		Source:    deps.Source,
 	})
 	if err != nil {
 		return fmt.Errorf("build companion mcp server: %w", err)

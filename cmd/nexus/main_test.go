@@ -449,14 +449,14 @@ func TestRunCompanionWithDepsBuildsOnlyCompanionMCP(t *testing.T) {
 	if stub.runCalls != 1 {
 		t.Fatalf("Companion runner calls = %d, want 1", stub.runCalls)
 	}
-	if want := []string{"session_status", "sql_query", "resolve_program", "find_program_source", "resolve_catalog_candidates"}; !reflect.DeepEqual(tools, want) {
+	if want := []string{"session_status", "sql_query", "resolve_program", "find_program_source", "resolve_catalog_candidates", "read_selected_source"}; !reflect.DeepEqual(tools, want) {
 		t.Fatalf("Companion tools = %v, want %v", tools, want)
 	}
 }
 
 func TestCompanionDepsExcludeNativeConstructionInputs(t *testing.T) {
 	typ := reflect.TypeOf(companionDeps{})
-	want := map[string]bool{"Provider": true, "Catalog": true, "ServerFactory": true}
+	want := map[string]bool{"Provider": true, "Catalog": true, "Source": true, "ServerFactory": true}
 	if typ.NumField() != len(want) {
 		t.Fatalf("companionDeps field count = %d, want %d", typ.NumField(), len(want))
 	}
@@ -470,8 +470,8 @@ func TestCompanionDepsExcludeNativeConstructionInputs(t *testing.T) {
 
 func TestDefaultCompanionDepsSharesOneCatalogClient(t *testing.T) {
 	deps := defaultCompanionDeps()
-	if reflect.ValueOf(deps.Provider).Pointer() != reflect.ValueOf(deps.Catalog).Pointer() {
-		t.Fatal("Companion composition constructed separate catalog and provider clients")
+	if reflect.ValueOf(deps.Provider).Pointer() != reflect.ValueOf(deps.Catalog).Pointer() || reflect.ValueOf(deps.Provider).Pointer() != reflect.ValueOf(deps.Source).Pointer() {
+		t.Fatal("Companion composition constructed separate provider, catalog, and source clients")
 	}
 }
 
