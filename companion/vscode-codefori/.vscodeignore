@@ -12,4 +12,6 @@
 !dist/programInspection.js
 !dist/protocol.js
 !dist/query.js
+!dist/sourceAcquisition.js
+!dist/sourceArtifactBroker.js
 !dist/tokenState.js
