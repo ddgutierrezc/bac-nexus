@@ -386,7 +386,11 @@ func TestServerServesBothToolsOverInMemoryMCPTransport(t *testing.T) {
 		t.Fatalf("first page = %+v, want continuation page", firstOutput.Page)
 	}
 
-	last := callMCPTool(t, client, "read_selected_source", ReadSelectedSourceInput{Cursor: firstOutput.Page.Cursor, StartLine: firstOutput.Page.NextStartLine, MaxLines: 2})
+	_, err := client.CallTool(context.Background(), &sdk.CallToolParams{Name: "read_selected_source", Arguments: map[string]any{"cursor": firstOutput.Page.Cursor, "startLine": firstOutput.Page.NextStartLine, "maxLines": 2}})
+	if err == nil {
+		t.Fatal("Native cursor-only continuation was accepted")
+	}
+	last := callMCPTool(t, client, "read_selected_source", ReadSelectedSourceInput{Selection: validCandidate(), Cursor: firstOutput.Page.Cursor, StartLine: firstOutput.Page.NextStartLine, MaxLines: 2})
 	if last.IsError {
 		t.Fatal("continuation source page returned an MCP tool error")
 	}

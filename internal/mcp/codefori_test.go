@@ -15,6 +15,7 @@ import (
 	"bac-nexus/internal/connectors/ibmi/codefori"
 	"bac-nexus/internal/inspection"
 	"bac-nexus/internal/provider"
+	"bac-nexus/internal/source"
 )
 
 type companionProviderStub struct {
@@ -43,6 +44,28 @@ type companionCatalogStub struct {
 	resolve    func(context.Context, catalog.Search) ([]catalog.Candidate, error)
 }
 
+type companionSourceStub struct {
+	page     func(context.Context, codefori.SourcePageRequest) (codefori.SourcePageResult, error)
+	dispose  func(context.Context, string) (codefori.SourceDisposeResult, error)
+	requests []codefori.SourcePageRequest
+	cursors  []string
+}
+
+func (s *companionSourceStub) PageSource(ctx context.Context, request codefori.SourcePageRequest) (codefori.SourcePageResult, error) {
+	s.requests = append(s.requests, request)
+	if s.page != nil {
+		return s.page(ctx, request)
+	}
+	return sourceResult("line  ", 1, 1, false), nil
+}
+func (s *companionSourceStub) DisposeSource(ctx context.Context, cursor string) (codefori.SourceDisposeResult, error) {
+	s.cursors = append(s.cursors, cursor)
+	if s.dispose != nil {
+		return s.dispose(ctx, cursor)
+	}
+	return codefori.SourceDisposeResult{State: codefori.SourceDisposed}, nil
+}
+
 func (s *companionCatalogStub) ResolveCatalog(ctx context.Context, search catalog.Search) ([]catalog.Candidate, error) {
 	s.calls++
 	if s.resolve != nil {
@@ -64,7 +87,7 @@ func TestCodeForIServerRegistersExactlyCompanionTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewCodeForI() error = %v", err)
 	}
-	want := []string{"session_status", "sql_query", "resolve_program", "find_program_source", "resolve_catalog_candidates"}
+	want := []string{"session_status", "sql_query", "resolve_program", "find_program_source", "resolve_catalog_candidates", "read_selected_source"}
 	if got := server.ToolNames(); !slices.Equal(got, want) {
 		t.Fatalf("ToolNames() = %v, want %v", got, want)
 	}
@@ -137,10 +160,26 @@ func TestCodeForIServerCatalogToolSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	names := make([]string, 0, len(tools.Tools))
-	found := false
+	found, foundSource := false, false
 	for _, tool := range tools.Tools {
 		names = append(names, tool.Name)
 		if tool.Name != "resolve_catalog_candidates" {
+			if tool.Name != "read_selected_source" {
+				continue
+			}
+			input, output := mustSchema(t, tool.InputSchema), mustSchema(t, tool.OutputSchema)
+			for _, forbidden := range []string{"path", "uri", "command", "sql", "ssh", "credential", "filesystem", "transport"} {
+				if _, found := input[forbidden]; found {
+					t.Fatalf("source input exposes %q", forbidden)
+				}
+			}
+			if _, found := input["selection"]; !found {
+				t.Fatal("source input has no selection")
+			}
+			if _, found := output["page"]; !found {
+				t.Fatal("source output has no page")
+			}
+			foundSource = true
 			continue
 		}
 		input, output := mustSchema(t, tool.InputSchema), mustSchema(t, tool.OutputSchema)
@@ -154,7 +193,10 @@ func TestCodeForIServerCatalogToolSchema(t *testing.T) {
 	if !found {
 		t.Fatal("resolve_catalog_candidates was not listed through MCP")
 	}
-	want := []string{"find_program_source", "resolve_catalog_candidates", "resolve_program", "session_status", "sql_query"}
+	if !foundSource {
+		t.Fatal("read_selected_source was not listed through MCP")
+	}
+	want := []string{"find_program_source", "read_selected_source", "resolve_catalog_candidates", "resolve_program", "session_status", "sql_query"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("MCP tool inventory = %v, want %v", names, want)
 	}
@@ -363,6 +405,169 @@ func TestCodeForIServerResolveProgramSerializesRequiredCollections(t *testing.T)
 			}
 		})
 	}
+}
+
+func TestCodeForIServerReadSelectedSourceContract(t *testing.T) {
+	candidate, cursor := sourceCandidateForMCP(), strings.Repeat("A", 43)
+	provider := &companionSourceStub{}
+	server, err := NewCodeForI(CodeForIConfig{Source: provider})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name   string
+		input  companionReadSelectedSourceInput
+		result codefori.SourcePageResult
+		err    error
+		want   error
+		calls  int
+	}{
+		{"first forwards exact candidate", companionReadSelectedSourceInput{Selection: candidate, StartLine: 1, MaxLines: 2}, sourceResult("first  \nsecond", 1, 2, false), nil, nil, 1},
+		{"later forwards only cursor", companionReadSelectedSourceInput{Cursor: cursor, StartLine: 3, MaxLines: 1}, sourceResult("third", 3, 1, false), nil, nil, 1},
+		{"conflicting selection and cursor stops before IO", companionReadSelectedSourceInput{Selection: candidate, Cursor: cursor, StartLine: 1, MaxLines: 1}, codefori.SourcePageResult{}, nil, source.ErrInvalidRequest, 0},
+		{"missing selection stops before IO", companionReadSelectedSourceInput{StartLine: 1, MaxLines: 1}, codefori.SourcePageResult{}, nil, source.ErrInvalidRequest, 0},
+		{"invalid ranges stop before IO", companionReadSelectedSourceInput{Selection: candidate, StartLine: 0, MaxLines: 201}, codefori.SourcePageResult{}, nil, source.ErrInvalidRequest, 0},
+		{"provider failure is sanitized", companionReadSelectedSourceInput{Selection: candidate, StartLine: 1, MaxLines: 1}, codefori.SourcePageResult{}, errors.New("host token path"), codefori.ErrSourceFailed, 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			provider.requests = nil
+			provider.page = func(context.Context, codefori.SourcePageRequest) (codefori.SourcePageResult, error) {
+				return tt.result, tt.err
+			}
+			_, output, got := server.readSelectedSource(context.Background(), nil, tt.input)
+			if !errors.Is(got, tt.want) || len(provider.requests) != tt.calls {
+				t.Fatalf("error=%v calls=%d", got, len(provider.requests))
+			}
+			if tt.want == nil {
+				request := provider.requests[0]
+				if tt.input.Cursor == "" && (request.Candidate == nil || *request.Candidate != candidate || request.Cursor != "") {
+					t.Fatalf("first request = %#v", request)
+				}
+				if tt.input.Cursor != "" && (request.Candidate != nil || request.Cursor != cursor) {
+					t.Fatalf("later request = %#v", request)
+				}
+				if tt.input.Cursor == "" && output.Page.Lines[0] != "first  " {
+					t.Fatal("trailing spaces changed")
+				}
+				if !output.Page.EOF && (output.Page.Cursor != cursor || output.Page.NextStartLine != tt.input.StartLine+output.Page.LineCount) {
+					t.Fatalf("next page metadata = %#v", output.Page)
+				}
+			}
+		})
+	}
+	session, closeSession := connectInMemoryCodeForI(t, CodeForIConfig{Source: &companionSourceStub{page: func(_ context.Context, request codefori.SourcePageRequest) (codefori.SourcePageResult, error) {
+		return sourceResult("later", request.StartLine, 1, false), nil
+	}}})
+	defer closeSession()
+	if result := callCodeForITool(t, session, "read_selected_source", map[string]any{"cursor": cursor, "startLine": 2, "maxLines": 1}); result.IsError {
+		t.Fatalf("cursor-only MCP request failed: %#v", result)
+	}
+}
+
+func TestCodeForIServerReadSelectedSourceStatesAndCleanup(t *testing.T) {
+	candidate := sourceCandidateForMCP()
+	for _, tt := range []struct {
+		name  string
+		state codefori.SourceState
+		want  error
+	}{
+		{"invalid request", codefori.SourceInvalidRequest, source.ErrInvalidRequest}, {"not found", codefori.SourceNotFound, catalog.ErrCandidateNotFound},
+		{"ambiguous does not select", codefori.SourceAmbiguous, &catalog.AmbiguousError{}}, {"expired", codefori.SourceExpired, source.ErrExpiredLease},
+		{"encoding", codefori.SourceInvalidEncoding, source.ErrInvalidSourceEncoding}, {"oversized", codefori.SourceResponseTooLarge, source.ErrResponseTooLarge},
+		{"unavailable", codefori.SourceUnavailable, codefori.ErrSourceUnavailable}, {"cleanup failed", codefori.SourceCleanupFailed, codefori.ErrSourceFailed}, {"disposed", codefori.SourceDisposed, codefori.ErrSourceFailed},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := &companionSourceStub{page: func(context.Context, codefori.SourcePageRequest) (codefori.SourcePageResult, error) {
+				return codefori.SourcePageResult{State: tt.state}, nil
+			}}
+			server, _ := NewCodeForI(CodeForIConfig{Source: provider})
+			_, output, err := server.readSelectedSource(context.Background(), nil, companionReadSelectedSourceInput{Selection: candidate, StartLine: 1, MaxLines: 1})
+			ambiguous := &catalog.AmbiguousError{}
+			if (!errors.Is(err, tt.want) && !errors.As(err, &ambiguous)) || output.Page.LineCount != 0 || len(provider.requests) != 1 {
+				t.Fatalf("error=%v output=%#v requests=%d", err, output, len(provider.requests))
+			}
+		})
+	}
+	for _, tt := range []struct {
+		name, content string
+		eof           bool
+		lineCount     int
+		dispose       codefori.SourceDisposeResult
+		want          error
+	}{
+		{"EOF omits cursor after disposal", "last  ", true, 1, codefori.SourceDisposeResult{State: codefori.SourceDisposed}, nil},
+		{"invalid conversion disposes and leaks no page", "one", false, 2, codefori.SourceDisposeResult{State: codefori.SourceDisposed}, codefori.ErrSourceFailed},
+		{"cleanup failure suppresses EOF page", "last", true, 1, codefori.SourceDisposeResult{State: codefori.SourceExpired}, codefori.ErrSourceFailed},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := &companionSourceStub{page: func(context.Context, codefori.SourcePageRequest) (codefori.SourcePageResult, error) {
+				return sourceResult(tt.content, 1, tt.lineCount, tt.eof), nil
+			}, dispose: func(context.Context, string) (codefori.SourceDisposeResult, error) { return tt.dispose, nil }}
+			server, _ := NewCodeForI(CodeForIConfig{Source: provider})
+			_, output, err := server.readSelectedSource(context.Background(), nil, companionReadSelectedSourceInput{Selection: candidate, StartLine: 1, MaxLines: 2})
+			if !errors.Is(err, tt.want) || len(provider.cursors) != 1 {
+				t.Fatalf("error=%v cursors=%v", err, provider.cursors)
+			}
+			if tt.want == nil && (output.Page.Cursor != "" || output.Page.NextStartLine != 0 || output.Page.Lines[0] != "last  ") {
+				t.Fatalf("EOF page=%#v", output.Page)
+			}
+			if tt.want != nil && output.Page.LineCount != 0 {
+				t.Fatalf("failure leaked page=%#v", output.Page)
+			}
+		})
+	}
+}
+
+func TestCodeForIServerDisposesLiveSourceOnShutdown(t *testing.T) {
+	cursor := strings.Repeat("A", 43)
+	provider := &companionSourceStub{}
+	session, closeSession := connectInMemoryCodeForI(t, CodeForIConfig{Source: provider})
+	result := callCodeForITool(t, session, "read_selected_source", companionReadSelectedSourceInput{Selection: sourceCandidateForMCP(), StartLine: 1, MaxLines: 1})
+	if result.IsError {
+		t.Fatalf("source page failed: %#v", result)
+	}
+	closeSession()
+	if !slices.Equal(provider.cursors, []string{cursor}) {
+		t.Fatalf("shutdown cursors=%v", provider.cursors)
+	}
+}
+
+func TestCodeForIServerDisposesEveryLiveSourceAfterFailure(t *testing.T) {
+	first, second := strings.Repeat("A", 43), strings.Repeat("B", 43)
+	provider := &companionSourceStub{dispose: func(_ context.Context, cursor string) (codefori.SourceDisposeResult, error) {
+		if cursor == first {
+			return codefori.SourceDisposeResult{State: codefori.SourceExpired}, nil
+		}
+		return codefori.SourceDisposeResult{State: codefori.SourceDisposed}, nil
+	}}
+	server, _ := NewCodeForI(CodeForIConfig{Source: provider})
+	server.trackCursor(first)
+	server.trackCursor(second)
+	if err := server.disposeLiveSources(); !errors.Is(err, codefori.ErrSourceFailed) || !slices.Equal(provider.cursors, []string{first, second}) {
+		t.Fatalf("cleanup error=%v cursors=%v", err, provider.cursors)
+	}
+}
+
+func TestCodeForIServerReadSelectedSourceCancellationStopsBeforeProvider(t *testing.T) {
+	provider := &companionSourceStub{page: func(context.Context, codefori.SourcePageRequest) (codefori.SourcePageResult, error) {
+		t.Fatal("cancelled request reached provider")
+		return codefori.SourcePageResult{}, nil
+	}}
+	server, _ := NewCodeForI(CodeForIConfig{Source: provider})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, output, err := server.readSelectedSource(ctx, nil, companionReadSelectedSourceInput{Selection: sourceCandidateForMCP(), StartLine: 1, MaxLines: 1})
+	if !errors.Is(err, context.Canceled) || output.Page.LineCount != 0 || len(provider.requests) != 0 {
+		t.Fatalf("error=%v output=%#v requests=%d", err, output, len(provider.requests))
+	}
+}
+
+func sourceCandidateForMCP() catalog.Candidate {
+	return catalog.Candidate{Item: "PISA061", SourceLibrary: "SRCLIB", SourceFileBase: "QRPG", ObjectType: "M", SourceType: "RPGLE", Application: "APP", Version: "V1", ProductionLibrary: "PRODLIB", Description: "description"}
+}
+
+func sourceResult(content string, startLine, lineCount int, eof bool) codefori.SourcePageResult {
+	return codefori.SourcePageResult{State: codefori.SourceOK, Cursor: strings.Repeat("A", 43), Page: codefori.SourcePage{Content: content, StartLine: startLine, LineCount: lineCount, EOF: eof}}
 }
 
 func connectInMemoryCodeForI(t *testing.T, cfg CodeForIConfig) (*sdk.ClientSession, func()) {

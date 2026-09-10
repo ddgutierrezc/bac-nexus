@@ -7,14 +7,14 @@ Code for IBM i session. Code for IBM i retains all IBM i credentials.
 
 1. Start Code for IBM i with an active session.
 2. Start `nexus serve` without `-profile` to select Companion mode.
-3. Use `session_status`, the canonical proof query, `resolve_program`, or `find_program_source`.
+3. Use `session_status`, the canonical proof query, program inspection tools, or `read_selected_source` after an exact catalog selection.
 
 ## Fixed local endpoint
 
 | Topic | Decision |
 |---|---|
 | Address | The Companion binds only to `127.0.0.1:64139`. |
-| Operations | Public MCP tools are `session_status`, `sql_query`, `resolve_program`, metadata-only `find_program_source`, and `resolve_catalog_candidates`. Internal dotted RPC methods include `session.status`, `sql.query`, `program_inspection.v1.resolve`, and `program_inspection.v1.find_source`. |
+| Operations | Public MCP tools are `session_status`, `sql_query`, `resolve_program`, metadata-only `find_program_source`, `resolve_catalog_candidates`, and `read_selected_source`. The latter accepts an exact selected candidate for its first bounded page and only an opaque cursor thereafter. |
 | Port collision | The Companion is unavailable; it does not scan, retry another port, or fall back to Native mode. |
 | Browser requests | Any request with an `Origin` header is rejected with `browser_origin_rejected`. |
 
@@ -47,8 +47,18 @@ An opaque Nexus-local selection is replayable for five minutes so read-only MCP
 calls may retry; the server retains at most 256 live selections and fails closed
 when full. `find_program_source` accepts only that selection and returns metadata
 only. Documented Code for IBM i APIs do not yet provide independently evidenced
-compiled-object source coordinates, so it returns `unavailable`. `read_source_member`
-is explicitly absent pending a separate approved bounded source-acquisition design.
+compiled-object source coordinates, so it returns `unavailable`.
+
+## Selected source paging
+
+`read_selected_source` reads at most 200 one-based source lines from the exact
+candidate selected from `resolve_catalog_candidates`. Later requests provide
+only the opaque cursor returned by a non-EOF page. Source lines preserve their
+content, including trailing spaces; Companion newline normalization is accepted
+because the MCP result is line-oriented. At EOF, the response omits both cursor
+and next start line, and Nexus disposes the Companion artifact before returning.
+Ambiguous, expired, unavailable, malformed, oversized, and cleanup outcomes
+return no source content. Nexus never chooses among ambiguous candidates.
 
 ## Credential ownership and future hardening
 

@@ -3,6 +3,8 @@ package mcp
 import (
 	"context"
 	"errors"
+	"sort"
+	"strings"
 	"sync"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -11,6 +13,7 @@ import (
 	"bac-nexus/internal/connectors/ibmi/codefori"
 	"bac-nexus/internal/inspection"
 	"bac-nexus/internal/provider"
+	"bac-nexus/internal/source"
 )
 
 // CodeForIConfig is the isolated construction input for the Companion MCP surface.
@@ -19,6 +22,7 @@ type CodeForIConfig struct {
 	Provider  provider.Provider
 	Inspector inspection.Provider
 	Catalog   CatalogProvider
+	Source    SourceProvider
 	Transport sdk.Transport
 }
 
@@ -27,14 +31,22 @@ type CatalogProvider interface {
 	ResolveCatalog(context.Context, catalog.Search) ([]catalog.Candidate, error)
 }
 
+// SourceProvider is the narrow Companion boundary for paged source artifacts.
+type SourceProvider interface {
+	PageSource(context.Context, codefori.SourcePageRequest) (codefori.SourcePageResult, error)
+	DisposeSource(context.Context, string) (codefori.SourceDisposeResult, error)
+}
+
 // CodeForIServer is the stdio MCP facade for the isolated Companion proof surface.
 type CodeForIServer struct {
-	impl       *sdk.Server
-	provider   provider.Provider
-	inspection *inspection.Service
-	catalog    CatalogProvider
-	transport  sdk.Transport
-	toolNames  []string
+	impl        *sdk.Server
+	provider    provider.Provider
+	inspection  *inspection.Service
+	catalog     CatalogProvider
+	source      SourceProvider
+	transport   sdk.Transport
+	toolNames   []string
+	liveCursors map[string]struct{}
 
 	lifecycleMu sync.Mutex
 	running     bool
@@ -79,6 +91,14 @@ type CodeForINormalizedRow struct {
 	Value string `json:"value"`
 }
 
+// companionReadSelectedSourceInput permits the cursor-only continuation shape.
+type companionReadSelectedSourceInput struct {
+	Selection catalog.Candidate `json:"selection,omitempty" jsonschema:"exact catalog selection; required only on the first page"`
+	Cursor    string            `json:"cursor,omitempty" jsonschema:"opaque snapshot cursor for later pages"`
+	StartLine int               `json:"startLine" jsonschema:"one-based inclusive start line"`
+	MaxLines  int               `json:"maxLines" jsonschema:"maximum lines in this page"`
+}
+
 // NewCodeForI constructs the Companion-only MCP server and registers no Native tools.
 func NewCodeForI(cfg CodeForIConfig) (*CodeForIServer, error) {
 	if cfg.Info.Name == "" {
@@ -88,12 +108,14 @@ func NewCodeForI(cfg CodeForIConfig) (*CodeForIServer, error) {
 		cfg.Info.Version = "v0.0.0"
 	}
 	server := &CodeForIServer{
-		provider:   cfg.Provider,
-		inspection: inspection.NewService(cfg.Inspector, inspection.NewSelectionStore()),
-		catalog:    cfg.Catalog,
-		transport:  cfg.Transport,
-		impl:       sdk.NewServer(&sdk.Implementation{Name: cfg.Info.Name, Version: cfg.Info.Version}, nil),
-		toolNames:  []string{"session_status", "sql_query", "resolve_program", "find_program_source", "resolve_catalog_candidates"},
+		provider:    cfg.Provider,
+		inspection:  inspection.NewService(cfg.Inspector, inspection.NewSelectionStore()),
+		catalog:     cfg.Catalog,
+		source:      cfg.Source,
+		transport:   cfg.Transport,
+		impl:        sdk.NewServer(&sdk.Implementation{Name: cfg.Info.Name, Version: cfg.Info.Version}, nil),
+		toolNames:   []string{"session_status", "sql_query", "resolve_program", "find_program_source", "resolve_catalog_candidates", "read_selected_source"},
+		liveCursors: make(map[string]struct{}),
 	}
 	sdk.AddTool(server.impl, &sdk.Tool{Name: "session_status", Description: "Return the bounded Companion session state."}, server.sessionStatus)
 	sdk.AddTool(server.impl, &sdk.Tool{Name: "sql_query", Description: "Run the one bounded Companion proof query."}, server.query)
@@ -101,7 +123,95 @@ func NewCodeForI(cfg CodeForIConfig) (*CodeForIServer, error) {
 	sdk.AddTool(server.impl, &sdk.Tool{Name: "resolve_program", Description: "Resolve a supported IBM i program using configured Code for IBM i context, not runtime *LIBL.", Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: &openWorld}}, server.resolveProgram)
 	sdk.AddTool(server.impl, &sdk.Tool{Name: "find_program_source", Description: "Return metadata-only evidenced source coordinates for an opaque resolved program selection.", Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &openWorld}}, server.findProgramSource)
 	sdk.AddTool(server.impl, &sdk.Tool{Name: "resolve_catalog_candidates", Description: "Resolve up to 50 ordered catalog candidates for a bounded query.", Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &openWorld}}, server.resolveCatalog)
+	sdk.AddTool(server.impl, &sdk.Tool{Name: "read_selected_source", Description: "Read a bounded page from an explicitly selected Catalogados source member.", Annotations: &sdk.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: &openWorld}}, server.readSelectedSource)
 	return server, nil
+}
+
+func (s *CodeForIServer) readSelectedSource(ctx context.Context, _ *sdk.CallToolRequest, input companionReadSelectedSourceInput) (*sdk.CallToolResult, ReadSelectedSourceOutput, error) {
+	if !s.acceptHandler() {
+		return nil, ReadSelectedSourceOutput{}, errors.New("mcp server unavailable")
+	}
+	defer s.finishHandler()
+	if err := ctx.Err(); err != nil {
+		return nil, ReadSelectedSourceOutput{}, err
+	}
+	if input.StartLine < 1 || input.MaxLines < 1 || input.MaxLines > source.MaxPageLines || (input.Cursor != "" && input.Selection != (catalog.Candidate{})) || (input.Cursor == "" && input.Selection == (catalog.Candidate{})) {
+		return nil, ReadSelectedSourceOutput{}, source.ErrInvalidRequest
+	}
+	if s.source == nil {
+		return nil, ReadSelectedSourceOutput{}, codefori.ErrSourceUnavailable
+	}
+	request := codefori.SourcePageRequest{Cursor: input.Cursor, StartLine: input.StartLine, MaxLines: input.MaxLines}
+	if input.Cursor == "" {
+		request.Candidate = &input.Selection
+	}
+	result, err := s.source.PageSource(ctx, request)
+	if err != nil {
+		return nil, ReadSelectedSourceOutput{}, sanitizeSourceError(err)
+	}
+	if result.State != codefori.SourceOK {
+		return nil, ReadSelectedSourceOutput{}, sourceStateError(result.State)
+	}
+	page, err := companionSourcePage(result, input.StartLine)
+	if err != nil {
+		_ = s.disposeSource(result.Cursor)
+		return nil, ReadSelectedSourceOutput{}, err
+	}
+	if page.EOF {
+		if err := s.disposeSource(result.Cursor); err != nil {
+			return nil, ReadSelectedSourceOutput{}, err
+		}
+		return nil, ReadSelectedSourceOutput{Page: page}, nil
+	}
+	s.trackCursor(result.Cursor)
+	return nil, ReadSelectedSourceOutput{Page: page}, nil
+}
+
+func companionSourcePage(result codefori.SourcePageResult, startLine int) (source.Page, error) {
+	lines := []string(nil)
+	if result.Page.Content != "" {
+		lines = strings.Split(result.Page.Content, "\n")
+	}
+	if len(lines) > 0 && strings.HasSuffix(result.Page.Content, "\n") {
+		lines = lines[:len(lines)-1]
+	}
+	if result.Page.StartLine != startLine || result.Page.LineCount != len(lines) || (len(lines) == 0 && !result.Page.EOF) {
+		return source.Page{}, codefori.ErrSourceFailed
+	}
+	page := source.Page{StartLine: startLine, LineCount: len(lines), Lines: lines, EOF: result.Page.EOF}
+	if !page.EOF {
+		page.NextStartLine = startLine + len(lines)
+		page.Cursor = result.Cursor
+	}
+	return page, nil
+}
+
+func sourceStateError(state codefori.SourceState) error {
+	switch state {
+	case codefori.SourceInvalidRequest:
+		return source.ErrInvalidRequest
+	case codefori.SourceNotFound:
+		return catalog.ErrCandidateNotFound
+	case codefori.SourceAmbiguous:
+		return &catalog.AmbiguousError{}
+	case codefori.SourceExpired:
+		return source.ErrExpiredLease
+	case codefori.SourceInvalidEncoding:
+		return source.ErrInvalidSourceEncoding
+	case codefori.SourceResponseTooLarge:
+		return source.ErrResponseTooLarge
+	case codefori.SourceUnavailable:
+		return codefori.ErrSourceUnavailable
+	default:
+		return codefori.ErrSourceFailed
+	}
+}
+
+func sanitizeSourceError(err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, codefori.ErrSourceInvalidRequest) || errors.Is(err, codefori.ErrSourceUnavailable) || errors.Is(err, codefori.ErrSourceFailed) {
+		return err
+	}
+	return codefori.ErrSourceFailed
 }
 
 func (s *CodeForIServer) resolveCatalog(ctx context.Context, _ *sdk.CallToolRequest, input ResolveCatalogInput) (*sdk.CallToolResult, ResolveCatalogOutput, error) {
@@ -217,6 +327,9 @@ func (s *CodeForIServer) Run(ctx context.Context) error {
 			return ErrLifecycleUnavailable
 		}
 		s.handlers.Wait()
+		if cleanupErr := s.disposeLiveSources(); cleanupErr != nil {
+			return ErrLifecycleUnavailable
+		}
 		if err != nil {
 			return ErrLifecycleUnavailable
 		}
@@ -226,6 +339,9 @@ func (s *CodeForIServer) Run(ctx context.Context) error {
 		_ = session.Close()
 		<-ended
 		s.handlers.Wait()
+		if cleanupErr := s.disposeLiveSources(); cleanupErr != nil {
+			return ErrLifecycleUnavailable
+		}
 		return ctx.Err()
 	}
 }
@@ -305,4 +421,41 @@ func (s *CodeForIServer) finishHandler() {
 	if running {
 		s.handlers.Done()
 	}
+}
+
+func (s *CodeForIServer) trackCursor(cursor string) {
+	s.lifecycleMu.Lock()
+	s.liveCursors[cursor] = struct{}{}
+	s.lifecycleMu.Unlock()
+}
+
+func (s *CodeForIServer) disposeSource(cursor string) error {
+	result, err := s.source.DisposeSource(context.Background(), cursor)
+	if err != nil || result.State != codefori.SourceDisposed {
+		return codefori.ErrSourceFailed
+	}
+	s.lifecycleMu.Lock()
+	delete(s.liveCursors, cursor)
+	s.lifecycleMu.Unlock()
+	return nil
+}
+
+func (s *CodeForIServer) disposeLiveSources() error {
+	s.lifecycleMu.Lock()
+	cursors := make([]string, 0, len(s.liveCursors))
+	for cursor := range s.liveCursors {
+		cursors = append(cursors, cursor)
+	}
+	s.lifecycleMu.Unlock()
+	sort.Strings(cursors)
+	var failed bool
+	for _, cursor := range cursors {
+		if s.disposeSource(cursor) != nil {
+			failed = true
+		}
+	}
+	if failed {
+		return codefori.ErrSourceFailed
+	}
+	return nil
 }
