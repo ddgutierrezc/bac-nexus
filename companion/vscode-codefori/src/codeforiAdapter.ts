@@ -59,7 +59,9 @@ export interface CodeForIAdapter {
   sessionStatus(): SessionStatusResult;
   query(sql: string): Promise<QueryResult>;
   resolveCatalogCandidates(request: { item: string; productionLibrary?: string }): Promise<CatalogResolveResult>;
-  acquireCatalogSource(candidate: CatalogCandidate): Promise<SourceAcquisitionResult>;
+  sourceSessionGeneration(): number | undefined;
+  isSourceSessionCurrent(generation: number): boolean;
+  acquireCatalogSource(candidate: CatalogCandidate, generation?: number): Promise<SourceAcquisitionResult>;
   resolveProgram(request: ResolveProgramRequest): Promise<ResolveProgramResult>;
   findProgramSource(request: FindProgramSourceRequest): Promise<FindProgramSourceResult>;
   diagnostics(): AdapterDiagnosticSnapshot;
@@ -183,9 +185,15 @@ export function createCodeForIAdapter(
         return normalizeCatalogRows(rows);
       } catch { return { state: "failed" }; }
     },
-    async acquireCatalogSource(candidate: CatalogCandidate): Promise<SourceAcquisitionResult> {
+    sourceSessionGeneration(): number | undefined {
+      return active && instance && (connectionAvailable = refreshConnection()) ? connectionGeneration : undefined;
+    },
+    isSourceSessionCurrent(generation: number): boolean {
+      return validGeneration(generation);
+    },
+    async acquireCatalogSource(candidate: CatalogCandidate, generation = connectionGeneration): Promise<SourceAcquisitionResult> {
       if (!active || !instance || !(connectionAvailable = refreshConnection())) return { state: "unavailable" };
-      const startedGeneration = connectionGeneration;
+      if (!validGeneration(generation)) return { state: "stale_session" };
       let provider: MemberContentProvider | undefined;
       try {
         const content = instance.getConnection().getContent?.();
@@ -197,7 +205,7 @@ export function createCodeForIAdapter(
         connectionAvailable = false;
         return { state: "unavailable" };
       }
-      return acquireCatalogSource(candidate, provider, () => validGeneration(startedGeneration));
+      return acquireCatalogSource(candidate, provider, () => validGeneration(generation));
     },
     async resolveProgram(request: ResolveProgramRequest): Promise<ResolveProgramResult> {
       const bound = getProgramInspection();

@@ -9,6 +9,7 @@ import {
   unavailableResponse,
 } from "./protocol.js";
 import type { RequestAuthenticator, TokenPublisher } from "./tokenState.js";
+import type { SourceArtifactBroker } from "./sourceArtifactBroker.js";
 
 export const FIXED_LOOPBACK_HOST = "127.0.0.1";
 export const FIXED_LOOPBACK_PORT = 64139;
@@ -48,6 +49,7 @@ export interface CompanionBroker {
 export function createCodeForIBrokerHandler(
   adapter: CodeForIAdapter,
   admission = new ImmediateAdmission(),
+  sourceArtifacts?: SourceArtifactBroker,
 ): BrokerHandler {
   return async (request): Promise<BrokerResult> => {
     try {
@@ -55,6 +57,8 @@ export function createCodeForIBrokerHandler(
       if (request.method === "program_inspection.v1.resolve") return await adapter.resolveProgram(request.params as { name: string; library?: string });
       if (request.method === "program_inspection.v1.find_source") return adapter.findProgramSource(request.params as { library: string; name: string; objectType: "*PGM" });
       if (request.method === "catalog.resolve_candidates.v1") return adapter.resolveCatalogCandidates(request.params as { item: string; productionLibrary?: string });
+      if (request.method === "source_artifact.page.v1") return sourceArtifacts?.page(request) ?? { state: "unavailable" };
+      if (request.method === "source_artifact.dispose.v1") return sourceArtifacts?.dispose((request.params as { cursor: string }).cursor) ?? { state: "unavailable" };
       return admission.execute(undefined, () => adapter.query((request.params as { sql: string }).sql));
     } catch (error) {
       if (request.method === "program_inspection.v1.resolve") {
