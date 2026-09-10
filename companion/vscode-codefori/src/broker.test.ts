@@ -286,6 +286,7 @@ describe("fixed-loopback broker", () => {
       sessionStatus: () => ({ state: "connected" }),
       query: async () => ({ state: "failed" }),
       resolveCatalogCandidates: async () => ({ state: "unavailable" }),
+      acquireCatalogSource: async () => ({ state: "unavailable" }),
       resolveProgram: async () => { throw new Error("host.example QUSER secret PISA061"); },
       findProgramSource: async () => ({ state: "unavailable", reason: "compiled_object_source_metadata_unsupported", nextStep: "configure_documented_compile_provenance_api", certainty: "unavailable", completeness: "complete", runtimeLiblVerified: false }),
       diagnostics: () => ({ instance: "available", subscriptions: "registered", getConnection: "available", sqlCapability: "unknown", operationFailure: undefined }),

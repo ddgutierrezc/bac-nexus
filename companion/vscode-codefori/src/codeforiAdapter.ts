@@ -1,6 +1,7 @@
 import type { CatalogCandidate, CatalogResolveResult, QueryState, SessionState } from "./protocol.js";
 import { canonicalizeProofQuery } from "./query.js";
 import { createProgramInspection, ProgramResolveFailure, type FindProgramSourceRequest, type FindProgramSourceResult, type ProgramInspection, type ResolveProgramRequest, type ResolveProgramResult } from "./programInspection.js";
+import { acquireCatalogSource, type MemberContentProvider, type SourceAcquisitionResult } from "./sourceAcquisition.js";
 
 const MAX_VALUE_BYTES = 256;
 const encoder = new TextEncoder();
@@ -14,7 +15,10 @@ export interface CodeForIConnection {
   readonly enableSQL?: boolean;
   runSQL(sql: string | string[], options: { bindings?: unknown[]; rows?: number }): Promise<unknown[]>;
   getConfig?(): unknown;
-  getContent?(): { getObjectList(filters: { library: string; object: string; types: string[] }): Promise<Array<{ library: string; name: string; type: string; text: string }>> };
+  getContent?(): {
+    getObjectList(filters: { library: string; object: string; types: string[] }): Promise<Array<{ library: string; name: string; type: string; text: string }>>;
+    downloadMemberContent?(library: string, file: string, member: string, localPath?: string): Promise<string | undefined>;
+  };
 }
 
 export interface CodeForIInstance {
@@ -55,6 +59,7 @@ export interface CodeForIAdapter {
   sessionStatus(): SessionStatusResult;
   query(sql: string): Promise<QueryResult>;
   resolveCatalogCandidates(request: { item: string; productionLibrary?: string }): Promise<CatalogResolveResult>;
+  acquireCatalogSource(candidate: CatalogCandidate): Promise<SourceAcquisitionResult>;
   resolveProgram(request: ResolveProgramRequest): Promise<ResolveProgramResult>;
   findProgramSource(request: FindProgramSourceRequest): Promise<FindProgramSourceResult>;
   diagnostics(): AdapterDiagnosticSnapshot;
@@ -177,6 +182,22 @@ export function createCodeForIAdapter(
         if (!validGeneration(startedGeneration)) return { state: "unavailable" };
         return normalizeCatalogRows(rows);
       } catch { return { state: "failed" }; }
+    },
+    async acquireCatalogSource(candidate: CatalogCandidate): Promise<SourceAcquisitionResult> {
+      if (!active || !instance || !(connectionAvailable = refreshConnection())) return { state: "unavailable" };
+      const startedGeneration = connectionGeneration;
+      let provider: MemberContentProvider | undefined;
+      try {
+        const content = instance.getConnection().getContent?.();
+        if (content?.downloadMemberContent) {
+          const downloadMemberContent = content.downloadMemberContent;
+          provider = { downloadMemberContent: (library, file, member, localPath) => downloadMemberContent.call(content, library, file, member, localPath) };
+        }
+      } catch {
+        connectionAvailable = false;
+        return { state: "unavailable" };
+      }
+      return acquireCatalogSource(candidate, provider, () => validGeneration(startedGeneration));
     },
     async resolveProgram(request: ResolveProgramRequest): Promise<ResolveProgramResult> {
       const bound = getProgramInspection();
