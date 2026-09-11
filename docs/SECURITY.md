@@ -14,6 +14,28 @@ The `nexus serve` subcommand runs the typed MCP stdio server built on the offici
 
 ## Trust and threat model
 
+### Companion local discovery
+
+Companion extension hosts never share a fixed machine-wide listener. Each host
+uses an OS-assigned loopback port and publishes an atomic, private v2 registry
+record containing an opaque instance identity, endpoint, 256-bit token,
+generation, connected/focused eligibility, and short lease. Nexus validates the
+record before consuming endpoint and token together. It selects exactly one
+eligible instance or fails closed before HTTP; it never fails over to another
+window after transport or authentication failure. Legacy v1 state is considered
+only when no valid v2 record exists.
+
+Companion renews each owned record every ten seconds against its 30-second
+lease; shutdown cancels that heartbeat before removing only the matching record.
+Empty and expired-only v2 registry state may use legacy v1 fallback, while a
+malformed or insecure v2 sibling fails closed. On Windows, the accepted boundary
+is the current user's application-data location plus anti-symlink and
+regular-file checks. Nexus does not claim independent owner/DACL verification
+and does not invoke shell or PowerShell to attempt one.
+Shutdown atomically quarantines a registration before removal and retains an
+uncertain quarantine artifact rather than deleting a replacement record; that
+state fails closed.
+
 | Boundary | Decision and residual risk |
 |---|---|
 | Local caller | The current local OS principal is the v1 trust boundary. Profile and client selectors are advisory capability selectors, not product authentication. A malicious same-principal process remains a residual risk. |
