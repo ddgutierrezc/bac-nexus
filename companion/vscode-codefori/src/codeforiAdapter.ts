@@ -60,6 +60,7 @@ export interface CodeForIAdapter {
   query(sql: string): Promise<QueryResult>;
   resolveCatalogCandidates(request: { item: string; productionLibrary?: string }): Promise<CatalogResolveResult>;
   sourceSessionGeneration(): number | undefined;
+  sessionGeneration(): number;
   isSourceSessionCurrent(generation: number): boolean;
   acquireCatalogSource(candidate: CatalogCandidate, generation?: number): Promise<SourceAcquisitionResult>;
   resolveProgram(request: ResolveProgramRequest): Promise<ResolveProgramResult>;
@@ -188,6 +189,7 @@ export function createCodeForIAdapter(
     sourceSessionGeneration(): number | undefined {
       return active && instance && (connectionAvailable = refreshConnection()) ? connectionGeneration : undefined;
     },
+    sessionGeneration(): number { return connectionGeneration; },
     isSourceSessionCurrent(generation: number): boolean {
       return validGeneration(generation);
     },

@@ -14,8 +14,8 @@ export function createHTTPServer(handler: (request: BrokerRequest) => Promise<Br
   let listening = false;
 
   return {
-    async listen(host: string, port: number): Promise<void> {
-      await new Promise<void>((resolve, reject) => {
+    async listen(host: string, port: number): Promise<string> {
+      return await new Promise<string>((resolve, reject) => {
         const onError = (error: Error) => {
           server.off("listening", onListening);
           reject(error);
@@ -23,7 +23,12 @@ export function createHTTPServer(handler: (request: BrokerRequest) => Promise<Br
         const onListening = () => {
           server.off("error", onError);
           listening = true;
-          resolve();
+          const address = server.address();
+          if (!address || typeof address === "string" || address.address !== host || address.port < 1 || address.port > 65535) {
+            reject(new Error("loopback listener unavailable"));
+            return;
+          }
+          resolve(`${host}:${address.port}`);
         };
         server.once("error", onError);
         server.once("listening", onListening);
