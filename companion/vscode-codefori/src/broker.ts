@@ -12,7 +12,7 @@ import type { RequestAuthenticator, TokenPublisher } from "./tokenState.js";
 import type { SourceArtifactBroker } from "./sourceArtifactBroker.js";
 
 export const FIXED_LOOPBACK_HOST = "127.0.0.1";
-export const FIXED_LOOPBACK_PORT = 64139;
+export const DYNAMIC_LOOPBACK_PORT = 0;
 
 export interface BrokerRequest {
   method: string;
@@ -28,7 +28,7 @@ export interface BrokerResponse {
 }
 
 export interface FixedLoopbackServer {
-  listen(host: string, port: number): Promise<void>;
+  listen(host: string, port: number): Promise<string>;
   close(): Promise<void>;
 }
 
@@ -39,11 +39,14 @@ export interface BrokerOptions {
   serverFactory: (handler: RequestHandler, authenticate: RequestAuthenticator) => FixedLoopbackServer;
   handler: BrokerHandler;
   tokenPublisher: TokenPublisher;
+  eligibility?: () => { connected: boolean; focused: boolean; generation: number };
 }
 
 export interface CompanionBroker {
   start(): Promise<boolean>;
   stop(): Promise<void>;
+  refreshRegistration(): Promise<void>;
+  endpoint(): string | undefined;
 }
 
 export function createCodeForIBrokerHandler(
@@ -73,6 +76,16 @@ export function createBroker(options: BrokerOptions): CompanionBroker {
   let server: FixedLoopbackServer | undefined;
   let startAttempted = false;
   let authenticate: RequestAuthenticator = () => false;
+  let registration: Awaited<ReturnType<TokenPublisher["publish"]>> | undefined;
+  let boundEndpoint: string | undefined;
+  let closed = false;
+  let lifecycle = Promise.resolve();
+
+  const serialize = <T>(operation: () => Promise<T>): Promise<T> => {
+    const result = lifecycle.then(operation, operation);
+    lifecycle = result.then(() => undefined, () => undefined);
+    return result;
+  };
 
   const handle = async (request: BrokerRequest): Promise<BrokerResponse> => {
     if (!authenticate(request.headers)) {
@@ -105,33 +118,70 @@ export function createBroker(options: BrokerOptions): CompanionBroker {
   };
 
   return {
-    async start(): Promise<boolean> {
-      if (startAttempted) {
+    start(): Promise<boolean> {
+      return serialize(async () => {
+      if (closed || startAttempted) {
         return false;
       }
       startAttempted = true;
       const created = options.serverFactory(handle, (headers) => authenticate(headers));
       server = created;
       try {
-        await created.listen(FIXED_LOOPBACK_HOST, FIXED_LOOPBACK_PORT);
-        authenticate = await options.tokenPublisher.publish();
+        const endpoint = await created.listen(FIXED_LOOPBACK_HOST, DYNAMIC_LOOPBACK_PORT);
+        boundEndpoint = endpoint;
+        if (closed) {
+          await created.close().catch(() => undefined);
+          server = undefined;
+          boundEndpoint = undefined;
+          return false;
+        }
+        const published = await options.tokenPublisher.publish(endpoint, eligibility(options));
+        if (closed) {
+          await published.remove().catch(() => undefined);
+          await created.close().catch(() => undefined);
+          server = undefined;
+          boundEndpoint = undefined;
+          return false;
+        }
+        registration = published;
+        authenticate = registration.authenticate;
         return true;
       } catch {
         if (server === created) {
           server = undefined;
         }
+        boundEndpoint = undefined;
         await created.close().catch(() => undefined);
         return false;
       }
+      });
     },
-    async stop(): Promise<void> {
+    stop(): Promise<void> {
+      closed = true;
+      return serialize(async () => {
       const active = server;
       server = undefined;
+      boundEndpoint = undefined;
+      const published = registration;
+      registration = undefined;
+      authenticate = () => false;
+      if (published) await published.remove().catch(() => undefined);
       if (active) {
         await active.close();
       }
+      });
     },
+    refreshRegistration(): Promise<void> {
+      return serialize(async () => {
+        if (!closed && registration) await registration.update(eligibility(options));
+      });
+    },
+    endpoint: (): string | undefined => boundEndpoint,
   };
+}
+
+function eligibility(options: BrokerOptions): { connected: boolean; focused: boolean; generation: number } {
+  return options.eligibility?.() ?? { connected: false, focused: false, generation: 0 };
 }
 
 function normalizeRequest(request: RpcRequest): RpcRequest | null {
