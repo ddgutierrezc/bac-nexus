@@ -158,11 +158,11 @@ func (client *Client) postSource(ctx context.Context, method string, params map[
 	if client.httpClient == nil {
 		return rpcEnvelope{}, ErrSourceUnavailable
 	}
-	token, present := client.token(ctx)
-	envelope, rejected, state := client.send(ctx, body, requestID, token, maxSourceResponseBytes)
+	target, present := client.target(ctx)
+	envelope, rejected, state := client.send(ctx, body, requestID, target.endpoint, target.token, maxSourceResponseBytes)
 	if rejected && present && ctx.Err() == nil {
-		if rotated, valid := client.token(ctx); valid && rotated != token {
-			envelope, _, state = client.send(ctx, body, requestID, rotated, maxSourceResponseBytes)
+		if rotated, valid := client.target(ctx); valid && rotated.instance == target.instance && rotated.generation == target.generation && rotated.endpoint == target.endpoint && rotated.token != target.token {
+			envelope, _, state = client.send(ctx, body, requestID, rotated.endpoint, rotated.token, maxSourceResponseBytes)
 		}
 	}
 	if err := ctx.Err(); err != nil {

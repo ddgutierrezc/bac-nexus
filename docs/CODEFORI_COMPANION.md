@@ -9,21 +9,22 @@ Code for IBM i session. Code for IBM i retains all IBM i credentials.
 2. Start `nexus serve` without `-profile` to select Companion mode.
 3. Use `session_status`, the canonical proof query, program inspection tools, or `read_selected_source` after an exact catalog selection.
 
-## Fixed local endpoint
+## Per-instance local endpoint
 
 | Topic | Decision |
 |---|---|
-| Address | The Companion binds only to `127.0.0.1:64139`. |
+| Address | Each Companion extension host binds only to an OS-assigned `127.0.0.1` port. |
 | Operations | Public MCP tools are `session_status`, `sql_query`, `resolve_program`, metadata-only `find_program_source`, `resolve_catalog_candidates`, and `read_selected_source`. The latter accepts an exact selected candidate for its first bounded page and only an opaque cursor thereafter. |
-| Port collision | The Companion is unavailable; it does not scan, retry another port, or fall back to Native mode. |
+| Discovery | Each host atomically publishes a private v2 instance record with its random identity, endpoint, 256-bit token, connection generation, eligibility, and bounded lease. |
 | Browser requests | Any request with an `Origin` header is rejected with `browser_origin_rejected`. |
 
 ## Local-machine trust boundary
 
-This v1 endpoint requires the private 256-bit loopback token in
+This local endpoint requires the private 256-bit loopback token in
 `X-Nexus-Companion-Token` before it parses a request body or performs work. On
 each successful Companion listener start, the extension generates and rotates
-the token, then stores it as private local state. Nexus reads that state locally;
+the token, then stores endpoint and token together in a private per-instance v2
+record. Nexus reads and validates that record locally;
 the token is not an MCP input or output, and users do not configure it.
 
 The token state is protected for the current OS principal where the platform
@@ -31,6 +32,21 @@ permits. The endpoint does not distinguish individual processes running under
 that same principal: a process that can read the private token state can call
 the loopback endpoint. It is not an Internet-facing or remote-access boundary,
 and the port must not be exposed or forwarded.
+
+Nexus selects exactly one connected, focused, unexpired v2 instance. If it
+cannot prove a unique eligible instance, it fails closed before transport; it
+never uses startup order or silently fails over after disappearance or an
+authentication failure. A same-instance token refresh may retry once. Legacy v1
+fixed-endpoint state is a temporary fallback only when no valid v2 record exists.
+The extension renews its owned record every ten seconds with a 30-second lease;
+shutdown stops that heartbeat before disposal and removes only its matching
+registration. An empty registry or expired-only crash residue permits v1
+fallback. A malformed, insecure, or otherwise invalid v2 sibling fails closed
+and never falls back to v1.
+Shutdown atomically quarantines a record before deleting it. If its content no
+longer proves ownership after that move, Nexus retains the private quarantine
+artifact rather than risk deleting a replacement registration; it consequently
+fails closed until approved local cleanup or lease handling resolves it.
 
 The endpoint rejects browser-origin requests and accepts no arbitrary SQL,
 shell, CL, mutation, endpoint discovery, forwarding, or remote access.
@@ -75,6 +91,10 @@ not request, receive, persist, or log IBM i credentials. The Companion persists
 only the private local loopback authentication state; it is not an IBM i
 credential. Current authentication is a shared local token, not per-process or
 enterprise peer identity; stronger endpoint hardening remains a future concern.
+On Windows, the registry stays below the current user's application-data
+directory and rejects symlink and non-regular entries. Nexus does not claim to
+independently validate Windows owner or DACL information, and it uses no shell
+or PowerShell check to attempt one.
 
 ## Verification limits
 

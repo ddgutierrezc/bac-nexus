@@ -5,7 +5,7 @@ import {
   createBroker,
   createCodeForIBrokerHandler,
   FIXED_LOOPBACK_HOST,
-  FIXED_LOOPBACK_PORT,
+  DYNAMIC_LOOPBACK_PORT,
   type BrokerRequest,
   type BrokerResponse,
   type FixedLoopbackServer,
@@ -25,7 +25,7 @@ const decoder = new TextDecoder();
 const testToken = "test-token-not-a-production-secret";
 
 function testTokenPublisher(): TokenPublisher {
-  return { publish: async () => tokenAuthenticator(testToken) };
+  return { publish: async () => ({ authenticate: tokenAuthenticator(testToken), update: async () => undefined, remove: async () => undefined }) };
 }
 
 class FakeServer implements FixedLoopbackServer {
@@ -35,11 +35,12 @@ class FakeServer implements FixedLoopbackServer {
 
   constructor(private readonly bindError?: Error) {}
 
-  async listen(host: string, port: number): Promise<void> {
+  async listen(host: string, port: number): Promise<string> {
     this.bindCalls.push({ host, port });
     if (this.bindError) {
       throw this.bindError;
     }
+    return `${host}:${port || 64140}`;
   }
 
   async close(): Promise<void> { this.closeCalls += 1; }
@@ -77,7 +78,7 @@ function request(body: string): BrokerRequest {
 }
 
 describe("fixed-loopback broker", () => {
-  it("binds the one fixed address and serves an authenticated proof query", async () => {
+  it("binds an OS-assigned loopback address and serves an authenticated proof query", async () => {
     const server = new FakeServer();
     const broker = createBroker({
       serverFactory: (handler) => {
@@ -90,7 +91,7 @@ describe("fixed-loopback broker", () => {
 
     await expect(broker.start()).resolves.toBe(true);
     expect(server.bindCalls).toEqual([
-      { host: FIXED_LOOPBACK_HOST, port: FIXED_LOOPBACK_PORT },
+      { host: FIXED_LOOPBACK_HOST, port: DYNAMIC_LOOPBACK_PORT },
     ]);
 
     const response = await server.dispatch(
@@ -107,9 +108,9 @@ describe("fixed-loopback broker", () => {
     });
   });
 
-  it("fails unavailable on a fixed-port collision without another bind attempt", async () => {
+  it("fails unavailable on a bind error without another bind attempt", async () => {
     const server = new FakeServer(new Error("address in use"));
-    const publish = vi.fn(async () => tokenAuthenticator(testToken));
+    const publish = vi.fn(async () => ({ authenticate: tokenAuthenticator(testToken), update: async () => undefined, remove: async () => undefined }));
     const broker = createBroker({
       serverFactory: () => server,
       handler: async () => ({ state: "connected" }),
@@ -118,7 +119,7 @@ describe("fixed-loopback broker", () => {
 
     await expect(broker.start()).resolves.toBe(false);
     expect(server.bindCalls).toEqual([
-      { host: FIXED_LOOPBACK_HOST, port: FIXED_LOOPBACK_PORT },
+      { host: FIXED_LOOPBACK_HOST, port: DYNAMIC_LOOPBACK_PORT },
     ]);
     expect(publish).not.toHaveBeenCalled();
   });
@@ -132,6 +133,24 @@ describe("fixed-loopback broker", () => {
     });
     await expect(broker.start()).resolves.toBe(false);
     expect(server.closeCalls).toBe(1);
+  });
+
+  it("serializes a stop racing a pending start and never publishes afterward", async () => {
+    const gate = new Deferred<string>();
+    const close = vi.fn(async () => undefined);
+    const server: FixedLoopbackServer = { listen: async () => gate.promise, close };
+    const publish = vi.fn(async () => ({ authenticate: tokenAuthenticator(testToken), update: async () => undefined, remove: async () => undefined }));
+    const broker = createBroker({ serverFactory: () => server, handler: async () => ({ state: "connected" }), tokenPublisher: { publish } });
+    const starting = broker.start();
+    await Promise.resolve();
+    const stopping = broker.stop();
+    gate.complete("127.0.0.1:41001");
+    await expect(starting).resolves.toBe(false);
+    await expect(stopping).resolves.toBeUndefined();
+    expect(publish).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledTimes(1);
+    await expect(broker.refreshRegistration()).resolves.toBeUndefined();
+    await expect(broker.start()).resolves.toBe(false);
   });
 
   it("rejects unauthenticated requests before broker dispatch", async () => {
@@ -296,6 +315,7 @@ describe("fixed-loopback broker", () => {
       query: async () => ({ state: "failed" }),
       resolveCatalogCandidates: async () => ({ state: "unavailable" }),
       sourceSessionGeneration: () => 0,
+      sessionGeneration: () => 0,
       isSourceSessionCurrent: () => true,
       acquireCatalogSource: async () => ({ state: "unavailable" }),
       resolveProgram: async () => { throw new Error("host.example QUSER secret PISA061"); },
