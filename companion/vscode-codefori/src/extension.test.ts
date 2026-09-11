@@ -2,19 +2,20 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { BrokerRequest, BrokerResponse, FixedLoopbackServer } from "./broker.js";
 import type { CodeForIExports, CodeForIInstance } from "./codeforiAdapter.js";
-import { activate, deactivate } from "./extension.js";
+import { activate, deactivate, installedCompanionVersion } from "./extension.js";
 import { tokenAuthenticator, type TokenPublisher } from "./tokenState.js";
 
 const testToken = "test-token-not-a-production-secret";
-const tokenPublisher: TokenPublisher = { publish: async () => tokenAuthenticator(testToken) };
+const tokenPublisher: TokenPublisher = { publish: async () => ({ authenticate: tokenAuthenticator(testToken), update: async () => undefined, remove: async () => undefined }) };
 
 class FakeServer implements FixedLoopbackServer {
   bindCalls: Array<{ host: string; port: number }> = [];
   closeCalls = 0;
   handler: ((request: BrokerRequest) => Promise<BrokerResponse>) | undefined;
 
-  async listen(host: string, port: number): Promise<void> {
+  async listen(host: string, port: number): Promise<string> {
     this.bindCalls.push({ host, port });
+    return `${host}:${port || 64140}`;
   }
 
   async close(): Promise<void> {
@@ -23,6 +24,28 @@ class FakeServer implements FixedLoopbackServer {
 }
 
 describe("Companion extension activation", () => {
+  it("uses installed extension metadata for the displayed Companion version", () => {
+    const extensions = { getExtension: (identifier: string) => identifier === "ddgutierrezc.nexus-codefori-companion" ? { activate: async () => undefined, exports: undefined, packageJSON: { version: "0.2.8" } } : undefined };
+    expect(installedCompanionVersion(extensions)).toBe("0.2.8");
+  });
+
+  it("maintains the registration lease and clears the heartbeat on shutdown", async () => {
+    vi.useFakeTimers();
+    const server = new FakeServer();
+    const update = vi.fn(async () => undefined);
+    const publisher: TokenPublisher = { publish: async () => ({ authenticate: tokenAuthenticator(testToken), update, remove: async () => undefined }) };
+    try {
+      await activate({}, { extensionHost: { getExtension: () => undefined }, serverFactory: () => server, tokenPublisher: publisher });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(update).toHaveBeenCalledTimes(1);
+      await deactivate();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(update).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("activates the Code for IBM i export through the host boundary and tears down owned resources", async () => {
     const runSQL = vi.fn().mockResolvedValue([{ CURRENT_USER: "QUSER" }]);
     const instance: CodeForIInstance = {
@@ -42,7 +65,7 @@ describe("Companion extension activation", () => {
 
     expect(getExtension).toHaveBeenCalledWith("halcyontechltd.code-for-ibmi");
     expect(activateCodeForI).toHaveBeenCalledTimes(1);
-    expect(server.bindCalls).toEqual([{ host: "127.0.0.1", port: 64139 }]);
+    expect(server.bindCalls).toEqual([{ host: "127.0.0.1", port: 0 }]);
 
     const response = await server.handler!({
       method: "POST",

@@ -190,6 +190,34 @@ type tokenSourceFunc func(context.Context) (string, bool)
 
 func (f tokenSourceFunc) Token(ctx context.Context) (string, bool) { return f(ctx) }
 
+type targetSourceFunc func(context.Context) (companionTarget, bool)
+
+func (f targetSourceFunc) Token(ctx context.Context) (string, bool) {
+	target, ok := f(ctx)
+	return target.token, ok
+}
+func (f targetSourceFunc) Target(ctx context.Context) (companionTarget, bool) { return f(ctx) }
+
+func TestClientDoesNotRefreshAcrossEndpointChange(t *testing.T) {
+	calls, reads := 0, 0
+	client := NewClient()
+	client.tokens = targetSourceFunc(func(context.Context) (companionTarget, bool) {
+		reads++
+		if reads == 1 {
+			return companionTarget{endpoint: "http://127.0.0.1:41001", token: testToken(t), instance: "instance", generation: 1}, true
+		}
+		return companionTarget{endpoint: "http://127.0.0.1:41002", token: testToken(t), instance: "instance", generation: 1}, true
+	})
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: http.StatusUnauthorized, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(""))}, nil
+	})}
+	result := client.Query(context.Background(), provider.QueryRequest{SQL: provider.CanonicalProofQuery})
+	if result.State != provider.QueryUnavailable || calls != 1 {
+		t.Fatalf("Query() = %#v; calls=%d", result, calls)
+	}
+}
+
 func TestClientRejectsInvalidQueryBeforeHTTP(t *testing.T) {
 	requests := 0
 	client := NewClient()

@@ -5,12 +5,16 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"bac-nexus/internal/provider"
 )
 
 func TestFileTokenSourceAcceptsOnlyPrivateVersionedState(t *testing.T) {
@@ -178,6 +182,27 @@ func TestRegistrationEndpointValidationIsExactLoopback(t *testing.T) {
 		if validRegistration(nil, valid) {
 			t.Fatalf("accepted %q", endpoint)
 		}
+	}
+}
+
+func TestInvalidV2RegistrationPreventsHTTPFallback(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := filepath.Join(root, tokenStateFilename)
+	directory := filepath.Join(root, registryDirectory)
+	if err := os.Mkdir(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeRegistration(t, directory, "invalid-endpoint", "127.0.0.1:65536", testToken(t), true, true, 1, time.Now().UnixMilli())
+	client := NewClient()
+	client.tokens = newFileTokenSource(func() (string, error) { return legacy, nil })
+	calls := 0
+	client.httpClient.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) { calls++; return nil, errors.New("unexpected HTTP") })
+	result := client.Query(context.Background(), provider.QueryRequest{SQL: provider.CanonicalProofQuery})
+	if result.State != provider.QueryUnavailable || calls != 0 {
+		t.Fatalf("Query()=%#v calls=%d", result, calls)
 	}
 }
 
