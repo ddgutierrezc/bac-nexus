@@ -73,14 +73,7 @@ func defaultTokenStatePath() (string, error) {
 }
 
 func (s fileTokenSource) Token(ctx context.Context) (string, bool) {
-	if ctx.Err() != nil || s.path == nil {
-		return "", false
-	}
-	path, err := s.path()
-	if err != nil || !filepath.IsAbs(path) {
-		return "", false
-	}
-	target, ok := s.v1(ctx, path)
+	target, ok := s.Target(ctx)
 	return target.token, ok
 }
 

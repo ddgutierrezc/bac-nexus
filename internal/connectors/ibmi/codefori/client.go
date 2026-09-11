@@ -175,16 +175,16 @@ func (client *Client) post(ctx context.Context, method string, params map[string
 	if client.httpClient == nil {
 		return rpcEnvelope{}, provider.QueryUnavailable
 	}
-	token, present := client.token(ctx)
-	envelope, authRejected, state := client.send(ctx, body, requestID, token, maximum)
+	target, present := client.target(ctx)
+	envelope, authRejected, state := client.send(ctx, body, requestID, target.endpoint, target.token, maximum)
 	if !authRejected || !present || ctx.Err() != nil {
 		return envelope, state
 	}
-	rotated, valid := client.token(ctx)
-	if !valid || rotated == token {
+	rotated, valid := client.target(ctx)
+	if !valid || rotated.instance != target.instance || rotated.generation != target.generation || rotated.endpoint != target.endpoint || rotated.token == target.token {
 		return envelope, state
 	}
-	envelope, _, state = client.send(ctx, body, requestID, rotated, maximum)
+	envelope, _, state = client.send(ctx, body, requestID, rotated.endpoint, rotated.token, maximum)
 	return envelope, state
 }
 
@@ -195,8 +195,29 @@ func (client *Client) token(ctx context.Context) (string, bool) {
 	return client.tokens.Token(ctx)
 }
 
-func (client *Client) send(ctx context.Context, body []byte, requestID, token string, maximum int) (rpcEnvelope, bool, provider.QueryState) {
-	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, fixedRPCURL, bytes.NewReader(body))
+func (client *Client) target(ctx context.Context) (companionTarget, bool) {
+	if client.tokens == nil {
+		return companionTarget{}, false
+	}
+	if source, ok := client.tokens.(targetSource); ok {
+		target, found := source.Target(ctx)
+		if found {
+			return target, true
+		}
+		if target.instance == "blocked" {
+			return companionTarget{}, false
+		}
+		return companionTarget{endpoint: fixedRPCURL[:len(fixedRPCURL)-len("/v1/rpc")], instance: "v1"}, false
+	}
+	token, ok := client.tokens.Token(ctx)
+	return companionTarget{endpoint: fixedRPCURL[:len(fixedRPCURL)-len("/v1/rpc")], token: token, instance: "test"}, ok
+}
+
+func (client *Client) send(ctx context.Context, body []byte, requestID, endpoint, token string, maximum int) (rpcEnvelope, bool, provider.QueryState) {
+	if endpoint == "" {
+		return rpcEnvelope{}, false, provider.QueryUnavailable
+	}
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"/v1/rpc", bytes.NewReader(body))
 	if err != nil {
 		return rpcEnvelope{}, false, provider.QueryFailed
 	}

@@ -13,6 +13,26 @@ import (
 	"bac-nexus/internal/catalog"
 )
 
+func TestClientPageSourceDoesNotRefreshAcrossEndpointChange(t *testing.T) {
+	candidate := sourceCandidate()
+	calls, reads := 0, 0
+	client := NewClient()
+	client.tokens = targetSourceFunc(func(context.Context) (companionTarget, bool) {
+		reads++
+		if reads == 1 {
+			return companionTarget{endpoint: "http://127.0.0.1:41001", token: testToken(t), instance: "instance", generation: 1}, true
+		}
+		return companionTarget{endpoint: "http://127.0.0.1:41002", token: testToken(t), instance: "instance", generation: 1}, true
+	})
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: http.StatusUnauthorized, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(""))}, nil
+	})}
+	if _, err := client.PageSource(context.Background(), SourcePageRequest{Candidate: &candidate, StartLine: 1, MaxLines: 1}); !errors.Is(err, ErrSourceUnavailable) || calls != 1 {
+		t.Fatalf("PageSource() error=%v calls=%d", err, calls)
+	}
+}
+
 func TestClientPageSourceCarriesCandidateOnlyOnFirstPage(t *testing.T) {
 	candidate, cursor := sourceCandidate(), strings.Repeat("A", 43)
 	requests := make([]map[string]any, 0, 2)
