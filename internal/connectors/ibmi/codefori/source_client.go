@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"time"
 	"unicode/utf8"
 
 	"bac-nexus/internal/catalog"
@@ -73,16 +74,40 @@ func (client *Client) PageSource(ctx context.Context, request SourcePageRequest)
 	}
 	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
-	envelope, err := client.postSource(ctx, methodSourcePage, params)
+	target, present := client.sourceTarget(ctx, request.Cursor)
+	if request.Cursor != "" && !present {
+		return SourcePageResult{}, ErrSourceUnavailable
+	}
+	envelope, target, err := client.postSource(ctx, methodSourcePage, params, target, present, request.Cursor == "")
 	if err != nil {
+		if request.Cursor != "" && errors.Is(err, ErrSourceUnavailable) {
+			client.forgetSourceOwner(request.Cursor)
+		}
 		return SourcePageResult{}, err
 	}
 	result, err := decodeSourcePageResult(envelope.Result)
 	if err != nil {
+		if request.Cursor != "" {
+			client.forgetSourceOwner(request.Cursor)
+		}
 		return SourcePageResult{}, ErrSourceFailed
 	}
 	if result.State == SourceOK && (result.Page.StartLine != request.StartLine || result.Page.LineCount > request.MaxLines || result.Page.LineCount == 0 && !result.Page.EOF || request.Cursor != "" && result.Cursor != request.Cursor) {
+		if request.Cursor != "" {
+			client.forgetSourceOwner(request.Cursor)
+		}
 		return SourcePageResult{}, ErrSourceFailed
+	}
+	if request.Cursor != "" && result.State != SourceOK {
+		client.forgetSourceOwner(request.Cursor)
+	}
+	if result.State == SourceOK && result.Page.EOF {
+		client.forgetSourceOwner(result.Cursor)
+	} else if request.Cursor == "" && result.State == SourceOK {
+		if !client.rememberSourceOwner(result.Cursor, target) {
+			client.discardSource(result.Cursor, target)
+			return SourcePageResult{}, ErrSourceFailed
+		}
 	}
 	return result, nil
 }
@@ -92,12 +117,17 @@ func (client *Client) DisposeSource(ctx context.Context, cursor string) (SourceD
 	if !validSourceCursor(cursor) {
 		return SourceDisposeResult{}, ErrSourceInvalidRequest
 	}
+	defer client.forgetSourceOwner(cursor)
 	if err := ctx.Err(); err != nil {
 		return SourceDisposeResult{}, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
 	defer cancel()
-	envelope, err := client.postSource(ctx, methodSourceDispose, map[string]any{"cursor": cursor})
+	target, present := client.sourceTarget(ctx, cursor)
+	if !present {
+		return SourceDisposeResult{}, ErrSourceUnavailable
+	}
+	envelope, _, err := client.postSource(ctx, methodSourceDispose, map[string]any{"cursor": cursor}, target, true, false)
 	if err != nil {
 		return SourceDisposeResult{}, err
 	}
@@ -141,10 +171,10 @@ func validSourceCursor(cursor string) bool {
 	return err == nil && len(decoded) == 32 && len(cursor) == 43
 }
 
-func (client *Client) postSource(ctx context.Context, method string, params map[string]any) (rpcEnvelope, error) {
+func (client *Client) postSource(ctx context.Context, method string, params map[string]any, target companionTarget, present, refreshOnAuthFailure bool) (rpcEnvelope, companionTarget, error) {
 	requestID, err := newRequestID()
 	if err != nil {
-		return rpcEnvelope{}, ErrSourceFailed
+		return rpcEnvelope{}, target, ErrSourceFailed
 	}
 	body, err := json.Marshal(struct {
 		Version   int            `json:"version"`
@@ -153,26 +183,83 @@ func (client *Client) postSource(ctx context.Context, method string, params map[
 		Params    map[string]any `json:"params"`
 	}{protocolVersion, requestID, method, params})
 	if err != nil || len(body) > maxSourceRequestBytes {
-		return rpcEnvelope{}, ErrSourceInvalidRequest
+		return rpcEnvelope{}, target, ErrSourceInvalidRequest
 	}
 	if client.httpClient == nil {
-		return rpcEnvelope{}, ErrSourceUnavailable
+		return rpcEnvelope{}, target, ErrSourceUnavailable
 	}
-	target, present := client.target(ctx)
 	envelope, rejected, state := client.send(ctx, body, requestID, target.endpoint, target.token, maxSourceResponseBytes)
-	if rejected && present && ctx.Err() == nil {
+	if refreshOnAuthFailure && rejected && present && ctx.Err() == nil {
 		if rotated, valid := client.target(ctx); valid && rotated.instance == target.instance && rotated.generation == target.generation && rotated.endpoint == target.endpoint && rotated.token != target.token {
+			target = rotated
 			envelope, _, state = client.send(ctx, body, requestID, rotated.endpoint, rotated.token, maxSourceResponseBytes)
 		}
 	}
 	if err := ctx.Err(); err != nil {
-		return rpcEnvelope{}, err
+		return rpcEnvelope{}, target, err
 	}
 	if state == "ok" {
-		return envelope, nil
+		return envelope, target, nil
 	}
 	if state == "failed" {
-		return rpcEnvelope{}, ErrSourceFailed
+		return rpcEnvelope{}, target, ErrSourceFailed
 	}
-	return rpcEnvelope{}, ErrSourceUnavailable
+	return rpcEnvelope{}, target, ErrSourceUnavailable
+}
+
+func (client *Client) sourceTarget(ctx context.Context, cursor string) (companionTarget, bool) {
+	if cursor == "" {
+		return client.target(ctx)
+	}
+	client.sourceMu.Lock()
+	defer client.sourceMu.Unlock()
+	now := client.sourceOwnerNow()
+	for key, owner := range client.sourceOwners {
+		if !now.Before(owner.expiresAt) {
+			delete(client.sourceOwners, key)
+		}
+	}
+	target, ok := client.sourceOwners[cursor]
+	if !ok {
+		return companionTarget{}, false
+	}
+	return target.target, true
+}
+
+func (client *Client) rememberSourceOwner(cursor string, target companionTarget) bool {
+	client.sourceMu.Lock()
+	defer client.sourceMu.Unlock()
+	if client.sourceOwners == nil {
+		client.sourceOwners = make(map[string]sourceOwner)
+	}
+	now := client.sourceOwnerNow()
+	for key, owner := range client.sourceOwners {
+		if !now.Before(owner.expiresAt) {
+			delete(client.sourceOwners, key)
+		}
+	}
+	if _, exists := client.sourceOwners[cursor]; !exists && len(client.sourceOwners) >= maxSourceOwners {
+		return false
+	}
+	client.sourceOwners[cursor] = sourceOwner{target: target, expiresAt: now.Add(sourceOwnerTTL)}
+	return true
+}
+
+func (client *Client) forgetSourceOwner(cursor string) {
+	client.sourceMu.Lock()
+	defer client.sourceMu.Unlock()
+	delete(client.sourceOwners, cursor)
+}
+
+func (client *Client) sourceOwnerNow() time.Time {
+	if client.sourceNow != nil {
+		return client.sourceNow()
+	}
+	return time.Now()
+}
+
+func (client *Client) discardSource(cursor string, target companionTarget) {
+	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
+	defer cancel()
+	_, _, _ = client.postSource(ctx, methodSourceDispose, map[string]any{"cursor": cursor}, target, true, false)
 }

@@ -2,6 +2,8 @@ package codefori
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"io"
@@ -61,6 +63,204 @@ func TestClientPageSourceCarriesCandidateOnlyOnFirstPage(t *testing.T) {
 	}
 }
 
+func TestClientSourceCursorStaysWithIssuingCompanion(t *testing.T) {
+	candidate, cursor := sourceCandidate(), strings.Repeat("A", 43)
+	reads := 0
+	client := sourceTestClient(t, func(request *http.Request, body map[string]any) *http.Response {
+		if request.URL.Host != "127.0.0.1:41001" || request.Header.Get(companionTokenHeader) != "first" {
+			t.Fatalf("source request routed to %s with token %q", request.URL, request.Header.Get(companionTokenHeader))
+		}
+		params := body["params"].(map[string]any)
+		if params["cursor"] == cursor {
+			return sourceResponse(body["request_id"].(string), `{"state":"ok","cursor":"`+cursor+`","page":{"content":"second","start_line":2,"line_count":1,"eof":true}}`)
+		}
+		return sourceResponse(body["request_id"].(string), `{"state":"ok","cursor":"`+cursor+`","page":{"content":"first","start_line":1,"line_count":1,"eof":false}}`)
+	})
+	client.tokens = targetSourceFunc(func(context.Context) (companionTarget, bool) {
+		reads++
+		if reads == 1 {
+			return companionTarget{endpoint: "http://127.0.0.1:41001", token: "first", instance: "first", generation: 1}, true
+		}
+		return companionTarget{endpoint: "http://127.0.0.1:41002", token: "second", instance: "second", generation: 1}, true
+	})
+	if _, err := client.PageSource(context.Background(), SourcePageRequest{Candidate: &candidate, StartLine: 1, MaxLines: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.PageSource(context.Background(), SourcePageRequest{Cursor: cursor, StartLine: 2, MaxLines: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if reads != 1 {
+		t.Fatalf("focused Companion discovery calls = %d, want 1", reads)
+	}
+	if _, ok := client.sourceTarget(context.Background(), cursor); ok {
+		t.Fatal("EOF cursor retained its Companion owner")
+	}
+}
+
+func TestClientSourceCursorDisposalAndUnavailableOwnerDoNotDiscoverFallback(t *testing.T) {
+	candidate, cursor := sourceCandidate(), strings.Repeat("A", 43)
+	for _, tt := range []struct {
+		name      string
+		status    int
+		want      error
+		wantCalls int
+	}{
+		{"disposal uses issuing Companion", http.StatusOK, nil, 2},
+		{"unavailable owner has no fallback", http.StatusServiceUnavailable, ErrSourceUnavailable, 2},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			reads, calls := 0, 0
+			client := sourceTestClient(t, func(request *http.Request, body map[string]any) *http.Response {
+				calls++
+				if request.URL.Host != "127.0.0.1:41001" || request.Header.Get(companionTokenHeader) != "first" {
+					t.Fatalf("source request routed to %s with token %q", request.URL, request.Header.Get(companionTokenHeader))
+				}
+				if calls == 1 {
+					return sourceResponse(body["request_id"].(string), `{"state":"ok","cursor":"`+cursor+`","page":{"content":"first","start_line":1,"line_count":1,"eof":false}}`)
+				}
+				if tt.status != http.StatusOK {
+					return &http.Response{StatusCode: tt.status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(""))}
+				}
+				return sourceResponse(body["request_id"].(string), `{"state":"disposed"}`)
+			})
+			client.tokens = targetSourceFunc(func(context.Context) (companionTarget, bool) {
+				reads++
+				if reads == 1 {
+					return companionTarget{endpoint: "http://127.0.0.1:41001", token: "first", instance: "first", generation: 1}, true
+				}
+				return companionTarget{endpoint: "http://127.0.0.1:41002", token: "second", instance: "second", generation: 2}, true
+			})
+			if _, err := client.PageSource(context.Background(), SourcePageRequest{Candidate: &candidate, StartLine: 1, MaxLines: 1}); err != nil {
+				t.Fatal(err)
+			}
+			_, err := client.DisposeSource(context.Background(), cursor)
+			if !errors.Is(err, tt.want) || calls != tt.wantCalls || reads != 1 {
+				t.Fatalf("DisposeSource() error=%v calls=%d discovery=%d", err, calls, reads)
+			}
+			if _, ok := client.sourceTarget(context.Background(), cursor); ok {
+				t.Fatal("terminal cursor retained its Companion owner")
+			}
+			if _, err := client.PageSource(context.Background(), SourcePageRequest{Cursor: cursor, StartLine: 2, MaxLines: 1}); !errors.Is(err, ErrSourceUnavailable) || calls != tt.wantCalls || reads != 1 {
+				t.Fatalf("stale cursor error=%v calls=%d discovery=%d", err, calls, reads)
+			}
+		})
+	}
+}
+
+func TestClientSourceCursorCannotResumeAfterClientRestartOrExpiry(t *testing.T) {
+	candidate, cursor := sourceCandidate(), strings.Repeat("A", 43)
+	client := sourceTestClient(t, func(_ *http.Request, body map[string]any) *http.Response {
+		return sourceResponse(body["request_id"].(string), `{"state":"ok","cursor":"`+cursor+`","page":{"content":"first","start_line":1,"line_count":1,"eof":false}}`)
+	})
+	client.tokens = targetSourceFunc(func(context.Context) (companionTarget, bool) {
+		return companionTarget{endpoint: "http://127.0.0.1:41001", token: "first", instance: "first", generation: 1}, true
+	})
+	if _, err := client.PageSource(context.Background(), SourcePageRequest{Candidate: &candidate, StartLine: 1, MaxLines: 1}); err != nil {
+		t.Fatal(err)
+	}
+	restarted := NewClient()
+	restarted.httpClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Fatal("restarted client discovered a Companion for an old cursor")
+		return nil, nil
+	})}
+	if _, err := restarted.PageSource(context.Background(), SourcePageRequest{Cursor: cursor, StartLine: 2, MaxLines: 1}); !errors.Is(err, ErrSourceUnavailable) {
+		t.Fatalf("restarted cursor error = %v", err)
+	}
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var body map[string]any
+		if err := json.Unmarshal(mustReadAll(t, request.Body), &body); err != nil {
+			t.Fatal(err)
+		}
+		return sourceResponse(body["request_id"].(string), `{"state":"expired"}`), nil
+	})}
+	if result, err := client.PageSource(context.Background(), SourcePageRequest{Cursor: cursor, StartLine: 2, MaxLines: 1}); err != nil || result.State != SourceExpired {
+		t.Fatalf("expired cursor result = %#v, %v", result, err)
+	}
+	if _, ok := client.sourceTarget(context.Background(), cursor); ok {
+		t.Fatal("expired cursor retained its Companion owner")
+	}
+}
+
+func TestClientSourceOwnerAffinityExpiresWithoutFallbackAndPrunesOnRegistration(t *testing.T) {
+	candidate, first, second := sourceCandidate(), sourceCursor(1), sourceCursor(2)
+	now := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	calls, reads := 0, 0
+	client := sourceTestClient(t, func(request *http.Request, body map[string]any) *http.Response {
+		calls++
+		if request.URL.Host != "127.0.0.1:41001" || request.Header.Get(companionTokenHeader) != "first" {
+			t.Fatalf("source request routed to %s with token %q", request.URL, request.Header.Get(companionTokenHeader))
+		}
+		cursor := first
+		if calls == 2 {
+			cursor = second
+		}
+		return sourceResponse(body["request_id"].(string), `{"state":"ok","cursor":"`+cursor+`","page":{"content":"first","start_line":1,"line_count":1,"eof":false}}`)
+	})
+	client.sourceNow = func() time.Time { return now }
+	client.tokens = targetSourceFunc(func(context.Context) (companionTarget, bool) {
+		reads++
+		return companionTarget{endpoint: "http://127.0.0.1:41001", token: "first", instance: "first", generation: 1}, true
+	})
+	if _, err := client.PageSource(context.Background(), SourcePageRequest{Candidate: &candidate, StartLine: 1, MaxLines: 1}); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(sourceOwnerTTL)
+	if _, err := client.PageSource(context.Background(), SourcePageRequest{Cursor: first, StartLine: 2, MaxLines: 1}); !errors.Is(err, ErrSourceUnavailable) || calls != 1 || reads != 1 {
+		t.Fatalf("expired continuation error=%v calls=%d discovery=%d", err, calls, reads)
+	}
+	if _, err := client.PageSource(context.Background(), SourcePageRequest{Candidate: &candidate, StartLine: 1, MaxLines: 1}); err != nil {
+		t.Fatal(err)
+	}
+	client.sourceMu.Lock()
+	owners := len(client.sourceOwners)
+	client.sourceMu.Unlock()
+	if owners != 1 {
+		t.Fatalf("active owner count = %d, want 1 after expiry pruning", owners)
+	}
+}
+
+func TestClientSourceOwnerCapacityDisposesRejectedArtifactWithoutFallback(t *testing.T) {
+	candidate := sourceCandidate()
+	calls, reads := 0, 0
+	rejected := sourceCursor(maxSourceOwners + 1)
+	disposed := ""
+	client := sourceTestClient(t, func(request *http.Request, body map[string]any) *http.Response {
+		calls++
+		if request.URL.Host != "127.0.0.1:41001" || request.Header.Get(companionTokenHeader) != "first" {
+			t.Fatalf("source request routed to %s with token %q", request.URL, request.Header.Get(companionTokenHeader))
+		}
+		if body["method"] == methodSourceDispose {
+			disposed = body["params"].(map[string]any)["cursor"].(string)
+			return sourceResponse(body["request_id"].(string), `{"state":"disposed"}`)
+		}
+		return sourceResponse(body["request_id"].(string), `{"state":"ok","cursor":"`+sourceCursor(calls)+`","page":{"content":"first","start_line":1,"line_count":1,"eof":false}}`)
+	})
+	client.tokens = targetSourceFunc(func(context.Context) (companionTarget, bool) {
+		reads++
+		if reads <= maxSourceOwners+1 {
+			return companionTarget{endpoint: "http://127.0.0.1:41001", token: "first", instance: "first", generation: 1}, true
+		}
+		return companionTarget{endpoint: "http://127.0.0.1:41002", token: "second", instance: "second", generation: 2}, true
+	})
+	for range maxSourceOwners {
+		if _, err := client.PageSource(context.Background(), SourcePageRequest{Candidate: &candidate, StartLine: 1, MaxLines: 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if result, err := client.PageSource(context.Background(), SourcePageRequest{Candidate: &candidate, StartLine: 1, MaxLines: 1}); !errors.Is(err, ErrSourceFailed) || result != (SourcePageResult{}) {
+		t.Fatalf("capacity result=%#v error=%v", result, err)
+	}
+	if calls != maxSourceOwners+2 || reads != maxSourceOwners+1 || disposed != rejected {
+		t.Fatalf("calls=%d discovery=%d disposed=%q", calls, reads, disposed)
+	}
+	client.sourceMu.Lock()
+	owners := len(client.sourceOwners)
+	client.sourceMu.Unlock()
+	if owners != maxSourceOwners {
+		t.Fatalf("active owner count = %d, want %d", owners, maxSourceOwners)
+	}
+}
+
 func TestClientSourceRejectsInvalidInputBeforeIO(t *testing.T) {
 	candidate := sourceCandidate()
 	client := sourceTestClient(t, func(*http.Request, map[string]any) *http.Response {
@@ -100,8 +300,14 @@ func TestClientSourceStrictFailuresAndStates(t *testing.T) {
 		})
 	}
 	client := sourceTestClient(t, func(_ *http.Request, body map[string]any) *http.Response {
+		if body["method"] == methodSourcePage {
+			return sourceResponse(body["request_id"].(string), `{"state":"ok","cursor":"`+cursor+`","page":{"content":"x","start_line":1,"line_count":1,"eof":false}}`)
+		}
 		return sourceResponse(body["request_id"].(string), `{"state":"disposed"}`)
 	})
+	if _, err := client.PageSource(context.Background(), SourcePageRequest{Candidate: &candidate, StartLine: 1, MaxLines: 1}); err != nil {
+		t.Fatalf("first page = %v", err)
+	}
 	if result, err := client.DisposeSource(context.Background(), cursor); err != nil || result.State != SourceDisposed {
 		t.Fatalf("dispose = %#v, %v", result, err)
 	}
@@ -182,6 +388,12 @@ func TestClientSourceCancellationTimeoutAndUnavailable(t *testing.T) {
 
 func sourceCandidate() catalog.Candidate {
 	return catalog.Candidate{Item: "PISA061", SourceLibrary: "SRCLIB", SourceFileBase: "QRPG", ObjectType: "M", SourceType: "RPGLE", Application: "APP", Version: "V1", ProductionLibrary: "PRODLIB", Description: "description"}
+}
+
+func sourceCursor(value int) string {
+	var raw [32]byte
+	binary.BigEndian.PutUint64(raw[24:], uint64(value))
+	return base64.RawURLEncoding.EncodeToString(raw[:])
 }
 
 func sourceTestClient(t *testing.T, handler func(*http.Request, map[string]any) *http.Response) *Client {

@@ -7,12 +7,19 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"sync"
 	"time"
 	"unicode/utf8"
 
 	"bac-nexus/internal/catalog"
 	"bac-nexus/internal/inspection"
 	"bac-nexus/internal/provider"
+)
+
+const (
+	sourceOwnerTTL = 10 * time.Minute
+	// maxSourceOwners bounds volatile cursor affinity during bursts of new pages.
+	maxSourceOwners = 256
 )
 
 var (
@@ -28,8 +35,16 @@ const (
 )
 
 type Client struct {
-	httpClient *http.Client
-	tokens     tokenSource
+	httpClient   *http.Client
+	tokens       tokenSource
+	sourceMu     sync.Mutex
+	sourceOwners map[string]sourceOwner
+	sourceNow    func() time.Time
+}
+
+type sourceOwner struct {
+	target    companionTarget
+	expiresAt time.Time
 }
 
 var _ provider.Provider = (*Client)(nil)
@@ -42,7 +57,9 @@ func NewClient() *Client {
 		httpClient: &http.Client{Transport: &http.Transport{
 			ResponseHeaderTimeout: responseHeaderTimeout,
 		}},
-		tokens: newFileTokenSource(defaultTokenStatePath),
+		tokens:       newFileTokenSource(defaultTokenStatePath),
+		sourceOwners: make(map[string]sourceOwner),
+		sourceNow:    time.Now,
 	}
 }
 
