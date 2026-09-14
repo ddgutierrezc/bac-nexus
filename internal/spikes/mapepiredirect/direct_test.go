@@ -56,3 +56,15 @@ func TestSafeErrorRedactsInputs(t *testing.T) {
 		}
 	}
 }
+
+func TestDaemonServerDisablesCertificateVerification(t *testing.T) {
+	cfg := Config{Host: "host", Port: "8076", User: "user", Password: "password"}
+	server := daemonServer(cfg)
+
+	if !server.IgnoreUnauthorized {
+		t.Fatal("daemon server must disable certificate verification for the disposable spike")
+	}
+	if server.Host != cfg.Host || server.Port != cfg.Port || server.User != cfg.User || server.Password != cfg.Password {
+		t.Fatalf("daemon server = %#v, want configuration preserved", server)
+	}
+}

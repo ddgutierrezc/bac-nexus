@@ -49,15 +49,23 @@ func runCLI(args []string, deps cliDependencies) error {
 	if err != nil {
 		return err
 	}
+	if err := emitInsecureTLSWarning(deps.stdout); err != nil {
+		return err
+	}
 	if err := mapepiredirect.Run(cfg, deps.stdout); err != nil {
 		return err
 	}
 	if err := mapepiredirect.RunPool(cfg, deps.stdout); err != nil {
 		return err
 	}
-	fmt.Fprintln(deps.stdout, "sdk_limits: no_context_connect_query_or_pool_wait; TLS_system_CA_only_no_custom_CA_or_pinning; pool_error_path_may_lose_a_job")
+	fmt.Fprintln(deps.stdout, "sdk_limits: no_context_connect_query_or_pool_wait; TLS_certificate_verification_disabled_for_spike_only; pool_error_path_may_lose_a_job")
 	fmt.Fprintln(deps.stdout, "shutdown: success")
 	return nil
+}
+
+func emitInsecureTLSWarning(out io.Writer) error {
+	_, err := fmt.Fprintln(out, mapepiredirect.InsecureTLSWarning)
+	return err
 }
 
 func prepareConfig(args []string, deps cliDependencies) (mapepiredirect.Config, error) {
