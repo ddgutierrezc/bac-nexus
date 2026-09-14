@@ -20,12 +20,15 @@ type Config struct {
 	Search                     catalog.Search
 }
 
-// Run verifies direct system-CA connectivity and the bounded Catalogados query.
+// InsecureTLSWarning is emitted by the disposable spike CLI before it connects.
+const InsecureTLSWarning = "WARNING: TLS certificate verification is DISABLED. This insecure behavior is SPIKE-ONLY and must not be used in production."
+
+// Run verifies direct connectivity and the bounded Catalogados query.
 func Run(cfg Config, out io.Writer) (err error) {
 	if cfg.Host == "" || cfg.Port == "" || cfg.User == "" || cfg.Password == "" || out == nil {
 		return errors.New("configuration: unavailable")
 	}
-	server := mapepire.DaemonServer{Host: cfg.Host, Port: cfg.Port, User: cfg.User, Password: cfg.Password}
+	server := daemonServer(cfg)
 	job := mapepire.NewSQLJob("nexus-spike-direct")
 	connected := false
 	defer func() {
@@ -41,7 +44,7 @@ func Run(cfg Config, out io.Writer) (err error) {
 		return safeError("connect")
 	}
 	connected = true
-	fmt.Fprintf(out, "connect: success tls=system-ca elapsed_ms=%d\n", time.Since(started).Milliseconds())
+	fmt.Fprintf(out, "connect: success tls=certificate-verification-disabled elapsed_ms=%d\n", time.Since(started).Milliseconds())
 	started = time.Now()
 	if err = executeAndValidate(job, "VALUES 1", nil, 1, validateValues); err != nil {
 		return safeError("values")
@@ -60,6 +63,13 @@ func Run(cfg Config, out io.Writer) (err error) {
 	}
 	fmt.Fprintf(out, "catalogados: success parameters=%d elapsed_ms=%d\n", response.ParameterCount, time.Since(started).Milliseconds())
 	return nil
+}
+
+func daemonServer(cfg Config) mapepire.DaemonServer {
+	return mapepire.DaemonServer{
+		Host: cfg.Host, Port: cfg.Port, User: cfg.User, Password: cfg.Password,
+		IgnoreUnauthorized: true,
+	}
 }
 
 func executeAndValidate(job *mapepire.SQLJob, statement string, bindings []string, rows int, validate func(*mapepire.ServerResponse) error) error {

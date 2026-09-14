@@ -17,7 +17,7 @@ func RunPool(cfg Config, out io.Writer) error {
 	if cfg.Host == "" || cfg.Port == "" || cfg.User == "" || cfg.Password == "" || out == nil {
 		return errors.New("configuration: unavailable")
 	}
-	server := mapepire.DaemonServer{Host: cfg.Host, Port: cfg.Port, User: cfg.User, Password: cfg.Password}
+	server := daemonServer(cfg)
 	pool, err := mapepire.NewPool(mapepire.PoolOptions{Creds: server, MaxSize: 2, StartingSize: 2, MaxWaitTime: 5})
 	if err != nil {
 		return safeError("pool")

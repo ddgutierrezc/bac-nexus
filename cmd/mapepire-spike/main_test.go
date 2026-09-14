@@ -1,11 +1,29 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"strings"
 	"testing"
+
+	"bac-nexus/internal/spikes/mapepiredirect"
 )
+
+func TestEmitInsecureTLSWarning(t *testing.T) {
+	var out bytes.Buffer
+	if err := emitInsecureTLSWarning(&out); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := out.String(), mapepiredirect.InsecureTLSWarning+"\n"; got != want {
+		t.Fatalf("warning = %q, want %q", got, want)
+	}
+	for _, forbidden := range []string{"host", "port", "user", "password", "secret"} {
+		if strings.Contains(strings.ToLower(out.String()), forbidden) {
+			t.Fatalf("warning leaked %q", forbidden)
+		}
+	}
+}
 
 func TestParseRunRejectsSecretsAndUnsupportedArguments(t *testing.T) {
 	for _, args := range [][]string{{"-password", "secret"}, {"-insecure-tls"}, {"-unknown"}, {"unexpected"}} {
