@@ -23,31 +23,60 @@ type Config struct {
 // InsecureTLSWarning is emitted by the disposable spike CLI before it connects.
 const InsecureTLSWarning = "WARNING: TLS certificate verification is DISABLED. This insecure behavior is SPIKE-ONLY and must not be used in production."
 
-// Run verifies direct connectivity and the bounded Catalogados query.
-func Run(cfg Config, out io.Writer) (err error) {
+// Run verifies the control handshake before the SDK connection and bounded Catalogados query.
+func Run(cfg Config, out io.Writer) error {
 	if cfg.Host == "" || cfg.Port == "" || cfg.User == "" || cfg.Password == "" || out == nil {
 		return errors.New("configuration: unavailable")
 	}
+	return runDiagnostic(cfg, out, controlHandshake, runSDKProof)
+}
+
+type diagnosticStep func(Config, io.Writer) error
+
+func runDiagnostic(cfg Config, out io.Writer, control, sdk diagnosticStep) error {
+	if err := control(cfg, out); err != nil {
+		return safeError("control_handshake")
+	}
+	if err := sdk(cfg, out); err != nil {
+		stage := "proof"
+		var failure sdkFailure
+		if errors.As(err, &failure) {
+			stage = string(failure)
+		}
+		fmt.Fprintf(out, "sdk: failure classification=%s\n", stage)
+		if stage == "connect" {
+			fmt.Fprintln(out, "diagnostic: control_handshake=success sdk_connect=failed conclusion=unofficial_sdk_path_failed_after_control_success")
+		}
+		return safeError("sdk")
+	}
+	return nil
+}
+
+type sdkFailure string
+
+func (s sdkFailure) Error() string { return "SDK proof unavailable" }
+
+func runSDKProof(cfg Config, out io.Writer) (err error) {
 	server := daemonServer(cfg)
 	job := mapepire.NewSQLJob("nexus-spike-direct")
 	connected := false
 	defer func() {
 		if connected {
 			if closeErr := job.Close(); closeErr != nil && err == nil {
-				err = safeError("shutdown")
+				err = sdkFailure("cleanup")
 			}
 		}
 	}()
 
 	started := time.Now()
 	if err = job.Connect(server); err != nil {
-		return safeError("connect")
+		return sdkFailure("connect")
 	}
 	connected = true
-	fmt.Fprintf(out, "connect: success tls=certificate-verification-disabled elapsed_ms=%d\n", time.Since(started).Milliseconds())
+	fmt.Fprintf(out, "sdk: success tls=certificate-verification-disabled elapsed_ms=%d\n", time.Since(started).Milliseconds())
 	started = time.Now()
 	if err = executeAndValidate(job, "VALUES 1", nil, 1, validateValues); err != nil {
-		return safeError("values")
+		return sdkFailure("values")
 	}
 	fmt.Fprintf(out, "values: success elapsed_ms=%d\n", time.Since(started).Milliseconds())
 
@@ -55,11 +84,11 @@ func Run(cfg Config, out io.Writer) (err error) {
 	started = time.Now()
 	query, queryErr := job.QueryWithOptions(statement, queryOptions(bindings, limit))
 	if queryErr != nil {
-		return safeError("catalogados")
+		return sdkFailure("catalogados")
 	}
 	response, queryErr := query.Execute()
 	if queryErr != nil || validateCatalog(response, len(bindings)) != nil {
-		return safeError("catalogados")
+		return sdkFailure("catalogados")
 	}
 	fmt.Fprintf(out, "catalogados: success parameters=%d elapsed_ms=%d\n", response.ParameterCount, time.Since(started).Milliseconds())
 	return nil
